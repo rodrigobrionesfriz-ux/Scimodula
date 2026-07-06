@@ -1320,7 +1320,10 @@ function ipRenderLista(){
         '<div><span style="color:#888">🐝 Poliniz.:</span> <strong style="color:#e9730c">'+s.countPoliniz+'</strong></div>'+
         '<div><span style="color:#888">Total:</span> <strong>'+(s.total||(s.countPrincipal+s.countPoliniz))+'</strong></div>'+
       '</div>'+
-      (tieneGps?'<div style="margin-top:8px"><button onclick="event.stopPropagation();ipAbrirMapaPunto('+s.gpsInicio.lat+','+s.gpsInicio.lng+')" style="padding:8px 12px;background:#f0f7ff;color:#0854a0;border:1px solid #bcd9f5;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;margin-right:6px">📍 Ubicación</button></div>':'<div style="margin-top:8px;font-size:12px;color:#aaa">📍 Sin georreferencia</div>')+
+      '<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">'+
+        (tieneGps?'<button onclick="event.stopPropagation();ipAbrirMapaPunto('+s.gpsInicio.lat+','+s.gpsInicio.lng+')" style="padding:8px 12px;background:#f0f7ff;color:#0854a0;border:1px solid #bcd9f5;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer">📍 Ubicación</button>':'<span style="font-size:12px;color:#aaa;align-self:center">📍 Sin georreferencia</span>')+
+        (can('invplantas.editar')?'<button onclick="event.stopPropagation();ipMarcarGpsMapa(\''+s.id+'\')" style="padding:8px 12px;background:#eefaf0;color:#1a7e3e;border:1px solid #bfe3c8;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer">🎯 Marcar GPS en mapa</button>':'')+
+      '</div>'+
       '<div style="display:flex;gap:8px;margin-top:12px">'+
         (can('invplantas.revisar')||can('invplantas.editar')?'<button onclick="event.stopPropagation();ipVerMapa(\''+s.id+'\')" style="flex:1;padding:11px;background:#0a6ed1;color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">🗺️ Ver mapa 2D</button>':'')+
         (can('invplantas.editar')?'<button onclick="event.stopPropagation();ipEditarRegistro(\''+s.id+'\')" style="padding:11px 15px;background:#fff;color:#0854a0;border:2px solid #bcd9f5;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">✏️</button>':'')+
@@ -1341,6 +1344,86 @@ function ipRenderLista(){
   return html;
 }
 
+/* ── Marcar georreferencia real de una hilera tocando un mapa satelital ──
+   Usa Leaflet + imagen satelital Esri (gratuito, sin API key). */
+var _ipLeafletCargado = false;
+function _ipCargarLeaflet(cb){
+  if(_ipLeafletCargado && window.L){ cb(); return; }
+  var css=document.createElement('link'); css.rel='stylesheet';
+  css.href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+  document.head.appendChild(css);
+  var js=document.createElement('script');
+  js.src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+  js.onload=function(){ _ipLeafletCargado=true; cb(); };
+  js.onerror=function(){ toast('Sin conexión','No se pudo cargar el mapa (requiere internet)','error'); };
+  document.head.appendChild(js);
+}
+var _ipGpsPick = null; // {reg, mIni, mFin, modo}
+function ipMarcarGpsMapa(id){
+  var r=(STATE.cache.invplantas||[]).find(function(x){ return String(x.id)===String(id); });
+  if(!r){ toast('Error','Hilera no encontrada','error'); return; }
+  _ipCargarLeaflet(function(){
+    var prev=document.getElementById('ip-gpsmap-modal'); if(prev) prev.remove();
+    var m=document.createElement('div');
+    m.id='ip-gpsmap-modal';
+    m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:10005;display:flex;flex-direction:column';
+    m.innerHTML=
+      '<div style="background:#354a5f;color:#fff;padding:10px 14px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">'+
+        '<div><div style="font-weight:800">🎯 '+escapeHtml(r.codigoBase||'Hilera')+'</div>'+
+        '<div id="ip-gpsmap-hint" style="font-size:12px;opacity:.9">Toque el mapa para marcar el INICIO (sur)</div></div>'+
+        '<div style="display:flex;gap:6px">'+
+          '<button id="ip-gpsmap-modo" onclick="ipGpsPickModo()" style="background:rgba(255,255,255,.2);border:none;color:#fff;font-weight:700;padding:8px 12px;border-radius:8px;cursor:pointer">Marcando: INICIO</button>'+
+          '<button onclick="ipGpsPickGuardar()" style="background:#1a7e3e;border:none;color:#fff;font-weight:700;padding:8px 14px;border-radius:8px;cursor:pointer">💾 Guardar</button>'+
+          '<button onclick="document.getElementById(\'ip-gpsmap-modal\').remove()" style="background:rgba(255,255,255,.25);border:none;color:#fff;font-size:20px;width:38px;border-radius:8px;cursor:pointer">×</button>'+
+        '</div>'+
+      '</div>'+
+      '<div id="ip-gpsmap" style="flex:1"></div>';
+    document.body.appendChild(m);
+    // Centro: gps existente, u otra hilera del cuartel, o Angol
+    var c = (r.gpsInicio) || (function(){
+      var o=(STATE.cache.invplantas||[]).find(function(x){ return x.cuartel===r.cuartel && x.gpsInicio; });
+      return o ? o.gpsInicio : {lat:-37.795, lng:-72.716};
+    })();
+    var map=L.map('ip-gpsmap').setView([c.lat,c.lng], r.gpsInicio?19:16);
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+      {maxZoom:19, attribution:'Esri World Imagery'}).addTo(map);
+    _ipGpsPick={reg:r, map:map, mIni:null, mFin:null, modo:'inicio'};
+    function poner(tipo, lat, lng){
+      var col = tipo==='inicio' ? '#1a7e3e' : '#c0392b';
+      var mk = L.circleMarker([lat,lng],{radius:9,color:'#fff',weight:2,fillColor:col,fillOpacity:1}).addTo(map)
+        .bindTooltip(tipo==='inicio'?'▶ Inicio (sur)':'■ Fin (norte)',{permanent:true,direction:'top'});
+      if(tipo==='inicio'){ if(_ipGpsPick.mIni) map.removeLayer(_ipGpsPick.mIni); _ipGpsPick.mIni=mk; }
+      else { if(_ipGpsPick.mFin) map.removeLayer(_ipGpsPick.mFin); _ipGpsPick.mFin=mk; }
+    }
+    if(r.gpsInicio) poner('inicio', r.gpsInicio.lat, r.gpsInicio.lng);
+    if(r.gpsFin) poner('fin', r.gpsFin.lat, r.gpsFin.lng);
+    map.on('click', function(ev){
+      poner(_ipGpsPick.modo, ev.latlng.lat, ev.latlng.lng);
+      // pasar automáticamente a FIN tras marcar inicio
+      if(_ipGpsPick.modo==='inicio'){ ipGpsPickModo('fin'); }
+    });
+  });
+}
+function ipGpsPickModo(forzar){
+  if(!_ipGpsPick) return;
+  _ipGpsPick.modo = forzar || (_ipGpsPick.modo==='inicio' ? 'fin' : 'inicio');
+  var b=document.getElementById('ip-gpsmap-modo'); var h=document.getElementById('ip-gpsmap-hint');
+  if(b) b.textContent='Marcando: '+(_ipGpsPick.modo==='inicio'?'INICIO':'FIN');
+  if(h) h.textContent='Toque el mapa para marcar el '+(_ipGpsPick.modo==='inicio'?'INICIO (sur)':'FIN (norte)');
+}
+async function ipGpsPickGuardar(){
+  if(!_ipGpsPick) return;
+  var r=_ipGpsPick.reg;
+  if(_ipGpsPick.mIni){ var a=_ipGpsPick.mIni.getLatLng(); r.gpsInicio={lat:a.lat,lng:a.lng}; }
+  if(_ipGpsPick.mFin){ var b=_ipGpsPick.mFin.getLatLng(); r.gpsFin={lat:b.lat,lng:b.lng}; }
+  r.sincronizado=false;
+  try{ await dbPut('invplantas', r); STATE.cache.invplantas=await dbAll('invplantas'); }catch(e){}
+  document.getElementById('ip-gpsmap-modal').remove();
+  _ipGpsPick=null;
+  toast('Guardado','Georreferencia actualizada','success');
+  ipRender(document.getElementById('mainContent'));
+}
+try{ window.ipMarcarGpsMapa=ipMarcarGpsMapa; window.ipGpsPickModo=ipGpsPickModo; window.ipGpsPickGuardar=ipGpsPickGuardar; }catch(e){}
 function ipAbrirMapaPunto(lat,lng){ window.open('https://www.google.com/maps/search/?api=1&query='+lat+','+lng, '_blank'); }
 
 // ═══════════ MAPA GENERAL DEL CUARTEL (ventana emergente) ═══════════
