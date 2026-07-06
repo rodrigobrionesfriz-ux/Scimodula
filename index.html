@@ -13,6 +13,18 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js" onerror="window._fbFsErr=true"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js" onerror="window._fbAuthErr=true"></script>
 <script>
+/* Diagnóstico: muestra errores de carga en la pantalla de login */
+window.addEventListener('error', function(ev){
+  try{
+    var el=document.getElementById('loginError');
+    if(el && !document.getElementById('app').classList.contains('show')){
+      el.textContent='Error de carga: '+(ev.message||'desconocido')+(ev.filename?(' — '+ev.filename.split('/').pop()+':'+ev.lineno):'');
+      el.classList.add('show');
+    }
+  }catch(e){}
+});
+</script>
+<script>
 /* ── Contador de operaciones Firebase (visible solo para admin) ── */
 var FBCOUNT = (function(){
   var k='SCI_FB_COUNT'; var c;
