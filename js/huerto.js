@@ -730,7 +730,7 @@ var IP_ESTADOS = {
 function ipColorPoliniz(nombre){
   var n = String(nombre||'').toLowerCase();
   if(n.indexOf('skeena')>=0) return '#d32f2f'; // rojo
-  if(n.indexOf('kordia')>=0) return '#1565c0'; // azul
+  if(n.indexOf('kordia')>=0) return '#4fc3f7'; // celeste
   return '#e9730c'; // otros: naranja
 }
 
@@ -1561,7 +1561,7 @@ function ipImprimirDetallePoliniz(){
     '<div class="sub">Sociedad Agrícola y Forestal La Cabaña · Inventario de Huerto<br>'+
       'Generado: '+fecha+(usuario?(' · por '+escapeHtml(usuario)):'')+'</div>'+
     contenido+
-    '<div style="margin-top:24px;font-size:12px;color:#6b7280;border-top:1px solid #ddd;padding-top:10px">Los números corresponden a la posición de la planta dentro de cada hilera. Skeena en rojo, Kordia en azul.</div>'+
+    '<div style="margin-top:24px;font-size:12px;color:#6b7280;border-top:1px solid #ddd;padding-top:10px">Los números corresponden a la posición de la planta dentro de cada hilera. Skeena en rojo, Kordia en celeste.</div>'+
     '<scr'+'ipt>window.onload=function(){window.print();}<\/scr'+'ipt>'+
     '</body></html>'
   );
@@ -1774,7 +1774,7 @@ function ipMostrarMapaGeneral(){
   body += '<div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:16px;background:#fff;border:1px solid #e3e8ee;padding:10px 14px;border-radius:8px">'+
     Object.keys(IP_ESTADOS).map(function(k){var e=IP_ESTADOS[k];return '<span style="display:inline-flex;align-items:center;gap:5px;color:#3a4a5a;font-size:12px"><span style="width:12px;height:12px;border-radius:50%;background:'+e.color+';border:1px solid #999;display:inline-block"></span>'+e.label+'</span>';}).join('')+
     '<span style="display:inline-flex;align-items:center;gap:5px;color:#3a4a5a;font-size:12px"><span style="width:12px;height:12px;border-radius:50%;background:#d32f2f;border:1px solid #000;display:inline-block"></span>🐝 Skeena</span>'+
-    '<span style="display:inline-flex;align-items:center;gap:5px;color:#3a4a5a;font-size:12px"><span style="width:12px;height:12px;border-radius:50%;background:#1565c0;border:1px solid #000;display:inline-block"></span>🐝 Kordia</span>'+
+    '<span style="display:inline-flex;align-items:center;gap:5px;color:#3a4a5a;font-size:12px"><span style="width:12px;height:12px;border-radius:50%;background:#4fc3f7;border:1px solid #000;display:inline-block"></span>🐝 Kordia</span>'+
     '<span style="color:#7a8794;font-size:12px;margin-left:auto">Toque una hilera para ver su ubicación en Google Maps</span>'+
   '</div>';
 
@@ -1870,7 +1870,17 @@ function ipRenderCuartelSVG(cuartel, hileras){
   svg += '</svg>';
 
   return '<div style="margin-bottom:22px">'+
-    '<div style="color:#23303d;font-size:16px;font-weight:800;margin-bottom:8px">📍 '+escapeHtml(cuartel)+' <span style="font-size:12px;font-weight:400;opacity:.7">— '+hileras.length+' hileras</span></div>'+
+    (function(){
+      // Estado general del cuartel: % de plantas sanas → color del chip
+      var tot=0, sanas=0;
+      hileras.forEach(function(h){ (h.plantas||[]).forEach(function(p){ if(!p) return; tot++; if((p.estado||'sano')==='sano') sanas++; }); });
+      var pct = tot>0 ? Math.round(sanas*100/tot) : 0;
+      var col = pct>=90 ? '#1a7e3e' : (pct>=75 ? '#7cb342' : (pct>=60 ? '#f1c40f' : (pct>=40 ? '#e9730c' : '#c0392b')));
+      return '<div style="color:#23303d;font-size:16px;font-weight:800;margin-bottom:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">📍 '+escapeHtml(cuartel)+
+        '<span style="font-size:12px;font-weight:400;opacity:.7">— '+hileras.length+' hileras</span>'+
+        '<span style="font-size:11px;font-weight:800;color:#fff;background:'+col+';border-radius:10px;padding:2px 10px">'+pct+'% sano · '+tot+' plantas</span>'+
+      '</div>';
+    })()+
     '<div style="background:#fff;border:1px solid #e3e8ee;border-radius:10px;padding:12px;overflow:auto">'+
       '<div style="display:flex;justify-content:space-between;font-size:11px;font-weight:700;color:#7a8794;margin-bottom:4px;padding:0 4px"><span>← SUR (planta 1)</span><span>NORTE →</span></div>'+
       '<div class="ip-map-svg-wrap" style="width:100%;margin:0 auto">'+svg+'</div>'+
