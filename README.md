@@ -1,2 +1,2 @@
-# Scimodula
-Scimodulsr
+# Scimodular
+Scimodular
