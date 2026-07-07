@@ -1047,3 +1047,30 @@ label.cc-lbl{display:block;font-size:11px;font-weight:700;text-transform:upperca
 }
 #cc-pm.cc-show{display:block}
 
+
+/* ═══ Ajuste automático a pantallas móviles (global) ═══ */
+@media(max-width:640px){
+  html{ -webkit-text-size-adjust:100%; }
+  body{ overflow-x:hidden; }
+  /* Tablas: nunca desbordan la pantalla, scroll horizontal propio */
+  .table-wrap, .card, .ip-card{ max-width:100%; }
+  table{ display:block; overflow-x:auto; white-space:nowrap; -webkit-overflow-scrolling:touch; }
+  table thead, table tbody, table tr{ display:table; width:100%; table-layout:auto; }
+  /* Modales al ancho completo con margen mínimo */
+  .modal, .modal-content, [id$="-modal"] > div{ max-width:96vw !important; }
+  /* Formularios: inputs cómodos y sin zoom automático en iOS */
+  input, select, textarea, button{ font-size:16px; }
+  .form-grid, .grid-2, .grid-3{ grid-template-columns:1fr !important; }
+  /* Tarjetas de estadísticas apiladas */
+  .stats-grid, .stat-cards{ grid-template-columns:1fr 1fr !important; }
+  /* SVG y contenido gráfico fluido */
+  svg, img, canvas{ max-width:100%; height:auto; }
+  /* Botones de acción: área táctil mínima 44px */
+  .btn{ min-height:42px; }
+  /* Encabezados de página más compactos */
+  .page-title{ font-size:19px; }
+}
+@media(max-width:400px){
+  .stats-grid, .stat-cards{ grid-template-columns:1fr !important; }
+}
+
