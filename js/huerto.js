@@ -1817,14 +1817,14 @@ function ipMostrarMapaGeneral(){
       '<div style="font-size:14px;font-weight:800;color:#23303d">📊 Resumen de plantas por estado</div>'+
       '<div style="font-size:13px;color:#3a4a5a">Total: <strong style="color:#23303d;font-size:15px">'+totalPlantas.toLocaleString('es-CL')+'</strong> plantas</div>'+
     '</div>'+
-    '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">'+
+    '<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;width:100%;max-width:100%">'+
       Object.keys(IP_ESTADOS).map(function(k){
         var e = IP_ESTADOS[k];
         var n = conteoEstados[k]||0;
         var pct = totalPlantas>0 ? Math.round((n/totalPlantas)*1000)/10 : 0;
         var clickable = n>0;
         var handler = clickable ? ('onclick="ipDetalleEstado(\''+k+'\')" ontouchend="event.preventDefault();ipDetalleEstado(\''+k+'\')" ') : '';
-        return '<div '+handler+'style="background:#f8fafb;border:1px solid #e3e8ee;border-left:4px solid '+e.color+';border-radius:8px;padding:10px 12px'+(clickable?';cursor:pointer;-webkit-tap-highlight-color:rgba(21,101,192,.2)':'')+'">'+
+        return '<div '+handler+'style="min-width:0;overflow:hidden;background:#f8fafb;border:1px solid #e3e8ee;border-left:4px solid '+e.color+';border-radius:8px;padding:10px 12px'+(clickable?';cursor:pointer;-webkit-tap-highlight-color:rgba(21,101,192,.2)':'')+'">'+
           '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">'+
             '<span style="width:11px;height:11px;border-radius:50%;background:'+e.color+';border:1px solid #999;display:inline-block"></span>'+
             '<span style="font-size:12px;color:#3a4a5a;font-weight:600">'+e.label+'</span>'+
@@ -1840,7 +1840,7 @@ function ipMostrarMapaGeneral(){
         var chips = Object.keys(conteoPoliniz).sort().map(function(v){
           return '<span style="display:inline-flex;align-items:center;gap:3px;margin-right:6px"><span style="width:9px;height:9px;border-radius:50%;background:'+ipColorPoliniz(v)+';display:inline-block"></span>'+escapeHtml(v)+': '+conteoPoliniz[v]+'</span>';
         }).join('');
-        return '<div '+handler+'style="background:#fff7ef;border:1px solid #e3e8ee;border-left:4px solid #e9730c;border-radius:8px;padding:10px 12px'+(clickable?';cursor:pointer;-webkit-tap-highlight-color:rgba(21,101,192,.2)':'')+'">'+
+        return '<div '+handler+'style="min-width:0;overflow:hidden;background:#fff7ef;border:1px solid #e3e8ee;border-left:4px solid #e9730c;border-radius:8px;padding:10px 12px'+(clickable?';cursor:pointer;-webkit-tap-highlight-color:rgba(21,101,192,.2)':'')+'">'+
           '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">'+
             '<span style="font-size:12px">🐝</span>'+
             '<span style="font-size:12px;color:#3a4a5a;font-weight:600">Polinizantes</span>'+
