@@ -4492,7 +4492,7 @@ function cfCargarDetalle(ordenId){
       '</div>'+
       '<div class="cc-g3" style="margin-bottom:14px">'+
         '<div class="cc-field"><label class="cc-lbl">Operador *</label><input type="text" id="cc-cf-op" placeholder="Nombre del aplicador"></div>'+
-        '<div class="cc-field"><label class="cc-lbl">Equipo usado</label><input type="text" id="cc-cf-eq" placeholder="Pulverizador, atomizador..."></div>'+
+        '<div class="cc-field"><label class="cc-lbl">Equipo usado</label><select id="cc-cf-eq"><option value="">— Seleccione —</option>'+(S.equipos||[]).map(function(e){ return '<option value="'+escapeHtml(e.nombre)+'">'+escapeHtml(e.nombre)+(e.capacidad>0?' ('+e.capacidad+' L)':'')+'</option>'; }).join('')+'</select></div>'+
         '<div class="cc-field"><label class="cc-lbl">Turno</label>'+
           '<select id="cc-cf-turno">'+
             '<option value="Mañana"'+(turnoSug==='Mañana'?' selected':'')+'>Mañana</option>'+
@@ -6562,3 +6562,4 @@ function initApp(){
     }
   });
 }
+
