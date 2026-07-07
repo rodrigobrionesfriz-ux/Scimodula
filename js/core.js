@@ -834,9 +834,13 @@ async function doLogin(){
       try{
         const check=await detectarInconsistenciaStock();
         if(!check.ok&&check.diferencias.length>0){
-          // Mostrar alerta no bloqueante
+          // Mostrar alerta no bloqueante con el detalle del primer producto afectado
           const total=check.diferencias.length;
-          toast('⚠ Inconsistencia detectada en stock',`${total} producto(s) con saldo distinto al esperado. Ve a Configuración → Recalcular stock.`,'warning');
+          const d0=check.diferencias[0];
+          let nom='';
+          try{ const cod=String(d0.key).split('|')[0]; const p=getProduct(cod); nom=p?(p.descripcion||cod):cod; }catch(e){}
+          const detalle=nom?` Ej: ${nom} (actual ${d0.cantActual}, esperado ${d0.cantEsperada}).`:'';
+          toast('⚠ Inconsistencia detectada en stock',`${total} producto(s) con saldo distinto al esperado.${detalle} Ve a Configuración → Recalcular stock.`,'warning');
           console.warn('Inconsistencias de stock:',check.diferencias);
         }
       }catch(e){console.error('Error verificando consistencia:',e)}
