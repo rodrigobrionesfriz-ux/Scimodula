@@ -239,17 +239,19 @@ async function recalcularStock(){
     async()=>{
       closeModal();
       showLoading('Recalculando stock... Esto puede tomar unos segundos.');
+      // Seguridad: nunca dejar el overlay bloqueando más de 60s
+      const _guard=setTimeout(()=>{ try{ hideLoading(); }catch(e){} }, 60000);
       try{
         const resultado=await _ejecutarRecalculoStock();
-        hideLoading();
         toast('Stock recalculado',`${resultado.movProcesados} movimientos procesados, ${resultado.stockEntries} saldos actualizados`);
         await audit('mantenimiento.recalcularStock',`Recálculo manual: ${resultado.movProcesados} movimientos vigentes`,STATE.user.id);
-        // Re-render
         if(STATE.page==='config')renderConfig(document.getElementById('mainContent'));
       }catch(e){
-        hideLoading();
         toast('Error',e.message,'error');
         console.error('Error recalculando stock:',e);
+      }finally{
+        clearTimeout(_guard);
+        hideLoading();
       }
     },'Sí, recalcular');
 }
@@ -5488,8 +5490,9 @@ async function saveEmpresaForm(){
     try { await audit('config.empresa.update', 'Datos de empresa actualizados'); } catch(e){}
     toast('Guardado', 'Datos de empresa actualizados correctamente', 'success');
     modal.remove();
-    // Recargar la pestaña de configuración
-    if(typeof renderConfig === 'function'){ renderConfig(); }
+    // Recargar la pestaña de configuración (necesita el contenedor principal)
+    const cont = document.getElementById('mainContent');
+    if(typeof renderConfig === 'function' && cont){ renderConfig(cont); }
   } catch(ex){
     setErr('Error al guardar: ' + ex.message);
   }
@@ -5970,4 +5973,5 @@ function confirmRestore(file){
       catch(e){hideLoading();toast('Error',e.message,'error')}
     },'Sí, restaurar',true);
 }
+
 
