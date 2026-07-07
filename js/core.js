@@ -187,7 +187,7 @@ var SCIFB = {
   applyingRemote: false,
   saveTimer: null,
   // Tablas que se sincronizan (todas las del SCI)
-  stores: ['users','products','warehouses','groups','productTypes','providers','customers','costCenters','inventoryCounts','movements','stock','lots','audit','config','mantenciones','conteos','estimaciones','invplantas']
+  stores: ['users','products','warehouses','groups','productTypes','providers','customers','costCenters','inventoryCounts','movements','stock','lots','config','mantenciones','conteos','estimaciones','invplantas']
 };
 
 function sciFbDocRef(){
@@ -468,6 +468,13 @@ async function sciFbPush(immediate){
         }
       }
       var payload = JSON.stringify(payloadObj);
+      // Guarda de tamaño: Firestore limita cada documento a ~1 MB. Si el payload
+      // se acerca, avisar (el guardado fallaría y no se sincronizaría nada).
+      if(payload.length > 950000){
+        try{ sciFbIndicator('error','Datos demasiado grandes para la nube'); }catch(e){}
+        try{ toast('⚠ Sincronización en riesgo','Los datos se acercan al límite de la nube (1 MB). Contacte al administrador para depurar registros antiguos.','warning'); }catch(e){}
+        console.warn('Payload SCI cercano al límite:', payload.length, 'bytes');
+      }
       var userName = '';
       try { if(STATE && STATE.user){ userName = STATE.user.nombre || STATE.user.id || ''; } }catch(e){}
       try{FBCOUNT.write();}catch(e){}
@@ -787,6 +794,16 @@ async function audit(accion,detalle,referencia=''){
     accion,detalle,referencia
   };
   await dbPut('audit',entry);
+  // Auto-purga: mantener solo los 300 registros más recientes (audit es local,
+  // no se sincroniza; evita que crezca sin control y sobrecargue IndexedDB).
+  try{
+    const all=await dbAll('audit');
+    if(all.length>350){
+      all.sort((a,b)=>(b.fecha||'').localeCompare(a.fecha||''));
+      const borrar=all.slice(300);
+      for(const r of borrar){ try{ await dbDelLocal('audit', r.id); }catch(e){} }
+    }
+  }catch(e){}
 }
 
 /* ═══════════════ TOAST ═══════════════ */
