@@ -1092,3 +1092,14 @@ html, body{ max-width:100%; overflow-x:hidden; }
   /* Cuaderno: barra de tabs desplazable, no desbordante */
   .cc-tabs, [class*="cc-tab"]{ max-width:100vw; overflow-x:auto; -webkit-overflow-scrolling:touch; }
 }
+
+/* ═══ Tarjetas dashboard: contenido nunca desborda su celda (móvil) ═══ */
+@media(max-width:640px){
+  .stats-grid{ width:100%; max-width:100%; }
+  .stat-card{ min-width:0; overflow:hidden; }
+  .stat-card *{ min-width:0; max-width:100%; overflow:hidden; text-overflow:ellipsis; }
+  .stat-value{ font-size:15px; white-space:nowrap; }
+  /* Grilla principal del dashboard (2 columnas paneles) a 1 columna */
+  .dash-grid, .dashboard-grid, .grid-main{ grid-template-columns:1fr !important; }
+  .card{ min-width:0; max-width:100%; }
+}
