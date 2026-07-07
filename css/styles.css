@@ -337,7 +337,7 @@ table.data .actions{white-space:nowrap;text-align:right}
 /* ─── Ajustes para móvil (teléfono) ─── */
 @media(max-width:640px){
   /* Tarjetas del dashboard: 2 de ancho (con 6 tarjetas = 2×3) y texto compacto */
-  .stats-grid{grid-template-columns:repeat(2,1fr)!important;gap:8px;margin-bottom:14px}
+  .stats-grid{grid-template-columns:repeat(3,1fr)!important;gap:6px;margin-bottom:14px}
   .stat-card{padding:10px 11px}
   .stat-card::before{height:2px}
   .stat-label{font-size:9px;letter-spacing:.3px;margin-bottom:3px;line-height:1.2}
@@ -1062,7 +1062,10 @@ label.cc-lbl{display:block;font-size:11px;font-weight:700;text-transform:upperca
   input, select, textarea, button{ font-size:16px; }
   .form-grid, .grid-2, .grid-3{ grid-template-columns:1fr !important; }
   /* Tarjetas de estadísticas apiladas */
-  .stats-grid, .stat-cards{ grid-template-columns:1fr 1fr !important; }
+  .stats-grid, .stat-cards{ grid-template-columns:repeat(3,1fr) !important; gap:6px; }
+  .stat-card{ padding:10px 8px; }
+  .stat-value{ font-size:17px; }
+  .stat-label{ font-size:10px; }
   /* SVG y contenido gráfico fluido */
   svg, img, canvas{ max-width:100%; height:auto; }
   /* Botones de acción: área táctil mínima 44px */
@@ -1071,6 +1074,6 @@ label.cc-lbl{display:block;font-size:11px;font-weight:700;text-transform:upperca
   .page-title{ font-size:19px; }
 }
 @media(max-width:400px){
-  .stats-grid, .stat-cards{ grid-template-columns:1fr !important; }
+  .stats-grid, .stat-cards{ grid-template-columns:repeat(3,1fr) !important; }
 }
 
