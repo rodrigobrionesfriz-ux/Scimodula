@@ -1,5 +1,5 @@
 /* SCI PWA — cache offline de los archivos de la app */
-const CACHE = 'sci-v1';
+const CACHE = 'sci-v2';
 const APP_FILES = [
   './',
   './index.html',
@@ -41,3 +41,4 @@ self.addEventListener('fetch', e => {
       .then(r => r || caches.match('./index.html')))
   );
 });
+
