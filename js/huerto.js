@@ -1772,7 +1772,7 @@ function ipMostrarMapaGeneral(){
 
   var modal=document.createElement('div');
   modal.id='ip-mapagen-modal';
-  modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10001;display:flex;flex-direction:column;padding:0';
+  modal.style.cssText='position:fixed;left:0;top:0;width:100vw;height:100dvh;background:rgba(0,0,0,.5);z-index:10001;display:flex;flex-direction:column;padding:0';
 
   var header='<div style="background:#354a5f;color:#fff;padding:10px 12px;display:flex;justify-content:space-between;align-items:center;flex-shrink:0;flex-wrap:wrap;gap:6px">'+
     '<div><div style="font-size:18px;font-weight:800">🗺️ Mapa general del huerto</div>'+
@@ -2422,4 +2422,3 @@ async function ipInsertarPlantaConfirm(idx, donde){
   ipRender();
   toast('Planta insertada', 'Se agregó una planta en la posición '+(insertAt+1)+' y se recorrió el resto.','success');
 }
-
