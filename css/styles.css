@@ -1077,5 +1077,6 @@ label.cc-lbl{display:block;font-size:11px;font-weight:700;text-transform:upperca
   .stats-grid, .stat-cards{ grid-template-columns:repeat(3,1fr) !important; }
 }
 
-/* La página nunca excede el ancho del dispositivo */
-html, body{ max-width:100%; overflow-x:clip; }
+/* La página no fuerza scroll global; el desborde lo maneja cada tabla/grilla */
+html, body{ max-width:100%; overflow-x:hidden; }
+.table-wrap, .card-scroll{ overflow-x:auto; -webkit-overflow-scrolling:touch; max-width:100%; }
