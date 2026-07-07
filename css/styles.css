@@ -1080,3 +1080,15 @@ label.cc-lbl{display:block;font-size:11px;font-weight:700;text-transform:upperca
 /* La página no fuerza scroll global; el desborde lo maneja cada tabla/grilla */
 html, body{ max-width:100%; overflow-x:hidden; }
 .table-wrap, .card-scroll{ overflow-x:auto; -webkit-overflow-scrolling:touch; max-width:100%; }
+
+/* ═══ Fix desborde horizontal móvil (headers y contenedores) ═══ */
+@media(max-width:880px){
+  #app{ width:100vw; max-width:100vw; overflow-x:hidden; }
+  .topbar{ min-width:0; max-width:100vw; overflow:hidden; }
+  .topbar-title{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #mainContent{ min-width:0; max-width:100vw; overflow-x:hidden; }
+  /* El chip de usuario no debe empujar la barra */
+  .user-chip, [id^="userChip"], .topbar > *{ min-width:0; flex-shrink:1; }
+  /* Cuaderno: barra de tabs desplazable, no desbordante */
+  .cc-tabs, [class*="cc-tab"]{ max-width:100vw; overflow-x:auto; -webkit-overflow-scrolling:touch; }
+}
