@@ -745,30 +745,13 @@ function renderDashboard(c){
 
     ${_cuHtml}
 
-    <div class="stats-grid">
-      <div class="stat-card">
-        <div class="stat-label">Productos</div>
-        <div class="stat-value">${totalProd}</div>
-        <div class="stat-sub">en catálogo</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Bodegas</div>
-        <div class="stat-value">${totalBod}</div>
-        <div class="stat-sub">activas</div>
-      </div>
-      <div class="stat-card gold">
+    <div class="stats-grid dash3">
+      <div class="stat-card gold dash-wide">
         <div class="stat-label">Valor inventario</div>
-        <div class="stat-value">${fmtMon(valorInv)}</div>
-        <div class="stat-sub">inventariables · a costo PPP</div>
-        <div style="margin-top:6px;padding-top:6px;border-top:1px solid rgba(0,0,0,.08)">
-          <div class="stat-label">Servicios</div>
-          <div style="font-size:16px;font-weight:800">${fmtMon(valorServ)}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px 22px;align-items:baseline">
+          <div><span class="stat-value">${fmtMon(valorInv)}</span> <span class="stat-sub">inventariables · costo PPP</span></div>
+          <div><span class="stat-label">Servicios</span> <span style="font-size:18px;font-weight:800">${fmtMon(valorServ)}</span></div>
         </div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Movimientos</div>
-        <div class="stat-value">${totalMov}</div>
-        <div class="stat-sub">registrados</div>
       </div>
       <div class="stat-card amber" ${(new Set(lowStock.map(s=>s.codigoInterno)).size)>0?'onclick="verStockBajo()" style="cursor:pointer"':''}>
         <div class="stat-label">Stock bajo ${(new Set(lowStock.map(s=>s.codigoInterno)).size)>0?'<span style="font-size:11px;color:#0a6ed1">› ver</span>':''}</div>
@@ -5987,5 +5970,4 @@ function confirmRestore(file){
       catch(e){hideLoading();toast('Error',e.message,'error')}
     },'Sí, restaurar',true);
 }
-
 
