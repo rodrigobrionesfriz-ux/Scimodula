@@ -4117,7 +4117,92 @@ let movDraft={lineas:[],tipo:'ENT',editId:null};
 /* ═══════════════ SALIDAS: selector normal vs combustible ═══════════════ */
 const CB_EQUIPOS=['Tractor 1','Tractor 2','Camioneta adm.','Torre Control Helada 1','Torre Control Helada 2','Maq. Auxiliares','Otro (especificar)'];
 
+/* ═══════════════ REPORTE: rendimiento de combustible (solo admin) ═══════════════ */
+function renderReporteCombustible(c){
+  if(STATE.user.role!=='admin'){ c.innerHTML='<div class="empty-state">Solo disponible para administrador.</div>'; return; }
+  const regs=[...(STATE.cache.combustible||[])].sort((a,b)=>new Date(a.fecha)-new Date(b.fecha));
+  // Agrupar por equipo
+  const porEquipo={};
+  regs.forEach(r=>{ (porEquipo[r.equipo]=porEquipo[r.equipo]||[]).push(r); });
+
+  let bloques='';
+  Object.keys(porEquipo).sort().forEach(eq=>{
+    const lista=porEquipo[eq];
+    let filas=''; let totalLitros=0, totalRecorrido=0;
+    for(let i=0;i<lista.length;i++){
+      const r=lista[i];
+      totalLitros+=(r.cantidad||0);
+      let rend='—', recorrido='—';
+      // Rendimiento entre esta carga y la anterior (con km válido)
+      if(i>0){
+        const prev=lista[i-1];
+        const dif=(r.km||0)-(prev.km||0);
+        if(dif>0 && (prev.cantidad||0)>0){
+          recorrido=fmtNum(dif,1);
+          // rendimiento = distancia u horas recorridas / litros de la carga ANTERIOR
+          rend=fmtNum(dif/(prev.cantidad||1),2);
+          totalRecorrido+=dif;
+        }
+      }
+      filas+=`<tr>
+        <td>${new Date(r.fecha).toLocaleDateString('es-CL')}</td>
+        <td class="num">${fmtNum(r.km||0,1)}</td>
+        <td class="num">${recorrido}</td>
+        <td class="num">${fmtNum(r.cantidad||0,2)}</td>
+        <td class="num"><strong>${rend}</strong></td>
+        <td>${escapeHtml(r.usuario||'')}</td>
+        <td>${escapeHtml(r.centroCosto||'')}</td>
+      </tr>`;
+    }
+    const rendProm = totalLitros>0 ? (totalRecorrido/totalLitros) : 0;
+    bloques+=`<div class="card" style="margin-bottom:16px">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px">
+        <div style="font-weight:800;font-size:16px">🚜 ${escapeHtml(eq)}</div>
+        <div style="font-size:13px;color:var(--mu)">
+          ${lista.length} carga(s) · ${fmtNum(totalLitros,1)} L total
+          ${totalRecorrido>0?` · Rend. prom: <strong style="color:var(--gd)">${fmtNum(rendProm,2)}</strong> por litro`:''}
+        </div>
+      </div>
+      <div class="table-wrap"><table class="data" style="width:100%">
+        <thead><tr><th>Fecha</th><th class="num">Km/Hr</th><th class="num">Recorrido</th><th class="num">Litros</th><th class="num">Rend/L</th><th>Operador</th><th>C.Costo</th></tr></thead>
+        <tbody>${filas}</tbody>
+      </table></div>
+    </div>`;
+  });
+  if(!bloques) bloques='<div class="empty-state">Aún no hay registros de combustible.</div>';
+
+  c.innerHTML=`
+    <div class="page-header"><div><div class="page-title">⛽ Rendimiento de combustible</div>
+      <div class="page-subtitle">Consumo y rendimiento por equipo entre cargas</div></div>
+      <button class="btn btn-secondary" onclick="exportarReporteCombustible()">📥 Exportar Excel</button></div>
+    <div class="hint" style="margin-bottom:14px">El <strong>rendimiento</strong> es el recorrido (km u horas) logrado por cada litro de la carga anterior. Requiere al menos 2 cargas con horómetro para calcularse.</div>
+    ${bloques}`;
+}
+function exportarReporteCombustible(){
+  const regs=[...(STATE.cache.combustible||[])].sort((a,b)=>a.equipo.localeCompare(b.equipo)||new Date(a.fecha)-new Date(b.fecha));
+  const rows=[['Equipo','Fecha','Km/Horometro','Recorrido','Litros','Rend/L','Operador','Producto','Centro Costo','N Movimiento']];
+  const porEquipo={};
+  regs.forEach(r=>{ (porEquipo[r.equipo]=porEquipo[r.equipo]||[]).push(r); });
+  Object.keys(porEquipo).forEach(eq=>{
+    const lista=porEquipo[eq];
+    lista.forEach((r,i)=>{
+      let recorrido='', rend='';
+      if(i>0){ const dif=(r.km||0)-(lista[i-1].km||0); if(dif>0&&(lista[i-1].cantidad||0)>0){ recorrido=dif; rend=(dif/(lista[i-1].cantidad||1)).toFixed(2); } }
+      rows.push([eq,new Date(r.fecha).toLocaleDateString('es-CL'),r.km||0,recorrido,r.cantidad||0,rend,r.usuario||'',r.producto||'',r.centroCosto||'',r.movNumero||'']);
+    });
+  });
+  const ws=XLSX.utils.aoa_to_sheet(rows);
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,ws,'Combustible');
+  XLSX.writeFile(wb,`Rendimiento_Combustible_${new Date().toISOString().slice(0,10)}.xlsx`);
+}
+try{ window.renderReporteCombustible=renderReporteCombustible; window.exportarReporteCombustible=exportarReporteCombustible; }catch(e){}
+
 function renderSelectorSalida(c){
+  // Si el usuario solo puede registrar combustible (no salidas normales), ir directo.
+  if(!can('movimientos.crear') && can('combustible.registrar')){
+    renderCombustibleForm(c); return;
+  }
   c.innerHTML=`
     <div class="page-header"><div><div class="page-title">Nueva Salida</div>
       <div class="page-subtitle">Elija el tipo de salida</div></div></div>
@@ -4167,7 +4252,8 @@ function renderCombustibleForm(c){
         <div class="form-field" id="cb-otro-wrap" style="display:none"><label>Especifique equipo</label>
           <input type="text" id="cb-otro" placeholder="Nombre del equipo"></div>
         <div class="form-field"><label>Kilometraje / Horómetro</label>
-          <input type="number" id="cb-km" step="0.1" min="0" placeholder="Ej: 1250.5"></div>
+          <input type="number" id="cb-km" step="0.1" min="0" placeholder="Ej: 1250.5">
+          <div class="hint" id="cb-km-hint" style="display:none;color:#0a6ed1"></div></div>
         <div class="form-field"><label>Usuario / Operador</label>
           <input type="text" id="cb-usuario" placeholder="Nombre de quien retira"></div>
         <div class="form-field"><label>Producto</label>
@@ -4194,10 +4280,22 @@ function cbToggleOtro(){
   const sel=document.getElementById('cb-equipo').value;
   const w=document.getElementById('cb-otro-wrap');
   if(w) w.style.display = sel==='Otro (especificar)' ? 'block' : 'none';
+  // Mostrar último horómetro/km registrado para el equipo elegido
+  const hint=document.getElementById('cb-km-hint');
+  if(hint){
+    const previos=(STATE.cache.combustible||[]).filter(r=>r.equipo===sel && (r.km||0)>0)
+      .sort((a,b)=>new Date(b.fecha)-new Date(a.fecha));
+    if(sel && sel!=='Otro (especificar)' && previos.length>0){
+      const u=previos[0];
+      hint.textContent=`Último registrado: ${u.km} (${new Date(u.fecha).toLocaleDateString('es-CL')})`;
+      hint.style.display='block';
+    } else { hint.style.display='none'; }
+  }
 }
 try{ window.renderCombustibleForm=renderCombustibleForm; window.cbToggleOtro=cbToggleOtro; }catch(e){}
 
 async function guardarCombustible(){
+  if(!can('combustible.registrar')){ toast('Sin permiso','No tiene permiso para registrar salidas de combustible','error'); return; }
   const err=document.getElementById('cb-error');
   const setErr=(m)=>{ err.textContent=m; err.classList.add('show'); };
   const fecha=document.getElementById('cb-fecha').value;
@@ -4219,6 +4317,16 @@ async function guardarCombustible(){
   if(!codigo) return setErr('Seleccione el producto.');
   if(cantidad<=0) return setErr('Ingrese una cantidad válida.');
   if(!centro) return setErr('Seleccione el centro de costo.');
+
+  // Validación de horómetro/kilometraje: no puede ser inferior al último del equipo.
+  const previos=(STATE.cache.combustible||[]).filter(r=>r.equipo===equipo && (r.km||0)>0)
+    .sort((a,b)=>new Date(b.fecha)-new Date(a.fecha));
+  if(km>0 && previos.length>0){
+    const ultimo=previos[0];
+    if(km < (ultimo.km||0)){
+      return setErr(`El horómetro/km (${km}) no puede ser inferior al último registrado para ${equipo}: ${ultimo.km} (${new Date(ultimo.fecha).toLocaleDateString('es-CL')}).`);
+    }
+  }
 
   const prod=getProduct(codigo);
   const stockTotal=getStockTotal(codigo);
@@ -5418,6 +5526,7 @@ function openUserForm(id=null){
         <option value="operador" ${u?.role==='operador'?'selected':''}>Operador</option>
         <option value="consulta" ${u?.role==='consulta'?'selected':''}>Consulta</option>
         <option value="opconteos" ${u?.role==='opconteos'?'selected':''}>OP. CONTEOS (terreno)</option>
+        <option value="opcombustible" ${u?.role==='opcombustible'?'selected':''}>OP. COMBUSTIBLE (salida petróleo)</option>
       </select></div>
       <div class="form-field"><label>Estado</label>
         <label style="display:flex;align-items:center;gap:10px;padding:9px 11px;background:var(--gs);border:1px solid var(--bo);border-radius:6px;cursor:pointer;font-size:13px;text-transform:none;letter-spacing:0;font-weight:400;color:var(--tx)">
