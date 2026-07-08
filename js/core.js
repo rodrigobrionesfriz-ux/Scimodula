@@ -600,6 +600,15 @@ function sciSeedHistory(){
 window.addEventListener('popstate', function(ev){
   // Sin sesión: no interferir con el comportamiento normal del navegador.
   if(!STATE || !STATE.user) return;
+  // Primero: si estamos en una sub-vista del Inventario de Huerto, dejar que
+  // ese módulo maneje el 'atrás' (volver a su inicio en vez de salir).
+  try{
+    if(typeof ipManejarAtras==='function' && ipManejarAtras()){
+      // Re-apilar para no perder el punto de retorno del módulo.
+      try{ history.pushState({sciPage:'invplantas'}, '', location.pathname+location.search+'#invplantas'); }catch(e){}
+      return;
+    }
+  }catch(e){}
   // Quitar la página actual de la pila.
   if(_sciNavStack.length > 1){
     _sciNavStack.pop();
