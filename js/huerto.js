@@ -702,6 +702,31 @@ window.addEventListener('offline', function(){ if(STATE.page==='conteos') cteRen
    - Mapa 2D con estado editable por árbol (sano/débil/muerto/replante)
    ═══════════════════════════════════════════════════════════════════ */
 var _ipVista = 'inicio';      // inicio | conteo | lista | mapa
+// Cambia la sub-vista del módulo y registra el paso en el historial del
+// navegador, para que el botón 'atrás' vuelva a la sub-vista previa (y no
+// salga de todo el módulo al dashboard).
+function ipSetVista(v, fromHistory){
+  _ipVista = v;
+  try{
+    if(!fromHistory && window.history){
+      history.pushState({sciPage:'invplantas', ipVista:v}, '', location.pathname+location.search+'#invplantas/'+v);
+    }
+  }catch(e){}
+  ipRender();
+}
+// Manejador del botón atrás cuando estamos dentro del huerto: si hay una
+// sub-vista abierta (no 'inicio'), vuelve al inicio del módulo en vez de salir.
+function ipManejarAtras(){
+  if(STATE.page!=='invplantas') return false;
+  if(_ipVista && _ipVista!=='inicio'){
+    // Cerrar sesión de conteo activa sin perder datos: solo volver a inicio.
+    _ipVista='inicio';
+    ipRender();
+    return true; // atrás consumido dentro del módulo
+  }
+  return false; // dejar que el atrás global maneje (salir del módulo)
+}
+try{ window.ipSetVista=ipSetVista; window.ipManejarAtras=ipManejarAtras; }catch(e){}
 var _ipSesion = null;         // hilera en conteo
 var _ipMapaReg = null;        // registro mostrado en el mapa
 
@@ -868,8 +893,7 @@ function ipIniciarHilera(){
   _ipVarFija=false; _ipPresetHilera=null; _ipPresetPorta=''; _ipPresetPoliniz='';
   // Capturar GPS de inicio
   _ipCapturarGps('inicio', function(){
-    _ipVista='conteo';
-    ipRender();
+    ipSetVista('conteo');
   });
 }
 
@@ -1123,7 +1147,7 @@ var _ipVarFija=false, _ipPresetHilera=null, _ipPresetPorta='', _ipPresetPoliniz=
 function ipCancelarHilera(){
   confirmDialog('Cancelar hilera','¿Descartar el conteo de esta hilera?',function(){ _ipSesion=null; _ipVista='inicio'; ipRender(); },'Descartar',true);
 }
-function ipVerLista(){ _ipVista='lista'; ipRender(); }
+function ipVerLista(){ ipSetVista('lista'); }
 function ipVolverInicio(){ _ipVarFija=false; _ipPresetHilera=null; _ipPresetPorta=''; _ipPresetPoliniz=''; _ipVista='inicio'; ipRender(); }
 
 
@@ -2219,8 +2243,7 @@ window.addEventListener('offline', function(){ if(STATE.page==='invplantas') ipR
 function ipVerMapa(id){
   _ipMapaReg = (STATE.cache.invplantas||[]).find(function(x){ return String(x.id)===String(id); });
   if(!_ipMapaReg){ toast('No encontrado','Registro no disponible','error'); return; }
-  _ipVista='mapa';
-  ipRender();
+  ipSetVista('mapa');
 }
 
 function ipRenderMapa(){
