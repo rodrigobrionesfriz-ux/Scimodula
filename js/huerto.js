@@ -1799,6 +1799,23 @@ async function ipGuardarPolinizMasivo(){
 }
 try{ window.ipEditarPolinizMasivo = ipEditarPolinizMasivo; window.ipGuardarPolinizMasivo = ipGuardarPolinizMasivo; }catch(e){}
 
+// Filtro visual del mapa general: lista de claves activas (estados y 'pol:VARIEDAD').
+// Vacío = mostrar todo. Las no seleccionadas se atenúan sin cambiar de posición.
+var _ipMapaGenFiltro = [];
+function ipToggleFiltroMapa(clave){
+  var i=_ipMapaGenFiltro.indexOf(clave);
+  if(i>=0) _ipMapaGenFiltro.splice(i,1); else _ipMapaGenFiltro.push(clave);
+  // Re-render del mapa manteniéndolo abierto
+  var mg=document.getElementById('ip-mapagen-modal');
+  if(mg){ mg.remove(); ipMostrarMapaGeneral(); }
+}
+function ipLimpiarFiltroMapa(){
+  _ipMapaGenFiltro=[];
+  var mg=document.getElementById('ip-mapagen-modal');
+  if(mg){ mg.remove(); ipMostrarMapaGeneral(); }
+}
+try{ window.ipToggleFiltroMapa=ipToggleFiltroMapa; window.ipLimpiarFiltroMapa=ipLimpiarFiltroMapa; }catch(e){}
+
 function ipMostrarMapaGeneral(){
   _ipMapZoom = 100; // reiniciar zoom al abrir
   var seleccionados = [];
@@ -1895,6 +1912,22 @@ function ipMostrarMapaGeneral(){
     '</div>'+
   '</div>';
 
+  // Barra de FILTROS: chips clicables para mostrar solo ciertos estados/variedades.
+  // Las plantas no seleccionadas se atenúan pero conservan su posición real.
+  var chip=function(clave,label,color){
+    var activo = _ipMapaGenFiltro.indexOf(clave)>=0;
+    return '<button onclick="ipToggleFiltroMapa(\''+clave+'\')" style="display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:700;border:2px solid '+(activo?color:'#e3e8ee')+';background:'+(activo?color:'#fff')+';color:'+(activo?'#fff':'#3a4a5a')+';border-radius:16px;padding:5px 12px;cursor:pointer">'+
+      '<span style="width:11px;height:11px;border-radius:50%;background:'+color+';border:1px solid rgba(0,0,0,.3);display:inline-block"></span>'+label+'</button>';
+  };
+  var hayFiltro = _ipMapaGenFiltro.length>0;
+  body += '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px;background:#f8fafb;border:1px solid #e3e8ee;padding:10px 14px;border-radius:8px">'+
+    '<span style="font-size:12px;font-weight:800;color:#23303d;margin-right:4px">🔍 Filtrar:</span>'+
+    Object.keys(IP_ESTADOS).map(function(k){return chip(k, IP_ESTADOS[k].label, IP_ESTADOS[k].color);}).join('')+
+    chip('pol:SKEENA','🐝 Skeena','#d32f2f')+
+    chip('pol:KORDIA','🐝 Kordia','#4fc3f7')+
+    (hayFiltro?'<button onclick="ipLimpiarFiltroMapa()" style="font-size:12px;font-weight:700;border:none;background:#eee;color:#666;border-radius:16px;padding:5px 12px;cursor:pointer;margin-left:auto">✕ Ver todo</button>':'')+
+  '</div>';
+
   // Leyenda de estados
   body += '<div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:16px;background:#fff;border:1px solid #e3e8ee;padding:10px 14px;border-radius:8px">'+
     Object.keys(IP_ESTADOS).map(function(k){var e=IP_ESTADOS[k];return '<span style="display:inline-flex;align-items:center;gap:5px;color:#3a4a5a;font-size:12px"><span style="width:12px;height:12px;border-radius:50%;background:'+e.color+';border:1px solid #999;display:inline-block"></span>'+e.label+'</span>';}).join('')+
@@ -1987,7 +2020,13 @@ function ipRenderCuartelSVG(cuartel, hileras){
       if(esInicio){ link='onclick="ipAbrirMapaPunto('+gpsIni.lat+','+gpsIni.lng+')"'; cursor='cursor:pointer'; stroke='#1565c0'; sw=3; extraTitle=' · 🟢 INICIO (toque para Google Maps)'; }
       else if(esFin){ link='onclick="ipAbrirMapaPunto('+gpsFin.lat+','+gpsFin.lng+')"'; cursor='cursor:pointer'; stroke='#1565c0'; sw=3; extraTitle=' · 🔴 FIN (toque para Google Maps)'; }
       var r = (esInicio||esFin) ? 8.5 : 7.5;
-      svg += '<circle cx="'+cx+'" cy="'+y+'" r="'+r+'" fill="'+fill+'" stroke="'+stroke+'" stroke-width="'+sw+'" '+link+' style="'+cursor+'"><title>'+escapeHtml(ipCodigoPlanta(h,p))+(esPoliniz?' · 🐝 '+escapeHtml(varPol||'Polinizante'):'')+' · '+(IP_ESTADOS[p.estado]?IP_ESTADOS[p.estado].label:'')+extraTitle+'</title></circle>';
+      // Filtro visual: si hay estados/variedades seleccionados, atenuar los no incluidos
+      var op = 1;
+      if(_ipMapaGenFiltro && _ipMapaGenFiltro.length>0){
+        var clave = esPoliniz ? ('pol:'+(varPol||'').toUpperCase()) : (p.estado||'sano');
+        if(_ipMapaGenFiltro.indexOf(clave)<0) op = 0.08;
+      }
+      svg += '<circle cx="'+cx+'" cy="'+y+'" r="'+r+'" fill="'+fill+'" stroke="'+stroke+'" stroke-width="'+sw+'" opacity="'+op+'" '+link+' style="'+cursor+'"><title>'+escapeHtml(ipCodigoPlanta(h,p))+(esPoliniz?' · 🐝 '+escapeHtml(varPol||'Polinizante'):'')+' · '+(IP_ESTADOS[p.estado]?IP_ESTADOS[p.estado].label:'')+extraTitle+'</title></circle>';
       if(esInicio){ svg += '<text x="'+cx+'" y="'+(y-11)+'" fill="#1565c0" font-size="8" font-weight="700" text-anchor="middle">▶</text>'; }
       else if(esFin){ svg += '<text x="'+cx+'" y="'+(y-11)+'" fill="#1565c0" font-size="8" font-weight="700" text-anchor="middle">■</text>'; }
     });
