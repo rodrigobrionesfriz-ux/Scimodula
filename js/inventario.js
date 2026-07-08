@@ -4114,6 +4114,155 @@ async function anularMovimiento(numero){
 /* ═══════════════ MOVIMIENTO FORM (ENTRADA / SALIDA) ═══════════════ */
 let movDraft={lineas:[],tipo:'ENT',editId:null};
 
+/* ═══════════════ SALIDAS: selector normal vs combustible ═══════════════ */
+const CB_EQUIPOS=['Tractor 1','Tractor 2','Camioneta adm.','Torre Control Helada 1','Torre Control Helada 2','Maq. Auxiliares','Otro (especificar)'];
+
+function renderSelectorSalida(c){
+  c.innerHTML=`
+    <div class="page-header"><div><div class="page-title">Nueva Salida</div>
+      <div class="page-subtitle">Elija el tipo de salida</div></div></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;max-width:640px">
+      <button class="card" onclick="renderMovimientoForm(document.getElementById('mainContent'),'SAL')"
+        style="cursor:pointer;text-align:left;padding:22px;border:2px solid var(--bo);border-radius:12px">
+        <div style="font-size:30px;margin-bottom:8px">📦</div>
+        <div style="font-weight:800;font-size:16px">Salida normal</div>
+        <div class="stat-sub">Productos de inventario general</div>
+      </button>
+      <button class="card" onclick="renderCombustibleForm(document.getElementById('mainContent'))"
+        style="cursor:pointer;text-align:left;padding:22px;border:2px solid #e9730c;border-radius:12px;background:#fff7ef">
+        <div style="font-size:30px;margin-bottom:8px">⛽</div>
+        <div style="font-weight:800;font-size:16px">Salida de combustible</div>
+        <div class="stat-sub">Gasolina / Diesel con equipo y horómetro</div>
+      </button>
+    </div>`;
+}
+try{ window.renderSelectorSalida=renderSelectorSalida; }catch(e){}
+
+let cbDraft={};
+function renderCombustibleForm(c){
+  const today=new Date().toISOString().slice(0,10);
+  // Solo productos combustibles (grupo/descripcion con gasolina o diesel)
+  const combustibles=(STATE.cache.products||[]).filter(p=>{
+    const t=((p.descripcion||'')+' '+(p.grupo||'')+' '+(p.subGrupo||'')).toLowerCase();
+    return /gasolina|diesel|di[eé]sel|petr[oó]leo|bencina/.test(t);
+  });
+  const bodegas=STATE.cache.warehouses||[];
+  const centros=STATE.cache.costCenters||[];
+  cbDraft={fecha:today};
+  c.innerHTML=`
+    <div class="page-header"><div><div class="page-title">⛽ Salida de combustible</div>
+      <div class="page-subtitle">Registro de consumo por equipo</div></div>
+      <button class="btn btn-secondary" onclick="navigate('salidas')">← Volver</button></div>
+    <div class="card" style="max-width:640px">
+      <div class="form-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+        <div class="form-field"><label>Fecha</label>
+          <input type="date" id="cb-fecha" value="${today}"></div>
+        <div class="form-field"><label>Bodega origen</label>
+          <select id="cb-bodega"><option value="">— Seleccione —</option>
+            ${bodegas.map(b=>`<option value="${b.id}">${escapeHtml(b.nombre)}</option>`).join('')}</select></div>
+        <div class="form-field"><label>Equipo</label>
+          <select id="cb-equipo" onchange="cbToggleOtro()">
+            <option value="">— Seleccione —</option>
+            ${CB_EQUIPOS.map(e=>`<option value="${escapeHtml(e)}">${escapeHtml(e)}</option>`).join('')}</select></div>
+        <div class="form-field" id="cb-otro-wrap" style="display:none"><label>Especifique equipo</label>
+          <input type="text" id="cb-otro" placeholder="Nombre del equipo"></div>
+        <div class="form-field"><label>Kilometraje / Horómetro</label>
+          <input type="number" id="cb-km" step="0.1" min="0" placeholder="Ej: 1250.5"></div>
+        <div class="form-field"><label>Usuario / Operador</label>
+          <input type="text" id="cb-usuario" placeholder="Nombre de quien retira"></div>
+        <div class="form-field"><label>Producto</label>
+          <select id="cb-producto">
+            <option value="">— Seleccione —</option>
+            ${combustibles.map(p=>`<option value="${p.codigoInterno}">${escapeHtml(p.descripcion)}</option>`).join('')}</select>
+          ${combustibles.length===0?'<div class="hint" style="color:#c0392b">No hay productos de combustible en el catálogo</div>':''}</div>
+        <div class="form-field"><label>Cantidad (litros)</label>
+          <input type="number" id="cb-cantidad" step="0.01" min="0" placeholder="0.00"></div>
+        <div class="form-field" style="grid-column:1/-1"><label>Centro de costo</label>
+          <select id="cb-centro"><option value="">— Seleccione —</option>
+            ${centros.map(cc=>`<option value="${cc.codigo}">${escapeHtml(cc.nombre)}</option>`).join('')}</select></div>
+        <div class="form-field" style="grid-column:1/-1"><label>Observaciones (opcional)</label>
+          <input type="text" id="cb-obs" placeholder="Notas adicionales"></div>
+      </div>
+      <div id="cb-error" class="login-error" style="margin-top:10px"></div>
+      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px">
+        <button class="btn btn-secondary" onclick="navigate('salidas')">Cancelar</button>
+        <button class="btn btn-primary" onclick="guardarCombustible()">💾 Registrar salida</button>
+      </div>
+    </div>`;
+}
+function cbToggleOtro(){
+  const sel=document.getElementById('cb-equipo').value;
+  const w=document.getElementById('cb-otro-wrap');
+  if(w) w.style.display = sel==='Otro (especificar)' ? 'block' : 'none';
+}
+try{ window.renderCombustibleForm=renderCombustibleForm; window.cbToggleOtro=cbToggleOtro; }catch(e){}
+
+async function guardarCombustible(){
+  const err=document.getElementById('cb-error');
+  const setErr=(m)=>{ err.textContent=m; err.classList.add('show'); };
+  const fecha=document.getElementById('cb-fecha').value;
+  const bodegaId=document.getElementById('cb-bodega').value;
+  let equipo=document.getElementById('cb-equipo').value;
+  const otro=(document.getElementById('cb-otro')?.value||'').trim();
+  const km=parseFloat(document.getElementById('cb-km').value)||0;
+  const usuario=(document.getElementById('cb-usuario').value||'').trim();
+  const codigo=document.getElementById('cb-producto').value;
+  const cantidad=parseFloat(document.getElementById('cb-cantidad').value)||0;
+  const centro=document.getElementById('cb-centro').value;
+  const obs=(document.getElementById('cb-obs').value||'').trim();
+
+  if(!fecha) return setErr('Ingrese la fecha.');
+  if(!bodegaId) return setErr('Seleccione la bodega de origen.');
+  if(!equipo) return setErr('Seleccione el equipo.');
+  if(equipo==='Otro (especificar)'){ if(!otro) return setErr('Especifique el nombre del equipo.'); equipo=otro; }
+  if(!usuario) return setErr('Ingrese el usuario/operador.');
+  if(!codigo) return setErr('Seleccione el producto.');
+  if(cantidad<=0) return setErr('Ingrese una cantidad válida.');
+  if(!centro) return setErr('Seleccione el centro de costo.');
+
+  const prod=getProduct(codigo);
+  const stockTotal=getStockTotal(codigo);
+  if(cantidad>stockTotal){ return setErr(`Stock insuficiente. Disponible: ${fmtNum(stockTotal,2)} LT`); }
+
+  try{
+    showLoading('Registrando salida de combustible...');
+    // 1) Crear el movimiento de salida (usa el costo PPP actual)
+    const costo=(getStock(codigo,bodegaId)?.costoPromedio)||prod?.costoPromedio||0;
+    const numero=await nextCounter('SAL');
+    const mov={
+      numero, tipo:'SAL', tipoMovimiento:'CONSUMO COMBUSTIBLE',
+      fecha:new Date(fecha).toISOString(), bodegaId, centroCosto:centro,
+      destino:equipo, observaciones:`Equipo: ${equipo} · Km/Hr: ${km} · Operador: ${usuario}${obs?(' · '+obs):''}`,
+      detalles:[{codigoInterno:codigo, descripcion:prod?.descripcion||codigo, cantidad, costo}],
+      usuario:STATE.user.id, creado:new Date().toISOString()
+    };
+    await dbPut('movements',mov);
+    // 2) Recalcular stock desde movimientos (misma lógica probada; descuenta el consumo)
+    await _ejecutarRecalculoStock();
+    // 3) Registro aparte para historial por equipo
+    const regCb={
+      id:Date.now()+'-'+Math.random().toString(36).slice(2,7),
+      fecha:new Date(fecha).toISOString(), equipo, km, usuario,
+      codigoProducto:codigo, producto:prod?.descripcion||codigo,
+      cantidad, centroCosto:centro, bodegaId, movNumero:numero,
+      observaciones:obs, registrado:new Date().toISOString(), registradoPor:STATE.user.id
+    };
+    await dbPut('combustible',regCb);
+    await audit('combustible.salida',`${equipo} · ${cantidad}L de ${prod?.descripcion||codigo} · Km/Hr ${km}`,numero);
+    STATE.cache.movements=await dbAll('movements');
+    STATE.cache.stock=await dbAll('stock');
+    STATE.cache.combustible=await dbAll('combustible');
+    hideLoading();
+    toast('Salida registrada',`${numero} · ${cantidad}L a ${equipo}`,'success');
+    navigate('movimientos');
+  }catch(e){
+    hideLoading();
+    setErr('Error al guardar: '+e.message);
+    console.error('Error combustible:',e);
+  }
+}
+try{ window.guardarCombustible=guardarCombustible; }catch(e){}
+
 function renderMovimientoForm(c,tipo='ENT'){
   movDraft={
     lineas:[{}],tipo,editId:null,
@@ -4581,7 +4730,7 @@ function renderMovDetalle(){
     total+=cant*costo;
     const lots=p&&p.manejaAtributos&&!isEnt&&bod?STATE.cache.lots.filter(x=>x.codigoInterno===l.codigoInterno&&x.bodegaId===bod&&x.cantidad>0):[];
     html+=`<tr>
-      <td><input type="text" placeholder="P000001, EAN o nuevo" value="${escapeHtml(l.codigoInterno||'')}" oninput="updateMovLine(${i},'codigoInterno',this.value);" onblur="resolveProductCode(${i})" list="prodList" title="Si el código no existe, se ofrecerá crearlo sin perder los datos del encabezado"></td>
+      <td><input type="text" placeholder="P000001, EAN o nuevo" value="${escapeHtml(l.codigoInterno||'')}" oninput="mvFiltrarProductos(this.value);updateMovLine(${i},'codigoInterno',this.value);" onblur="resolveProductCode(${i})" list="prodList" autocomplete="off" title="Escriba para buscar; si el código no existe, se ofrecerá crearlo"></td>
       <td>${p?escapeHtml(p.descripcion):'<span style="color:var(--mu)">-</span>'} ${p?'<span style="color:var(--mu);font-size:11px">· '+escapeHtml(p.unidadMedida)+'</span>':''}</td>
       <td class="num" style="color:${saldo>0?'var(--gm)':'var(--mu)'}">${fmtNum(saldo,2)}</td>
       <td><input type="number" step="0.01" class="num" value="${l.cantidad||''}" oninput="updateMovLine(${i},'cantidad',this.value);recalcMovTotals()"></td>
@@ -4618,7 +4767,24 @@ function renderMovDetalle(){
       <td colspan="3"></td>
     </tr></tfoot>
   </table>
-  <datalist id="prodList">${STATE.cache.products.map(p=>`<option value="${p.codigoInterno}">${escapeHtml(p.descripcion)} · ${escapeHtml(p.codigoEAN||'')}</option>`).join('')}</datalist>`;
+  <datalist id="prodList"></datalist>`;
+
+// Puebla el datalist de productos SOLO cuando el usuario ha escrito ≥1 carácter,
+// filtrando por código, EAN o descripción. Evita desplegar el catálogo completo.
+function mvFiltrarProductos(texto){
+  var dl=document.getElementById('prodList'); if(!dl) return;
+  var q=(texto||'').trim().toLowerCase();
+  if(q.length<1){ dl.innerHTML=''; return; }
+  var res=(STATE.cache.products||[]).filter(function(p){
+    return String(p.codigoInterno||'').toLowerCase().includes(q)
+        || String(p.codigoEAN||'').toLowerCase().includes(q)
+        || String(p.descripcion||'').toLowerCase().includes(q);
+  }).slice(0,25);
+  dl.innerHTML=res.map(function(p){
+    return '<option value="'+escapeHtml(p.codigoInterno)+'">'+escapeHtml(p.descripcion)+(p.codigoEAN?(' · '+escapeHtml(p.codigoEAN)):'')+'</option>';
+  }).join('');
+}
+try{ window.mvFiltrarProductos=mvFiltrarProductos; }catch(e){}
   w.innerHTML=html;
 }
 function recalcMovTotals(){
