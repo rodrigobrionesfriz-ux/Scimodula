@@ -4179,7 +4179,7 @@ function renderCombustibleForm(c){
           <input type="number" id="cb-cantidad" step="0.01" min="0" placeholder="0.00"></div>
         <div class="form-field" style="grid-column:1/-1"><label>Centro de costo</label>
           <select id="cb-centro"><option value="">— Seleccione —</option>
-            ${centros.map(cc=>`<option value="${cc.codigo}">${escapeHtml(cc.nombre)}</option>`).join('')}</select></div>
+            ${centros.filter(cc=>cc.activo!==false).map(cc=>`<option value="${cc.codigo}">${escapeHtml(cc.codigo)} · ${escapeHtml(cc.descripcion||cc.nombre||'')}</option>`).join('')}</select></div>
         <div class="form-field" style="grid-column:1/-1"><label>Observaciones (opcional)</label>
           <input type="text" id="cb-obs" placeholder="Notas adicionales"></div>
       </div>
