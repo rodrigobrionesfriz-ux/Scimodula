@@ -2246,6 +2246,31 @@ function ipVerMapa(id){
   ipSetVista('mapa');
 }
 
+// Invierte manualmente el orden de las plantas de la hilera (solo admin).
+// Útil cuando el orden automático por hilera par/impar no coincide con el
+// recorrido real de conteo.
+async function ipInvertirOrden(){
+  if(!STATE.user || STATE.user.role!=='admin'){ toast('Sin permiso','Solo el administrador puede invertir el orden','error'); return; }
+  var s=_ipMapaReg; if(!s || !Array.isArray(s.plantas)) return;
+  confirmDialog('Invertir orden de la hilera',
+    '¿Invertir el orden de las '+s.plantas.length+' plantas de <strong>'+escapeHtml(s.codigoBase)+'</strong>?<br><br>La planta 1 pasará a ser la última y viceversa. Los estados se mantienen con cada planta.',
+    async function(){
+      s.plantas.reverse();
+      s.plantas.forEach(function(p,i){ p.seq=i+1; });
+      s.invertida = !s.invertida;
+      s.secuencia = s.plantas.map(function(p){ return p.tipo; });
+      s.sincronizado=false;
+      try{
+        await dbPut('invplantas', s);
+        STATE.cache.invplantas=await dbAll('invplantas');
+        _ipMapaReg = (STATE.cache.invplantas||[]).find(function(x){ return String(x.id)===String(s.id); });
+      }catch(e){ console.error(e); toast('Error','No se pudo guardar','error'); return; }
+      ipRender();
+      toast('Orden invertido','La hilera se reordenó correctamente','success');
+    },'Invertir');
+}
+try{ window.ipInvertirOrden=ipInvertirOrden; }catch(e){}
+
 function ipRenderMapa(){
   var s=_ipMapaReg; if(!s) return '<div class="ip-card">Sin datos</div>';
   var plantas = s.plantas||[];
@@ -2264,6 +2289,7 @@ function ipRenderMapa(){
       '<div style="font-size:13px;color:#666;margin-bottom:8px">'+escapeHtml(s.cuartel)+' · '+escapeHtml(s.variedad)+' · Hilera '+escapeHtml(s.hilera)+' · '+plantas.length+' plantas'+(s.invertida?' · <span style="color:#e9730c;font-weight:700">↔️ orden invertido (hilera par)</span>':'')+'</div>'+
       '<div style="margin-bottom:6px">'+leyenda+'</div>'+
       (puedeEditar?'<div style="font-size:12px;color:#0854a0;background:#f0f7ff;padding:8px;border-radius:8px">✏️ Toque una planta para cambiar su estado</div>':'<div style="font-size:12px;color:#999">Solo lectura. Se requiere permiso para editar estados.</div>')+
+      (STATE.user && STATE.user.role==='admin' ? '<button onclick="ipInvertirOrden()" style="margin-top:8px;padding:9px 14px;background:#fff3e0;color:#b45309;border:1px solid #fcd9a0;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">↔️ Invertir orden de la hilera</button>' : '')+
     '</div>';
 
   // Mapa visual: plantas como círculos en una grilla que representa la hilera.
