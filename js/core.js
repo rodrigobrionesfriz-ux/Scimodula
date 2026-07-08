@@ -9,7 +9,7 @@
 
 /* ═══════════════ DB LAYER (IndexedDB) ═══════════════ */
 const DB_NAME='SCI_DB';
-const DB_VERSION=9;
+const DB_VERSION=10;
 const STORES=[
   ['users','id'],
   ['products','codigoInterno'],
@@ -28,6 +28,7 @@ const STORES=[
   ['stock','key'],
   ['lots','id'],
   ['audit','id'],
+  ['combustible','id'],
   ['config','key']
 ];
 let DB=null;
@@ -187,7 +188,7 @@ var SCIFB = {
   applyingRemote: false,
   saveTimer: null,
   // Tablas que se sincronizan (todas las del SCI)
-  stores: ['users','products','warehouses','groups','productTypes','providers','customers','costCenters','inventoryCounts','movements','stock','lots','config','mantenciones','conteos','estimaciones','invplantas']
+  stores: ['users','products','warehouses','groups','productTypes','providers','customers','costCenters','inventoryCounts','movements','stock','lots','config','mantenciones','conteos','estimaciones','invplantas','combustible']
 };
 
 function sciFbDocRef(){
@@ -393,7 +394,7 @@ function _sciEstaEliminado(store, rec, key){
    Compartido por la recepción (applyRemote) y la subida (push) para que ningún
    dispositivo borre datos que otro creó. */
 var SCI_STORES_ACUMULATIVOS = {
-  'invplantas':1,'conteos':1,'estimaciones':1,'movements':1,
+  'invplantas':1,'conteos':1,'estimaciones':1,'movements':1,'combustible':1,
   'mantenciones':1,'inventoryCounts':1,'audit':1,'lots':1
 };
 function _sciStoreKey(store){
@@ -524,7 +525,7 @@ async function sha256(text){
 const STATE={
   user:null,
   page:'dashboard',
-  cache:{products:[],warehouses:[],groups:[],productTypes:[],providers:[],customers:[],costCenters:[],inventoryCounts:[],movements:[],stock:[],lots:[],users:[],config:{},mantenciones:[],conteos:[],estimaciones:[],invplantas:[]}
+  cache:{products:[],warehouses:[],groups:[],productTypes:[],providers:[],customers:[],costCenters:[],inventoryCounts:[],movements:[],stock:[],lots:[],users:[],config:{},mantenciones:[],conteos:[],estimaciones:[],invplantas:[],combustible:[]}
 };
 
 // ── Advertencia al cerrar / recargar / volver atrás (evita salir por error) ──
@@ -1122,7 +1123,7 @@ function navigate(page, fromHistory){
     case 'stock':renderStock(main);break;
     case 'movimientos':renderMovimientos(main);break;
     case 'entradas':renderMovimientoForm(main,'ENT');break;
-    case 'salidas':renderMovimientoForm(main,'SAL');break;
+    case 'salidas':renderSelectorSalida(main);break;
     case 'tomas':renderTomas(main);break;
     case 'tomaCapturar':renderTomaCapturar(main);break;
     case 'tomaVer':renderTomaVer(main);break;
