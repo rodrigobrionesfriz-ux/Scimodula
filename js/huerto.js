@@ -1802,6 +1802,7 @@ try{ window.ipEditarPolinizMasivo = ipEditarPolinizMasivo; window.ipGuardarPolin
 // Filtro visual del mapa general: lista de claves activas (estados y 'pol:VARIEDAD').
 // Vacío = mostrar todo. Las no seleccionadas se atenúan sin cambiar de posición.
 var _ipMapaGenFiltro = [];
+var _ipMapaGenCuarteles = [];
 function ipToggleFiltroMapa(clave){
   var i=_ipMapaGenFiltro.indexOf(clave);
   if(i>=0) _ipMapaGenFiltro.splice(i,1); else _ipMapaGenFiltro.push(clave);
@@ -1820,7 +1821,12 @@ function ipMostrarMapaGeneral(){
   _ipMapZoom = 100; // reiniciar zoom al abrir
   var seleccionados = [];
   document.querySelectorAll('.ip-cuartel-chk:checked').forEach(function(c){ seleccionados.push(c.value); });
+  // Si no vienen de checkboxes (re-render por filtro/zoom), reusar los últimos.
+  if(!seleccionados.length && _ipMapaGenCuarteles && _ipMapaGenCuarteles.length){
+    seleccionados = _ipMapaGenCuarteles.slice();
+  }
   if(!seleccionados.length){ toast('Seleccione','Marque al menos un cuartel','error'); return; }
+  _ipMapaGenCuarteles = seleccionados.slice(); // recordar para re-renders
   var fm=document.getElementById('ip-mapagen-filtro'); if(fm)fm.remove();
 
   var regs = (STATE.cache.invplantas||[]).filter(function(r){ return seleccionados.indexOf(r.cuartel)>=0; });
@@ -1844,7 +1850,7 @@ function ipMostrarMapaGeneral(){
         '<span id="ip-map-zoom-label" style="font-size:12px;min-width:42px;text-align:center;font-weight:700">100%</span>'+
         '<button onclick="ipMapZoom(1)" title="Aumentar" style="background:rgba(255,255,255,.18);border:none;color:#fff;font-size:20px;cursor:pointer;width:38px;height:38px;border-radius:8px;line-height:1">+</button>'+
       '</div>'+
-      '<button onclick="document.getElementById(\'ip-mapagen-modal\').remove()" style="background:rgba(255,255,255,.2);border:none;color:#fff;font-size:26px;cursor:pointer;width:44px;height:44px;border-radius:8px">×</button>'+
+      '<button onclick="document.getElementById(\'ip-mapagen-modal\').remove();_ipMapaGenFiltro=[];_ipMapaGenCuarteles=[];" style="background:rgba(255,255,255,.2);border:none;color:#fff;font-size:26px;cursor:pointer;width:44px;height:44px;border-radius:8px">×</button>'+
     '</div>'+
   '</div>';
 
