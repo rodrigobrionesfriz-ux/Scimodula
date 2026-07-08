@@ -654,6 +654,7 @@ const PERMISSIONS=[
   ['tomas.autorizar','Autorizar y aplicar ajustes de inventario'],
   ['movimientos.ver','Ver movimientos'],
   ['movimientos.crear','Crear movimientos'],
+  ['combustible.registrar','Registrar salidas de combustible (petróleo/gasolina)'],
   ['movimientos.editar','Editar movimientos'],
   ['movimientos.anular','Anular movimientos'],
   ['stock.ver','Ver stock'],
@@ -683,10 +684,12 @@ const ROLE_PERMS={
   'gerente':['productos.ver','bodegas.ver','proveedores.ver','clientes.ver','centrosCosto.ver','tomas.ver','movimientos.ver','stock.ver','usuarios.ver','config.ver','cuaderno.ver','mantenciones.ver','presupuesto.ver'],
   // Admin. Agrónomo: gestiona todo el Cuaderno de Campo + ve el inventario
   'agronomo':['productos.ver','bodegas.ver','stock.ver','movimientos.ver','config.ver','cuaderno.ver','cuaderno.editar','cuaderno.confirmar','cuaderno.panos','conteos.ver','conteos.revisar','invplantas.ver','invplantas.revisar','presupuesto.ver'],
-  'operador':['productos.ver','productos.crear','bodegas.ver','proveedores.ver','proveedores.crear','clientes.ver','clientes.crear','centrosCosto.ver','centrosCosto.crear','movimientos.ver','movimientos.crear','stock.ver','tomas.ver','tomas.crear','config.ver'],
+  'operador':['productos.ver','productos.crear','bodegas.ver','proveedores.ver','proveedores.crear','clientes.ver','clientes.crear','centrosCosto.ver','centrosCosto.crear','movimientos.ver','movimientos.crear','combustible.registrar','stock.ver','tomas.ver','tomas.crear','config.ver'],
   'consulta':['productos.ver','bodegas.ver','proveedores.ver','clientes.ver','centrosCosto.ver','movimientos.ver','stock.ver','tomas.ver','config.ver'],
   // OP. CONTEOS: solo el módulo de conteos en terreno
-  'opconteos':['conteos.ver','invplantas.ver']
+  'opconteos':['conteos.ver','invplantas.ver'],
+  // OP. COMBUSTIBLE: solo el formulario de salida de combustible
+  'opcombustible':['combustible.registrar']
 };
 // Etiquetas legibles de cada rol
 const ROLE_LABELS={
@@ -695,7 +698,8 @@ const ROLE_LABELS={
   'agronomo':'Admin. Agrónomo',
   'operador':'Operador',
   'consulta':'Consulta',
-  'opconteos':'OP. CONTEOS'
+  'opconteos':'OP. CONTEOS',
+  'opcombustible':'OP. COMBUSTIBLE'
 };
 
 function can(perm){
@@ -890,6 +894,10 @@ async function doLogin(){
     // (Conteos en terreno / Inventario de Huerto). No entra a ningún módulo
     // ni al dashboard. Funciona igual en móvil y escritorio.
     mostrarMenuConteos();
+  } else if(STATE.user && STATE.user.role==='opcombustible'){
+    // OP. COMBUSTIBLE: pantalla completa, directo al formulario de salida de combustible
+    document.body.classList.add('solo-conteos');
+    renderCombustibleForm(document.getElementById('mainContent'));
   } else {
     navigate('dashboard');
   }
@@ -967,8 +975,9 @@ const PAGES=[
   {section:'OPERACIÓN',items:[
     {id:'movimientos',label:'Movimientos',icon:'🔄',perm:'movimientos.ver'},
     {id:'entradas',label:'Nueva Entrada',icon:'⬇️',perm:'movimientos.crear'},
-    {id:'salidas',label:'Nueva Salida',icon:'⬆️',perm:'movimientos.crear'},
+    {id:'salidas',label:'Nueva Salida',icon:'⬆️',perm:'combustible.registrar'},
     {id:'tomas',label:'Tomas de Inventario',icon:'📋',perm:'tomas.ver'},
+    {id:'repCombustible',label:'Rendimiento combustible',icon:'⛽',perm:'combustible.registrar',adminOnly:true},
   ]},
   {section:'CUADERNO DE CAMPO',items:[
     {id:'cuaderno',label:'Cuaderno de Campo',icon:'🌳',perm:'cuaderno.ver'},
@@ -1072,6 +1081,11 @@ function navigate(page, fromHistory){
     mostrarMenuConteos();
     return;
   }
+  // ── Guard OP. COMBUSTIBLE: solo el formulario de salida de combustible ──
+  if(STATE.user && STATE.user.role==='opcombustible'){
+    renderCombustibleForm(document.getElementById('mainContent'));
+    return;
+  }
   // Refrescar alerta de backup en cada navegación
   setTimeout(refreshBackupAlert,50);
   STATE.page=page;
@@ -1124,6 +1138,7 @@ function navigate(page, fromHistory){
     case 'movimientos':renderMovimientos(main);break;
     case 'entradas':renderMovimientoForm(main,'ENT');break;
     case 'salidas':renderSelectorSalida(main);break;
+    case 'repCombustible':renderReporteCombustible(main);break;
     case 'tomas':renderTomas(main);break;
     case 'tomaCapturar':renderTomaCapturar(main);break;
     case 'tomaVer':renderTomaVer(main);break;
