@@ -4238,7 +4238,7 @@ function renderCombustibleForm(c){
     <div class="page-header"><div><div class="page-title">⛽ Salida de combustible</div>
       <div class="page-subtitle">Registro de consumo por equipo</div></div>
       <button class="btn btn-secondary" onclick="navigate('salidas')">← Volver</button></div>
-    <div class="card" style="max-width:640px">
+    <div class="card" style="max-width:640px;margin:0 auto">
       <div class="form-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
         <div class="form-field"><label>Fecha</label>
           <input type="date" id="cb-fecha" value="${today}"></div>
