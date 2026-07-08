@@ -1097,7 +1097,7 @@ function navigate(page, fromHistory){
     if(_mc) _mc.style.display = '';
   }
   renderSidebar();
-  if(window.innerWidth<880)document.getElementById('sidebar').classList.remove('open');
+  if(window.innerWidth<880){document.getElementById('sidebar').classList.remove('open');var _ov=document.getElementById('sidebarOverlay');if(_ov)_ov.remove();}
   const titles={
     dashboard:'Dashboard',productos:'Productos',bodegas:'Bodegas',
     proveedores:'Proveedores',clientes:'Clientes',centrosCosto:'Centros de Costo',stock:'Stock por Bodega',movimientos:'Movimientos',
