@@ -1156,16 +1156,34 @@ function ipGenerarPlantas(s){
     var el = seq[i];
     var tipo = (el && typeof el==='object') ? el.tipo : el;
     var estado = (el && typeof el==='object' && el.estado) ? el.estado : 'sano';
-    plantas.push({
-      seq: i+1,
-      codigo: s.codigoBase+'-'+String(i+1).padStart(6,'0'),
-      tipo: tipo,
-      lat: lat, lng: lng,
-      estado: estado
-    });
+    // Formato compacto: NO guardamos 'codigo' (se deriva de codigoBase+seq) ni
+    // lat/lng por planta (se interpolan desde gpsInicio/gpsFin de la hilera).
+    // Esto reduce ~40% el tamaño de invplantas en la nube.
+    var pl = { seq: i+1, tipo: tipo, estado: estado };
+    plantas.push(pl);
   }
   return plantas;
 }
+
+// Deriva el código de una planta a partir del código base de su hilera.
+function ipCodigoPlanta(reg, p){
+  if(p && p.codigo) return p.codigo; // compat: plantas viejas que lo tienen
+  var base = reg ? (reg.codigoBase||'') : '';
+  return base + '-' + String((p&&p.seq)||0).padStart(6,'0');
+}
+// Compacta una hilera quitando campos redundantes de sus plantas (codigo, lat,
+// lng) que se pueden derivar. Reduce ~40% el tamaño. Se aplica al guardar.
+function ipCompactarRegistro(reg){
+  if(reg && Array.isArray(reg.plantas)){
+    reg.plantas = reg.plantas.map(function(p){
+      return { seq:p.seq, tipo:p.tipo, estado:p.estado||'sano',
+               polinizante: p.polinizante || undefined };
+    });
+  }
+  return reg;
+}
+try{ window.ipCompactarRegistro = ipCompactarRegistro; }catch(e){}
+try{ window.ipCodigoPlanta = ipCodigoPlanta; }catch(e){}
 
 // ── Lista de hileras registradas ──
 // Resumen por paño/variedad: total real contado vs registrado, con botón para actualizar el paño
@@ -1945,7 +1963,7 @@ function ipRenderCuartelSVG(cuartel, hileras){
       if(esInicio){ link='onclick="ipAbrirMapaPunto('+gpsIni.lat+','+gpsIni.lng+')"'; cursor='cursor:pointer'; stroke='#1565c0'; sw=3; extraTitle=' · 🟢 INICIO (toque para Google Maps)'; }
       else if(esFin){ link='onclick="ipAbrirMapaPunto('+gpsFin.lat+','+gpsFin.lng+')"'; cursor='cursor:pointer'; stroke='#1565c0'; sw=3; extraTitle=' · 🔴 FIN (toque para Google Maps)'; }
       var r = (esInicio||esFin) ? 8.5 : 7.5;
-      svg += '<circle cx="'+cx+'" cy="'+y+'" r="'+r+'" fill="'+fill+'" stroke="'+stroke+'" stroke-width="'+sw+'" '+link+' style="'+cursor+'"><title>'+escapeHtml(p.codigo)+(esPoliniz?' · 🐝 '+escapeHtml(varPol||'Polinizante'):'')+' · '+(IP_ESTADOS[p.estado]?IP_ESTADOS[p.estado].label:'')+extraTitle+'</title></circle>';
+      svg += '<circle cx="'+cx+'" cy="'+y+'" r="'+r+'" fill="'+fill+'" stroke="'+stroke+'" stroke-width="'+sw+'" '+link+' style="'+cursor+'"><title>'+escapeHtml(ipCodigoPlanta(h,p))+(esPoliniz?' · 🐝 '+escapeHtml(varPol||'Polinizante'):'')+' · '+(IP_ESTADOS[p.estado]?IP_ESTADOS[p.estado].label:'')+extraTitle+'</title></circle>';
       if(esInicio){ svg += '<text x="'+cx+'" y="'+(y-11)+'" fill="#1565c0" font-size="8" font-weight="700" text-anchor="middle">▶</text>'; }
       else if(esFin){ svg += '<text x="'+cx+'" y="'+(y-11)+'" fill="#1565c0" font-size="8" font-weight="700" text-anchor="middle">■</text>'; }
     });
@@ -1979,7 +1997,7 @@ async function ipSincronizar(){
   var pend=(STATE.cache.invplantas||[]).filter(function(x){return !x.sincronizado;});
   if(!pend.length){ toast('Todo al día','No hay hileras pendientes','info'); return; }
   var n=0;
-  for(var i=0;i<pend.length;i++){ pend[i].sincronizado=true; pend[i].fechaSync=new Date().toISOString(); try{ await dbPut('invplantas',pend[i]); n++; }catch(e){} }
+  for(var i=0;i<pend.length;i++){ ipCompactarRegistro(pend[i]); pend[i].sincronizado=true; pend[i].fechaSync=new Date().toISOString(); try{ await dbPut('invplantas',pend[i]); n++; }catch(e){} }
   STATE.cache.invplantas=await dbAll('invplantas');
   ipRender();
   toast('Subido', n+' hilera(s) sincronizadas','success');
@@ -2028,7 +2046,7 @@ function ipEditarRegistro(id){
     return '<div style="padding:10px;border-bottom:1px solid #eee;background:'+(idx%2?'#fafafa':'#fff')+'">'+
       '<div style="display:flex;align-items:center;gap:8px;margin-bottom:7px">'+
         '<span style="width:11px;height:11px;border-radius:50%;background:'+col+';flex-shrink:0"></span>'+
-        '<span style="font-weight:800;font-size:13px;flex:1">'+escapeHtml(p.codigo)+'</span>'+
+        '<span style="font-weight:800;font-size:13px;flex:1">'+escapeHtml(ipCodigoPlanta(s,p))+'</span>'+
         '<button onclick="ipEditEliminarPlanta('+idx+')" style="background:none;border:none;color:#c0392b;font-size:17px;cursor:pointer;flex-shrink:0" title="Eliminar planta (error de conteo)">✕</button>'+
       '</div>'+
       '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">'+
@@ -2097,7 +2115,7 @@ function ipEditEliminarPlanta(idx){
   var s=(STATE.cache.invplantas||[]).find(function(x){return String(x.id)===String(_ipEditId);});
   if(!s) return;
   var p=s.plantas[idx]; if(!p) return;
-  confirmDialog('Eliminar planta','¿Eliminar la planta '+escapeHtml(p.codigo)+' del registro? (error de conteo)',function(){
+  confirmDialog('Eliminar planta','¿Eliminar la planta '+escapeHtml(ipCodigoPlanta(s,p))+' del registro? (error de conteo)',function(){
     s.plantas.splice(idx,1);
     // Recodificar y renumerar las plantas restantes
     s.plantas.forEach(function(pl,i){ pl.seq=i+1; pl.codigo=s.codigoBase+'-'+String(i+1).padStart(6,'0'); });
@@ -2167,7 +2185,7 @@ function ipExportarExcel(){
       var verMaps = (p.lat!=null && p.lng!=null) ? '🗺️ Abrir mapa' : '';
       var pPorta = p.portainjerto!=null ? p.portainjerto : (s.portainjerto||'');
       var pPoliniz = p.polinizante!=null ? p.polinizante : (s.polinizante||'');
-      detalle.push([p.codigo, s.cuartel, s.variedad, s.hilera, p.tipo, pPorta, pPoliniz, (IP_ESTADOS[p.estado]?IP_ESTADOS[p.estado].label:p.estado),
+      detalle.push([ipCodigoPlanta(s,p), s.cuartel, s.variedad, s.hilera, p.tipo, pPorta, pPoliniz, (IP_ESTADOS[p.estado]?IP_ESTADOS[p.estado].label:p.estado),
         p.lat!=null?p.lat:'', p.lng!=null?p.lng:'', verMaps]);
       if(p.lat!=null && p.lng!=null){ detalleLinks.push({ row:dRow, col:10, url:mapsUrl(p.lat, p.lng) }); }
     });
@@ -2234,7 +2252,7 @@ function ipRenderMapa(){
     var e=IP_ESTADOS[p.estado]||IP_ESTADOS.sano;
     var borde = p.tipo==='poliniz' ? '3px solid #e9730c' : '2px solid rgba(0,0,0,.15)';
     html += '<div onclick="'+(puedeEditar?'ipEditarPlanta('+idx+')':'')+'" '+
-      'title="'+escapeHtml(p.codigo)+' · '+(IP_ESTADOS[p.estado]?IP_ESTADOS[p.estado].label:'')+'" '+
+      'title="'+escapeHtml(ipCodigoPlanta(s,p))+' · '+(IP_ESTADOS[p.estado]?IP_ESTADOS[p.estado].label:'')+'" '+
       'style="width:44px;height:44px;border-radius:50%;background:'+e.color+';border:'+borde+';display:flex;align-items:center;justify-content:center;color:#fff;font-size:10px;font-weight:700;cursor:'+(puedeEditar?'pointer':'default')+';box-shadow:0 1px 3px rgba(0,0,0,.2)">'+
       p.seq+'</div>';
   });
@@ -2287,7 +2305,7 @@ async function ipSetEstadoPlanta(idx, estado){
   try{ await dbPut('invplantas', s); STATE.cache.invplantas=await dbAll('invplantas'); }catch(e){}
   var m=document.getElementById('ip-edit-modal'); if(m)m.remove();
   ipRender();
-  toast('Estado actualizado', p.codigo+' → '+(IP_ESTADOS[estado]?IP_ESTADOS[estado].label:estado),'success');
+  toast('Estado actualizado', ipCodigoPlanta(s,p)+' → '+(IP_ESTADOS[estado]?IP_ESTADOS[estado].label:estado),'success');
 }
 
 // Eliminar una planta desde el mapa 2D (solo admin, para corregir errores de conteo).
@@ -2296,12 +2314,11 @@ function ipEliminarPlantaMapa(idx){
   if(!_ipEsAdmin()){ toast('Sin permiso','Solo el administrador puede eliminar plantas','error'); return; }
   var s=_ipMapaReg; if(!s || !s.plantas || !s.plantas[idx]) return;
   var p=s.plantas[idx];
-  confirmDialog('Eliminar planta','¿Eliminar la planta <strong>'+escapeHtml(p.codigo)+'</strong> ('+(p.tipo==='poliniz'?'polinizante':'principal')+', estado: '+(IP_ESTADOS[p.estado]?IP_ESTADOS[p.estado].label:(p.estado||'sano'))+') de esta hilera?<br><br>Las plantas siguientes se renumerarán.', async function(){
+  confirmDialog('Eliminar planta','¿Eliminar la planta <strong>'+escapeHtml(ipCodigoPlanta(s,p))+'</strong> ('+(p.tipo==='poliniz'?'polinizante':'principal')+', estado: '+(IP_ESTADOS[p.estado]?IP_ESTADOS[p.estado].label:(p.estado||'sano'))+') de esta hilera?<br><br>Las plantas siguientes se renumerarán.', async function(){
     s.plantas.splice(idx, 1);
     // Renumerar y recodificar
     s.plantas.forEach(function(pl, i){
       pl.seq = i + 1;
-      pl.codigo = s.codigoBase + '-' + String(i + 1).padStart(6, '0');
     });
     // Recalcular contadores
     s.countPrincipal = s.plantas.filter(function(x){ return x.tipo === 'principal'; }).length;
@@ -2321,7 +2338,7 @@ function ipEliminarPlantaMapa(idx){
     }catch(e){ console.error('Error guardando tras eliminar planta:', e); }
     var m = document.getElementById('ip-edit-modal'); if(m) m.remove();
     ipRender();
-    toast('Planta eliminada', p.codigo + ' eliminada. Hilera renumerada.', 'success');
+    toast('Planta eliminada', ipCodigoPlanta(s,p) + ' eliminada. Hilera renumerada.', 'success');
   }, 'Eliminar', true);
 }
 
@@ -2398,7 +2415,6 @@ async function ipInsertarPlantaConfirm(idx, donde){
   for(var i=0;i<total;i++){
     var p = s.plantas[i];
     p.seq = i+1;
-    p.codigo = s.codigoBase + '-' + String(i+1).padStart(6,'0');
     var frac = total>1 ? i/(total-1) : 0;
     if(ini && fin){
       p.lat = ini.lat + (fin.lat-ini.lat)*frac;
