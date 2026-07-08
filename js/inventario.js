@@ -1,4 +1,17 @@
-function toggleSidebar(){document.getElementById('sidebar').classList.toggle('open')}
+function toggleSidebar(){
+  var sb=document.getElementById('sidebar');
+  var abierto=sb.classList.toggle('open');
+  var ov=document.getElementById('sidebarOverlay');
+  if(abierto){
+    if(!ov){
+      ov=document.createElement('div');
+      ov.id='sidebarOverlay';
+      ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:150;';
+      ov.onclick=function(){ sb.classList.remove('open'); ov.remove(); };
+      document.body.appendChild(ov);
+    }
+  } else if(ov){ ov.remove(); }
+}
 
 /* ═══════════════ HELPERS ═══════════════ */
 function fmtNum(n,d=2){
@@ -5425,18 +5438,22 @@ function handleLogoUpload(file){
       const canvas = document.createElement('canvas');
       canvas.width = w; canvas.height = h;
       const ctx = canvas.getContext('2d');
-      // Fondo transparente o blanco según necesidad
       ctx.drawImage(img, 0, 0, w, h);
-      // Convertir a base64 (PNG mantiene transparencia)
-      const dataUrl = canvas.toDataURL(file.type === 'image/jpeg' ? 'image/jpeg' : 'image/png', 0.92);
-      // Stash en el modal
+      // Convertir con compresión; si queda pesado, bajar calidad hasta <60 KB
+      let dataUrl = canvas.toDataURL('image/png');
+      if(dataUrl.length > 60*1024){
+        let q = 0.85;
+        do{
+          dataUrl = canvas.toDataURL('image/jpeg', q);
+          q -= 0.15;
+        } while(dataUrl.length > 60*1024 && q > 0.2);
+      }
       modal._newLogo = dataUrl;
-      // Actualizar preview
       const preview = document.getElementById('empresaLogoPreview');
       if(preview){
         preview.innerHTML = `<img src="${dataUrl}" alt="Logo nuevo" style="max-width:160px;max-height:160px;object-fit:contain;border:1px solid var(--bo);border-radius:8px;padding:6px;background:#fff">`;
       }
-      toast('Logo cargado', `Redimensionado a ${w}×${h}px (${Math.round(dataUrl.length/1024)} KB en base64)`, 'success');
+      toast('Logo cargado', `Redimensionado a ${w}×${h}px (${Math.round(dataUrl.length/1024)} KB)`, 'success');
     };
     img.onerror = function(){ toast('Error', 'No se pudo leer la imagen', 'error'); };
     img.src = e.target.result;
