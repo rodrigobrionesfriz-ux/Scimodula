@@ -4345,6 +4345,8 @@ async function guardarCombustible(){
       usuario:STATE.user.id, creado:new Date().toISOString()
     };
     await dbPut('movements',mov);
+    var _v=await dbGet('movements',numero);
+    if(!_v){ hideLoading(); setErr('El movimiento no pudo guardarse. Reintente.'); return; }
     // 2) Recalcular stock desde movimientos (misma lógica probada; descuenta el consumo)
     await _ejecutarRecalculoStock();
     // 3) Registro aparte para historial por equipo
@@ -5260,6 +5262,13 @@ async function saveMovimiento(){
       }
       await applyMovementToStock(m);
       await dbPut('movements',m);
+      // Confirmación de persistencia: releer de IndexedDB para asegurar que quedó guardado.
+      var _verif = await dbGet('movements', numero);
+      if(!_verif){
+        hideLoading();
+        toast('⚠ No se guardó','El movimiento no pudo persistirse. Reintente o revise el almacenamiento.','error');
+        return;
+      }
       await audit('movimiento.crear',`${tipoLabel(m.tipo)} ${numero}`,numero);
       // Si la salida vino de una confirmación del Cuaderno, marcarla como dada de baja.
       try{
