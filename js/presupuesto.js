@@ -1,3 +1,9 @@
+// Devuelve el array de meses seleccionados en el filtro múltiple (vacío = todos).
+function getMesesSel(){
+  var el=document.getElementById('f-mes');
+  if(!el) return [];
+  return Array.from(el.selectedOptions||[]).map(function(o){return o.value;}).filter(Boolean);
+}
 
 /* ═══════════ MÓDULO CONTROL DE PRESUPUESTO (encapsulado) ═══════════ */
 function __PZ_BOOTSTRAP__(){ (function(){
@@ -96,11 +102,11 @@ function openDetalleModal(descripcion) {
   // Detalle filtrado por la TEMPORADA seleccionada en el dashboard (o todas).
   const tempSel = (document.getElementById('f-temporada') || {}).value || '';
   const allItems = _getDetalleFamilia(descripcion, tempSel);
-  const mesFiltro = document.getElementById('f-mes').value;
+  const mesesSel = getMesesSel();
 
-  // Filter by month if one is selected
-  const filtered = mesFiltro
-    ? allItems.filter(x => x.mes === mesFiltro)
+  // Filter by month(s) if any selected
+  const filtered = mesesSel.length
+    ? allItems.filter(x => mesesSel.indexOf(x.mes) >= 0)
     : allItems;
 
   // Sort ascending by month order
@@ -165,9 +171,9 @@ function renderDetalleTable(items) {
 
   if (!items.length) {
     tbody.innerHTML = '';
-    const mesFiltro = document.getElementById('f-mes').value;
-    noData.textContent = mesFiltro
-      ? `Sin registros en Detalle Gastos para ${mesFiltro}. El monto proviene de la hoja Base.`
+    const mesesSel = getMesesSel();
+    noData.textContent = mesesSel.length
+      ? `Sin registros en Detalle Gastos para ${mesesSel.join(', ')}. El monto proviene de la hoja Base.`
       : 'Sin registros para esta descripción en Detalle Gastos.';
     noData.style.display = 'block';
     countEl.textContent = '0 registros';
@@ -225,10 +231,10 @@ function updateBanner() {
   // Respetar los filtros de temporada y mes (las tarjetas reflejan la
   // temporada seleccionada, no el total del archivo).
   var tempSel = (document.getElementById('f-temporada') || {}).value || '';
-  var mesSel  = (document.getElementById('f-mes') || {}).value || '';
+  var mesesSel = getMesesSel();
   const source = base.filter(function(d){
     if (tempSel && _getTemporada(d) !== tempSel) return false;
-    if (mesSel && d.MES !== mesSel) return false;
+    if (mesesSel.length && mesesSel.indexOf(d.MES) < 0) return false;
     return true;
   });
 
@@ -654,7 +660,13 @@ function rebuildFilters(data) {
       if(def){ sel.value = def; sel.dataset.pzInit = '1'; }
     }
   })();
-  rebuild('f-mes', meses);
+  // f-mes es multiselección: reconstruir preservando los meses marcados y sin "Todos".
+  (function(){
+    const sel=document.getElementById('f-mes'); if(!sel) return;
+    const prev=Array.from(sel.selectedOptions||[]).map(o=>o.value);
+    sel.innerHTML='';
+    meses.forEach(v=>{ const o=document.createElement('option'); o.value=v; o.textContent=v; if(prev.indexOf(v)>=0)o.selected=true; sel.appendChild(o); });
+  })();
   rebuild('f-tipo', tipos);
   rebuild('f-subgrupo', subgrupos);
   rebuild('f-desc', descs);
@@ -701,7 +713,13 @@ function populateFilters() {
     arr.forEach(v => { const o = document.createElement('option'); o.value = v; o.textContent = v; sel.appendChild(o); });
     if(prev && arr.includes(prev)) sel.value = prev;
   };
-  fillSelect('f-mes', meses);
+  // f-mes es multiselección: reconstruir preservando los meses marcados y sin "Todos".
+  (function(){
+    const sel=document.getElementById('f-mes'); if(!sel) return;
+    const prev=Array.from(sel.selectedOptions||[]).map(o=>o.value);
+    sel.innerHTML='';
+    meses.forEach(v=>{ const o=document.createElement('option'); o.value=v; o.textContent=v; if(prev.indexOf(v)>=0)o.selected=true; sel.appendChild(o); });
+  })();
   fillSelect('f-tipo', tipos);
   fillSelect('f-subgrupo', subgrupos);
   fillSelect('f-desc', descs);
@@ -745,6 +763,7 @@ function getFilters() {
   return {
     temporada: document.getElementById('f-temporada') ? document.getElementById('f-temporada').value : '',
     mes: document.getElementById('f-mes').value,
+    meses: getMesesSel(),
     tipo: document.getElementById('f-tipo').value,
     sub: document.getElementById('f-subgrupo').value,
     desc: document.getElementById('f-desc').value,
@@ -758,7 +777,7 @@ function filterData() {
   return source
     .filter(d =>
       (!f.temporada || _getTemporada(d) === f.temporada) &&
-      (!f.mes || d.MES === f.mes) &&
+      (!f.meses || !f.meses.length || f.meses.indexOf(d.MES) >= 0) &&
       (!f.tipo || d["TIPO DE COSTO"].trim() === f.tipo) &&
       (!f.sub || d["SUB-GRUPO"] === f.sub) &&
       (!f.desc || d.DESCRIPCION === f.desc)
@@ -772,7 +791,7 @@ function filterData() {
 
 function resetFilters() {
   if(document.getElementById('f-temporada')) document.getElementById('f-temporada').value = '';
-  document.getElementById('f-mes').value = '';
+  var _fm=document.getElementById('f-mes'); if(_fm){ Array.from(_fm.options).forEach(function(o){o.selected=false;}); }
   document.getElementById('f-tipo').value = '';
   document.getElementById('f-subgrupo').value = '';
   document.getElementById('f-desc').value = '';
