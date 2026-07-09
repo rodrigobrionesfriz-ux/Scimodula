@@ -1808,17 +1808,17 @@ function ipToggleFiltroMapa(clave){
   if(i>=0) _ipMapaGenFiltro.splice(i,1); else _ipMapaGenFiltro.push(clave);
   // Re-render del mapa manteniéndolo abierto
   var mg=document.getElementById('ip-mapagen-modal');
-  if(mg){ mg.remove(); ipMostrarMapaGeneral(); }
+  if(mg){ mg.remove(); ipMostrarMapaGeneral(true); }
 }
 function ipLimpiarFiltroMapa(){
   _ipMapaGenFiltro=[];
   var mg=document.getElementById('ip-mapagen-modal');
-  if(mg){ mg.remove(); ipMostrarMapaGeneral(); }
+  if(mg){ mg.remove(); ipMostrarMapaGeneral(true); }
 }
 try{ window.ipToggleFiltroMapa=ipToggleFiltroMapa; window.ipLimpiarFiltroMapa=ipLimpiarFiltroMapa; }catch(e){}
 
-function ipMostrarMapaGeneral(){
-  _ipMapZoom = 100; // reiniciar zoom al abrir
+function ipMostrarMapaGeneral(preservarZoom){
+  if(!preservarZoom) _ipMapZoom = 100; // reiniciar zoom solo al abrir de cero
   var seleccionados = [];
   document.querySelectorAll('.ip-cuartel-chk:checked').forEach(function(c){ seleccionados.push(c.value); });
   // Si no vienen de checkboxes (re-render por filtro/zoom), reusar los últimos.
@@ -1847,7 +1847,7 @@ function ipMostrarMapaGeneral(){
       '<button onclick="ipImprimirMapaGeneral()" title="Imprimir en carta" style="background:rgba(255,255,255,.2);border:none;color:#fff;font-size:13px;font-weight:700;cursor:pointer;height:44px;padding:0 14px;border-radius:8px">🖨️ Imprimir</button>'+
       '<div style="display:flex;align-items:center;gap:4px;background:rgba(255,255,255,.12);border-radius:10px;padding:3px">'+
         '<button onclick="ipMapZoom(-1)" title="Reducir" style="background:rgba(255,255,255,.18);border:none;color:#fff;font-size:20px;cursor:pointer;width:38px;height:38px;border-radius:8px;line-height:1">−</button>'+
-        '<span id="ip-map-zoom-label" style="font-size:12px;min-width:42px;text-align:center;font-weight:700">100%</span>'+
+        '<span id="ip-map-zoom-label" style="font-size:12px;min-width:42px;text-align:center;font-weight:700">'+(_ipMapZoom||100)+'%</span>'+
         '<button onclick="ipMapZoom(1)" title="Aumentar" style="background:rgba(255,255,255,.18);border:none;color:#fff;font-size:20px;cursor:pointer;width:38px;height:38px;border-radius:8px;line-height:1">+</button>'+
       '</div>'+
       '<button onclick="document.getElementById(\'ip-mapagen-modal\').remove();_ipMapaGenFiltro=[];_ipMapaGenCuarteles=[];" style="background:rgba(255,255,255,.2);border:none;color:#fff;font-size:26px;cursor:pointer;width:44px;height:44px;border-radius:8px">×</button>'+
@@ -2053,7 +2053,7 @@ function ipRenderCuartelSVG(cuartel, hileras){
     })()+
     '<div style="background:#fff;border:1px solid #e3e8ee;border-radius:10px;padding:12px;overflow:auto">'+
       '<div style="display:flex;justify-content:space-between;font-size:11px;font-weight:700;color:#7a8794;margin-bottom:4px;padding:0 4px"><span>← SUR (planta 1)</span><span>NORTE →</span></div>'+
-      '<div class="ip-map-svg-wrap" style="width:100%;margin:0 auto">'+svg+'</div>'+
+      '<div class="ip-map-svg-wrap" style="width:'+(_ipMapZoom||100)+'%;margin:0 auto">'+svg+'</div>'+
       '<div style="font-size:11px;color:#7a8794;margin-top:8px">▶ Inicio de hilera · ■ Fin de hilera — toque esos puntos para abrir Google Maps · La planta 1 (sur) se muestra a la izquierda.</div>'+
     '</div>'+
   '</div>';
