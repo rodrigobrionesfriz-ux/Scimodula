@@ -73,7 +73,7 @@ var FBCOUNT = (function(){
   });
 })();
 </script>
-<link rel="stylesheet" href="css/styles.css?v=23">
+<link rel="stylesheet" href="css/styles.css?v=24">
 </head>
 <body>
 <!-- Hoja de estilo dinámica para el tema forestal (se llena vía JS) -->
@@ -704,7 +704,7 @@ var FBCOUNT = (function(){
 
 <script>
 </script>
-<script src="js/core.js?v=23"></script>
+<script src="js/core.js?v=24"></script>
 <script>
 /* ═══════════════ MÓDULO: CONTROL DE PRESUPUESTO ═══════════════ */
 /* Integra el dashboard de Control de Presupuesto (Huerto Cerezos 2018) como
@@ -1585,8 +1585,8 @@ function renderPresupuesto(main){
     <select id="f-temporada"><option value="">Todas</option></select>
   </div>
   <div class="filter-group">
-    <label>MES</label>
-    <select id="f-mes"><option value="">Todos</option><option value="MAYO">MAYO</option><option value="JUNIO">JUNIO</option><option value="JULIO">JULIO</option><option value="AGOSTO">AGOSTO</option><option value="SEPTIEMBRE">SEPTIEMBRE</option><option value="OCTUBRE">OCTUBRE</option><option value="NOVIEMBRE">NOVIEMBRE</option><option value="DICIEMBRE">DICIEMBRE</option><option value="ENERO">ENERO</option><option value="FEBRERO">FEBRERO</option><option value="MARZO">MARZO</option><option value="ABRIL">ABRIL</option></select>
+    <label>MES <span style="font-weight:400;font-size:10px;color:#888">(Ctrl/toque para varios)</span></label>
+    <select id="f-mes" multiple size="4" style="min-height:90px"><option value="MAYO">MAYO</option><option value="JUNIO">JUNIO</option><option value="JULIO">JULIO</option><option value="AGOSTO">AGOSTO</option><option value="SEPTIEMBRE">SEPTIEMBRE</option><option value="OCTUBRE">OCTUBRE</option><option value="NOVIEMBRE">NOVIEMBRE</option><option value="DICIEMBRE">DICIEMBRE</option><option value="ENERO">ENERO</option><option value="FEBRERO">FEBRERO</option><option value="MARZO">MARZO</option><option value="ABRIL">ABRIL</option></select>
   </div>
   <div class="filter-group">
     <label>TIPO DE COSTO</label>
@@ -1871,8 +1871,8 @@ function renderPresupuesto(main){
 }
 
 </script>
-<script src="js/inventario.js?v=23"></script>
-<script src="js/huerto.js?v=23"></script>
+<script src="js/inventario.js?v=24"></script>
+<script src="js/huerto.js?v=24"></script>
 <script>
 
 /* ═══════════════ MÓDULO: MANTENCIONES ═══════════════ */
@@ -2631,7 +2631,7 @@ var S = { panos:[], registros:[], productos:[], ordenes:[], oCounter:1, confirma
 };
 
 </script>
-<script src="js/cuaderno.js?v=23"></script>
+<script src="js/cuaderno.js?v=24"></script>
 <script>
 
 /* ═══════════════ INTEGRACIÓN CUADERNO DE CAMPO ═══════════════ */
@@ -2688,8 +2688,8 @@ function renderCuaderno(main){
 </script>
 
 
-<script src="data/presupuesto-data.js?v=23"></script>
-<script src="js/presupuesto.js?v=23"></script>
+<script src="data/presupuesto-data.js?v=24"></script>
+<script src="js/presupuesto.js?v=24"></script>
 <script>
 /* ── Normalización global a MAYÚSCULAS en la entrada de datos ──
    Aplica a inputs de texto y textareas de todo el sistema.
