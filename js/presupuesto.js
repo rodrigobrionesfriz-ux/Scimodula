@@ -27,6 +27,24 @@ function setCurrency(cur) {
   updateBanner();
 }
 
+// Actualiza el subtítulo con la temporada seleccionada (o la actual por defecto).
+function actualizarSubtituloTemporada(){
+  var el=document.getElementById('subtitle-temporada'); if(!el) return;
+  var t=(document.getElementById('f-temporada')||{}).value||'';
+  if(!t){ // sin filtro: usar la temporada actual del sistema si está disponible
+    try{ if(typeof temporadaActual==='function') t=temporadaActual(); }catch(e){}
+  }
+  if(t && /^\d{4}-\d{4}$/.test(t)){
+    var a1=t.split('-')[0], a2=t.split('-')[1];
+    el.textContent='Temporada '+t+' (Mayo '+a1+' – Abril '+a2+')';
+  } else if(t){
+    el.textContent='Temporada '+t;
+  } else {
+    el.textContent='Todas las temporadas';
+  }
+}
+try{ window.actualizarSubtituloTemporada=actualizarSubtituloTemporada; }catch(e){}
+
 function getPpto(d) { return CURRENCY === 'CLP' ? d['PPTO_CLP'] : d['PPTO_USD']; }
 function getReal(d)  { return CURRENCY === 'CLP' ? d['REAL_CLP']  : d['REAL_USD'];  }
 function symPrefix()  { return CURRENCY === 'CLP' ? '$' : 'USD '; }
@@ -834,6 +852,7 @@ function refreshLastUpdate() {
 
 function render() {
   refreshLastUpdate();
+  actualizarSubtituloTemporada();
   updateBanner();
   const data = filterData();
   renderWithData(data, ACTIVE_DATA || RAW);
