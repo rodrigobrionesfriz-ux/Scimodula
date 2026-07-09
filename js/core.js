@@ -487,13 +487,20 @@ async function sciFbPush(immediate){
         _updatedAt: firebase.firestore.FieldValue.serverTimestamp()
       });
       SCIFB.online = true;
+      SCIFB.pendiente = false;
+      try{ localStorage.removeItem('SCI_SYNC_PENDIENTE'); }catch(e){}
       sciFbIndicator('online', 'Inventario guardado en la nube');
       // Si fusionamos algo nuevo desde la nube, refrescar el cache y la vista.
       try{ if(typeof reloadCache==='function'){ await reloadCache(); } }catch(e){}
     } catch(err){
       SCIFB.online = false;
+      SCIFB.pendiente = true;
+      try{ localStorage.setItem('SCI_SYNC_PENDIENTE', new Date().toISOString()); }catch(e){}
       console.error('[SCI-Firebase] Error al guardar:', err);
-      sciFbIndicator('offline', 'Error al guardar (datos locales OK)');
+      sciFbIndicator('offline', '⚠ Cambios sin subir a la nube — reintentando');
+      // Reintento automático en 15s mientras haya cambios pendientes
+      try{ clearTimeout(SCIFB._retryTimer); }catch(e){}
+      SCIFB._retryTimer = setTimeout(function(){ try{ sciFbPush(true); }catch(e){} }, 15000);
     }
   };
   if(immediate){ await doSave(); }
@@ -901,6 +908,12 @@ async function doLogin(){
   } else {
     navigate('dashboard');
   }
+  // Aviso si quedaron cambios sin subir de una sesión anterior
+  try{
+    if(localStorage.getItem('SCI_SYNC_PENDIENTE')){
+      setTimeout(function(){ toast('⚠ Cambios sin subir','Hay datos guardados localmente que no se sincronizaron. Se reintentará automáticamente al conectar.','warning'); }, 2000);
+    }
+  }catch(e){}
   // Sembrar el history para el botón atrás (móvil)
   try{ sciSeedHistory(); }catch(e){}
   // Aplicar el tema de color guardado
