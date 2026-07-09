@@ -1111,3 +1111,20 @@ html, body{ max-width:100%; overflow-x:hidden; }
   .stats-grid.dash3{ grid-template-columns:1fr 1fr !important; }
   .stats-grid.dash3 .dash-wide{ grid-column:1 / -1; }
 }
+
+/* ═══ Topbar compacta en móvil (evita colapso del header) ═══ */
+@media(max-width:640px){
+  .topbar{ padding:0 10px; gap:8px; }
+  .topbar-title{ font-size:14px; max-width:40vw; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .user-chip{ padding:4px 8px 4px 4px; gap:6px; font-size:12px; max-width:44vw; }
+  .user-chip .user-chip-name{ max-width:26vw; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .user-chip .user-chip-role{ display:none; }
+  .user-avatar{ width:26px; height:26px; font-size:11px; }
+  /* Indicador de conexión: más pequeño y sin desbordar */
+  .sync-indicator, [class*="sync"], [id*="sync"]{ font-size:11px !important; padding:3px 8px !important; }
+  .sync-indicator span, .sync-text{ max-width:60px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+}
+@media(max-width:400px){
+  .topbar-title{ max-width:28vw; }
+  .user-chip .user-chip-name{ max-width:20vw; }
+}
