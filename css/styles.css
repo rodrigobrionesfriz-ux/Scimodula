@@ -1135,7 +1135,15 @@ html, body{ max-width:100%; overflow-x:hidden; }
   #pz-root .detalle-modal{ max-width:100vw !important; width:calc(100vw - 16px) !important; }
   /* Scroll horizontal de la tabla dentro del cuerpo */
   #pz-root .detalle-body{ overflow-x:auto !important; -webkit-overflow-scrolling:touch; padding:12px !important; }
-  #pz-root .detalle-table{ min-width:560px; } /* fuerza scroll en vez de aplastar columnas */
+  #pz-root .detalle-table{ min-width:600px; table-layout:fixed; }
+  #pz-root .detalle-table th, #pz-root .detalle-table td{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  /* Anchos fijos por columna (Descripción, Proveedor, N°, Cantidad, Mes, Total) */
+  #pz-root .detalle-table th:nth-child(1), #pz-root .detalle-table td:nth-child(1){ width:150px; }
+  #pz-root .detalle-table th:nth-child(2), #pz-root .detalle-table td:nth-child(2){ width:150px; }
+  #pz-root .detalle-table th:nth-child(3), #pz-root .detalle-table td:nth-child(3){ width:60px; }
+  #pz-root .detalle-table th:nth-child(4), #pz-root .detalle-table td:nth-child(4){ width:70px; }
+  #pz-root .detalle-table th:nth-child(5), #pz-root .detalle-table td:nth-child(5){ width:70px; }
+  #pz-root .detalle-table th:nth-child(6), #pz-root .detalle-table td:nth-child(6){ width:100px; }
   #pz-root .detalle-header{ padding:12px 14px !important; }
   #pz-root .detalle-header h3{ font-size:13px !important; }
 }
