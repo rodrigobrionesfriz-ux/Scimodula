@@ -143,14 +143,14 @@ function openDetalleModal(descripcion) {
     var fuenteFilas = (typeof ACTIVE_DATA!=='undefined' && ACTIVE_DATA && ACTIVE_DATA.length) ? ACTIVE_DATA : RAW;
     var filasDesc = fuenteFilas.filter(function(d){
       if(d.DESCRIPCION !== descripcion) return false;
-      if(mesFiltro && d.MES !== mesFiltro) return false;
+      if(mesesSel.length && mesesSel.indexOf(d.MES) < 0) return false;
       return true;
     });
     currentDetallePpto = filasDesc.reduce(function(s,d){ return s + (parseFloat(getPpto(d))||0); }, 0);
   }catch(e){ currentDetallePpto = 0; }
 
   document.getElementById('detalle-title').textContent = descripcion;
-  const mesLabel = mesFiltro ? ` · ${mesFiltro}` : ' · Todos los meses';
+  const mesLabel = mesesSel.length ? ` · ${mesesSel.join(', ')}` : ' · Todos los meses';
   document.getElementById('detalle-subtitle').textContent =
     `${items.length} registros${mesLabel} · Hoja Detalle Gastos`;
   document.getElementById('detalle-search').value = '';
