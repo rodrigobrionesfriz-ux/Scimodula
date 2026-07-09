@@ -61,6 +61,7 @@ function fmtValK(v)   {
 // ===================== DETALLE GASTOS MODAL =====================
 let currentDetalleItems = [];
 let currentDetallePpto = 0;
+let currentDetalleTC = 0; // TC implícito del Excel para la familia (REAL_CLP/REAL_USD)
 
 /* _isSeasonDetalle(obj): true si el detalle ya está segmentado por temporada
    (el primer nivel es {temporada:{familia:[...]}}), false si es el formato
@@ -147,6 +148,12 @@ function openDetalleModal(descripcion) {
       return true;
     });
     currentDetallePpto = filasDesc.reduce(function(s,d){ return s + (parseFloat(getPpto(d))||0); }, 0);
+    // TC implícito del Excel para esta familia: suma REAL_CLP / suma REAL_USD.
+    // Se usa para convertir el detalle a USD con el MISMO criterio que el gráfico
+    // (que muestra el REAL_USD del Excel), evitando descuadres con el TC de pantalla.
+    var sClp=filasDesc.reduce(function(s,d){return s+(parseFloat(d.REAL_CLP)||0);},0);
+    var sUsd=filasDesc.reduce(function(s,d){return s+(parseFloat(d.REAL_USD)||0);},0);
+    currentDetalleTC = (sUsd>0) ? (sClp/sUsd) : 0;
   }catch(e){ currentDetallePpto = 0; }
 
   document.getElementById('detalle-title').textContent = descripcion;
@@ -200,7 +207,9 @@ function renderDetalleTable(items) {
   }
 
   // Get TC for conversion when in USD mode
-  const tc = parseFloat((document.getElementById('rb-tc').value || '0').replace(/\./g,'').replace(',','.')) || 1;
+  // TC del Excel para esta familia (cuadra con el gráfico); si no hay, cae al TC de pantalla.
+  const tcPantalla = parseFloat((document.getElementById('rb-tc').value || '0').replace(/\./g,'').replace(',','.')) || 1;
+  const tc = (currentDetalleTC && currentDetalleTC > 0) ? currentDetalleTC : tcPantalla;
   const convertVal = v => CURRENCY === 'USD' ? v / tc : v;
 
   noData.style.display = 'none';
