@@ -472,6 +472,118 @@ async function detectarInconsistenciaStock(){
   return {ok:diferencias.length===0,diferencias,total:Object.keys(stockEsp).length};
 }
 
+/* ═══════════════ RESPALDO CONSOLIDADO (SCI + Cuaderno + Presupuesto) ═══════════════
+   Un único archivo que respalda TODO el sistema. Reemplaza los respaldos
+   separados. Recuerda al administrador cada 10 días. */
+const BACKUP_INTERVALO_DIAS = 10;
+const BACKUP_KEY = 'SCI_ULTIMO_RESPALDO';
+
+function confirmRestoreConsolidado(file){
+  confirmDialog('Restaurar respaldo completo',
+    '⚠ Esto REEMPLAZARÁ todos los datos actuales (Inventario, Cuaderno, Presupuesto, Huerto) con los del archivo.\n\nSe recomienda generar un respaldo del estado actual antes de continuar.\n\n¿Restaurar de todas formas?',
+    function(){ importBackupConsolidado(file); },'Restaurar', true);
+}
+try{ window.confirmRestoreConsolidado=confirmRestoreConsolidado; }catch(e){}
+
+async function exportBackupConsolidado(silent=false){
+  try{
+    if(!silent) showLoading('Generando respaldo consolidado...');
+    // 1) Todos los stores de IndexedDB (SCI + huerto + combustible)
+    const sci={};
+    for(const [name] of (typeof STORES!=='undefined'?STORES:[])){
+      try{ sci[name]=await dbAll(name); }catch(e){ sci[name]=[]; }
+    }
+    // 2) Cuaderno de campo (estado global S.*)
+    let cuaderno=null;
+    try{ if(typeof S!=='undefined'){ cuaderno={panos:S.panos,registros:S.registros,productos:S.productos,ordenes:S.ordenes,confirmaciones:S.confirmaciones,oCounter:S.oCounter,cfFolioSeq:S.cfFolioSeq,indicadores:S.indicadores}; } }catch(e){}
+    // 3) Presupuesto (dataset serializado)
+    let presupuesto=null;
+    try{ if(window.PZ && typeof window.PZ.serializeDataset==='function'){ presupuesto=window.PZ.serializeDataset(); } }catch(e){}
+
+    const data={
+      version:3, tipo:'RESPALDO_CONSOLIDADO_SCI',
+      fecha:new Date().toISOString(),
+      generadoPor:(STATE.user?.nombre||STATE.user?.id||'-'),
+      sci, cuaderno, presupuesto
+    };
+    const json=JSON.stringify(data);
+    const fname='SCI_respaldo_completo_'+new Date().toISOString().slice(0,10)+'.json';
+    const blob=new Blob([json],{type:'application/json'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url; a.download=fname; document.body.appendChild(a); a.click();
+    document.body.removeChild(a); URL.revokeObjectURL(url);
+
+    localStorage.setItem(BACKUP_KEY, new Date().toISOString());
+    if(!silent){ hideLoading(); toast('Respaldo generado',`Archivo: ${fname} (${Math.round(json.length/1024)} KB)`,'success'); }
+    refreshBackupAlert();
+    return true;
+  }catch(e){
+    if(!silent) hideLoading();
+    toast('Error en respaldo',e.message,'error');
+    console.error('Respaldo consolidado:',e);
+    return false;
+  }
+}
+try{ window.exportBackupConsolidado=exportBackupConsolidado; }catch(e){}
+
+function diasDesdeRespaldo(){
+  const last=localStorage.getItem(BACKUP_KEY);
+  if(!last) return null;
+  return Math.floor((Date.now()-new Date(last).getTime())/86400000);
+}
+
+// Verifica si el admin debe respaldar (cada 10 días) y avisa.
+function verificarRecordatorioRespaldo(){
+  if(!STATE.user || STATE.user.role!=='admin') return;
+  const dias=diasDesdeRespaldo();
+  if(dias===null){
+    setTimeout(()=>toast('📦 Respaldo recomendado','Aún no has generado un respaldo. Ve a Configuración → Respaldo del sistema.','warning'),2500);
+  } else if(dias>=BACKUP_INTERVALO_DIAS){
+    setTimeout(()=>toast('📦 Respaldo pendiente',`Han pasado ${dias} días desde el último respaldo. Se recomienda generar uno nuevo.`,'warning'),2500);
+  }
+}
+try{ window.verificarRecordatorioRespaldo=verificarRecordatorioRespaldo; }catch(e){}
+
+async function importBackupConsolidado(file){
+  try{
+    showLoading('Restaurando respaldo consolidado...');
+    const txt=await file.text();
+    const data=JSON.parse(txt);
+    if(data.tipo!=='RESPALDO_CONSOLIDADO_SCI'){ hideLoading(); toast('Archivo inválido','No es un respaldo consolidado del sistema','error'); return; }
+    // 1) Restaurar stores SCI
+    if(data.sci){
+      for(const name of Object.keys(data.sci)){
+        try{ await dbClear(name); }catch(e){}
+        for(const rec of (data.sci[name]||[])){ try{ await dbPut(name,rec); }catch(e){} }
+      }
+    }
+    // 2) Cuaderno
+    try{
+      if(data.cuaderno && typeof S!=='undefined'){
+        Object.assign(S, data.cuaderno);
+        if(typeof save==='function') save();
+        if(typeof fbPush==='function') fbPush(true);
+      }
+    }catch(e){ console.warn('cuaderno restore:',e); }
+    // 3) Presupuesto
+    try{
+      if(data.presupuesto && window.PZ && typeof window.PZ.loadDataset==='function'){
+        window.PZ.loadDataset(data.presupuesto);
+        if(typeof window.PZ.fbPush==='function') window.PZ.fbPush(true);
+      }
+    }catch(e){ console.warn('presupuesto restore:',e); }
+    hideLoading();
+    toast('Respaldo restaurado','El sistema se recargará para aplicar los cambios','success');
+    setTimeout(()=>location.reload(),1500);
+  }catch(e){
+    hideLoading();
+    toast('Error al restaurar',e.message,'error');
+    console.error('Import consolidado:',e);
+  }
+}
+try{ window.importBackupConsolidado=importBackupConsolidado; }catch(e){}
+
 async function exportBackup(silent=false){
   const data={
     version:1,
@@ -6116,63 +6228,27 @@ function renderConfig(c){
       </div>
 
       ${STATE.user.role==='admin'?`<div class="card">
-        <div class="card-header"><div class="card-title">Respaldo / Restauración</div></div>
+        <div class="card-header"><div class="card-title">📦 Respaldo del sistema</div></div>
         <div style="padding:18px;display:flex;flex-direction:column;gap:12px">
           ${(()=>{
-            const fsa=fsaSupported();
-            const cfg=STATE.cache.config?.backupConfig||{};
-            const carpeta=cfg.carpetaNombre||'';
-            const conPerm=!!_backupDirHandle;
-            const ultDiario=cfg.ultimoDiario?new Date(cfg.ultimoDiario):null;
-            return `
-            <div style="padding:12px;background:var(--gp);border-radius:8px;font-size:13px">
-              <div style="font-weight:600;color:var(--gd);margin-bottom:6px">📁 Carpeta de respaldos</div>
-              ${!fsa?`
-                <div style="color:var(--mu);font-size:12px;line-height:1.5">Tu navegador no soporta elegir carpeta personalizada. Los respaldos se descargan a la carpeta de <strong>Descargas</strong> de tu navegador.</div>
-                <div style="color:var(--mu);font-size:11px;margin-top:6px">💡 Usa Chrome, Edge o Brave en escritorio para configurar una carpeta específica.</div>
-              `:carpeta?`
-                <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-                  <div style="flex:1;min-width:160px"><strong style="color:var(--gm)">${conPerm?'✓':'⏸'} ${escapeHtml(carpeta)}</strong>
-                    <div style="font-size:11px;color:var(--mu);margin-top:2px">${conPerm?'Acceso activo en esta sesión':'Permisos pendientes — se pedirá al guardar'}</div>
-                  </div>
-                  <button class="btn btn-secondary btn-sm" onclick="configurarCarpetaRespaldo()">Cambiar</button>
-                  <button class="btn btn-secondary btn-sm" onclick="olvidarCarpetaRespaldo()" title="Volver a usar carpeta de Descargas">Olvidar</button>
-                </div>
-              `:`
-                <div style="color:var(--mu);font-size:12px;line-height:1.5;margin-bottom:8px">No hay carpeta configurada. Los respaldos van a la carpeta de Descargas de tu navegador.</div>
-                <button class="btn btn-secondary btn-sm" onclick="configurarCarpetaRespaldo()">📁 Configurar carpeta</button>
-                <div style="font-size:11px;color:var(--mu);margin-top:6px">💡 Recomendado: elige una carpeta sincronizada con Google Drive u OneDrive para respaldo en la nube.</div>
-              `}
-            </div>
-            <div style="padding:10px 12px;background:#f5f9fd;border-left:3px solid var(--gl);border-radius:4px;font-size:12px;color:var(--mu);line-height:1.5">
-              <strong style="color:var(--gd)">Modo de respaldo: histórico mixto</strong><br>
-              • <code style="background:var(--gs);padding:1px 4px;border-radius:3px">SCI_backup_actual.json</code> — siempre el más reciente, se sobrescribe.<br>
-              • <code style="background:var(--gs);padding:1px 4px;border-radius:3px">SCI_backup_diario_YYYY-MM-DD.json</code> — uno por día, se acumula.${ultDiario?`<br><span style="font-size:11px">Último diario: ${fmtDate(ultDiario)}</span>`:''}
+            const dias=diasDesdeRespaldo();
+            let estado, color;
+            if(dias===null){ estado='Nunca se ha generado un respaldo'; color='#c0392b'; }
+            else if(dias>=BACKUP_INTERVALO_DIAS){ estado=`Último respaldo hace ${dias} días — se recomienda actualizar`; color='#e9730c'; }
+            else { estado=`Último respaldo hace ${dias} día(s) · al día`; color='#1a7e3e'; }
+            return `<div style="background:var(--gs);border-left:4px solid ${color};border-radius:8px;padding:12px 14px">
+              <div style="font-weight:700;color:${color};font-size:13px">${estado}</div>
+              <div style="font-size:12px;color:var(--mu);margin-top:4px">El sistema recuerda respaldar cada ${BACKUP_INTERVALO_DIAS} días. Un solo archivo consolida <strong>Inventario, Cuaderno de Campo, Presupuesto e Inventario de Huerto</strong>.</div>
             </div>`;
           })()}
-          <button class="btn btn-primary" onclick="exportBackup()" style="justify-content:center">💾 Descargar respaldo ahora</button>
-          ${STATE.user.role==='admin'?`<label class="btn btn-secondary" style="justify-content:center;cursor:pointer"><span>📂 Restaurar respaldo...</span><input type="file" accept=".json" style="display:none" onchange="if(this.files[0])confirmRestore(this.files[0])"></label>
-          <div class="alert alert-warning" style="font-size:12px">⚠️ Restaurar reemplaza TODOS los datos actuales. Descarga primero un respaldo de seguridad.</div>`:''}
+          <button class="btn btn-primary" onclick="exportBackupConsolidado()" style="justify-content:center">💾 Generar respaldo completo</button>
+          <label class="btn btn-secondary" style="justify-content:center;cursor:pointer"><span>📂 Restaurar respaldo completo...</span><input type="file" accept=".json,application/json" style="display:none" onchange="if(this.files[0]){confirmRestoreConsolidado(this.files[0]);this.value='';}"></label>
+          <div class="hint" style="line-height:1.4">El archivo se descarga a tu carpeta de Descargas. Guárdalo en un lugar seguro (idealmente sincronizado con Google Drive u OneDrive). Restaurar reemplaza todos los datos actuales.</div>
           <div style="border-top:1px solid var(--bo);margin-top:6px;padding-top:12px">
-            <div style="font-size:11px;color:var(--mu);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Datos almacenados</div>
-            <div style="font-size:13px;line-height:1.7">
-              ${STATE.cache.products.length} productos · ${STATE.cache.warehouses.length} bodegas · ${STATE.cache.movements.filter(m=>!m.anulado).length} movimientos vigentes (${STATE.cache.movements.filter(m=>m.anulado).length} anulados) · ${STATE.cache.users.length} usuarios
-            </div>
-          </div>
-          <div style="border-top:1px solid var(--bo);margin-top:6px;padding-top:12px">
-            <div style="font-size:11px;color:var(--mu);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">🌳 Respaldo del Cuaderno de Campo</div>
-            <div style="font-size:12px;color:var(--mu);margin-bottom:8px;line-height:1.4">Respaldo independiente de los datos del Cuaderno de Campo (paños, órdenes, confirmaciones, productos fitosanitarios).</div>
-            <div style="display:flex;gap:8px;flex-wrap:wrap">
-              <button class="btn btn-secondary btn-sm" onclick="ccExportBackup()" style="justify-content:center">💾 Descargar respaldo Cuaderno</button>
-              <button class="btn btn-secondary btn-sm" onclick="document.getElementById('cc-restore-file-input').click()" style="justify-content:center">📂 Restaurar Cuaderno...</button>
-              <input type="file" id="cc-restore-file-input" accept=".json,application/json" style="display:none" onchange="if(this.files&&this.files[0]){ccImportBackup(this.files[0]);this.value='';}">
-            </div>
-          </div>
-          ${STATE.user.role==='admin'?`<div style="border-top:1px solid var(--bo);margin-top:6px;padding-top:12px">
             <div style="font-size:11px;color:var(--mu);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Mantenimiento</div>
             <button class="btn btn-secondary btn-sm" onclick="recalcularStock()" style="width:100%;justify-content:center">🔄 Recalcular stock desde movimientos</button>
             <div class="hint" style="margin-top:6px;line-height:1.4">Útil si sospechas inconsistencias en los saldos. Recompone el stock desde cero leyendo todos los movimientos vigentes (excluye anulados).</div>
-          </div>`:''}
+          </div>
         </div>
       </div>`:''}
     </div>`;
