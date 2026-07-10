@@ -828,6 +828,45 @@ async function audit(accion,detalle,referencia=''){
 }
 
 /* ═══════════════ TOAST ═══════════════ */
+/* Utilidad global: valida campos requeridos de un contenedor, marcando en rojo
+   los vacíos. Recibe el elemento contenedor (o su id) y una lista opcional de
+   ids a validar; si no se pasa lista, valida todos los [required] y [data-req].
+   Devuelve true si todo OK, false si hay vacíos (y hace scroll al primero). */
+function validarCampos(cont, ids){
+  var root = (typeof cont==='string') ? document.getElementById(cont) : cont;
+  if(!root) return true;
+  // Limpiar marcas previas
+  root.querySelectorAll('.campo-error').forEach(function(el){ el.classList.remove('campo-error'); });
+  root.querySelectorAll('.campo-error-msg').forEach(function(el){ el.remove(); });
+  var campos = ids && ids.length
+    ? ids.map(function(id){ return document.getElementById(id); }).filter(Boolean)
+    : Array.from(root.querySelectorAll('[required],[data-req]'));
+  var primero=null;
+  campos.forEach(function(el){
+    var v=(el.value||'').toString().trim();
+    if(!v){
+      el.classList.add('campo-error');
+      var fld=el.closest('.form-field'); if(fld) fld.classList.add('campo-error');
+      if(!primero) primero=el;
+    }
+  });
+  // Quitar la marca al empezar a escribir
+  campos.forEach(function(el){
+    if(!el._valBound){
+      el._valBound=true;
+      el.addEventListener('input', function(){ el.classList.remove('campo-error'); var f=el.closest('.form-field'); if(f) f.classList.remove('campo-error'); });
+      el.addEventListener('change', function(){ el.classList.remove('campo-error'); var f=el.closest('.form-field'); if(f) f.classList.remove('campo-error'); });
+    }
+  });
+  if(primero){
+    try{ primero.scrollIntoView({behavior:'smooth',block:'center'}); primero.focus(); }catch(e){}
+    toast('Faltan datos','Complete los campos marcados en rojo','error');
+    return false;
+  }
+  return true;
+}
+try{ window.validarCampos=validarCampos; }catch(e){}
+
 function toast(title,msg='',type='success'){
   const el=document.createElement('div');
   el.className='toast '+type;
