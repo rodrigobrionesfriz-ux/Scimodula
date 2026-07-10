@@ -1142,3 +1142,30 @@ html, body{ max-width:100%; overflow-x:hidden; }
   #pz-root .detalle-header{ padding:12px 14px !important; }
   #pz-root .detalle-header h3{ font-size:13px !important; }
 }
+
+/* ═══ Mejora visual de formularios: obligatorios, foco y validación ═══ */
+/* Foco más notorio del campo activo */
+.form-field input:focus,.form-field select:focus,.form-field textarea:focus,
+input:focus,select:focus,textarea:focus{
+  outline:none;
+  border-color:var(--gl) !important;
+  box-shadow:0 0 0 3px rgba(10,110,209,.18) !important;
+}
+/* Asterisco de campos obligatorios (label con .req o marcado con *) */
+.form-field label .req, label .req{ color:#c0392b; font-weight:800; margin-left:2px; }
+/* Marca de campo obligatorio: borde izquierdo sutil */
+.form-field.required input, .form-field.required select, .form-field.required textarea,
+[required]:not([type=checkbox]):not([type=radio]){
+  border-left:3px solid #f0b429;
+}
+/* Campo con error (vacío al validar) — se agrega la clase .campo-error vía JS */
+.campo-error, .form-field.campo-error input, .form-field.campo-error select, .form-field.campo-error textarea{
+  border-color:#c0392b !important;
+  background:#fff5f5 !important;
+  box-shadow:0 0 0 3px rgba(192,57,43,.12) !important;
+}
+.campo-error-msg{ color:#c0392b; font-size:11px; font-weight:600; margin-top:3px; }
+/* Placeholder más tenue para distinguir de dato ingresado */
+input::placeholder, textarea::placeholder{ color:#9aa7b4; opacity:1; }
+/* Select sin elegir (valor vacío) en gris; con dato en color normal */
+select:required:invalid{ color:#9aa7b4; }
