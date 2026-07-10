@@ -1930,6 +1930,7 @@ function ipMostrarMapaGeneral(preservarZoom){
   // seleccionados y cuenta cuántas hay en cada estado (Sano, Débil, Muerto,
   // Replante, Falla/vacío).
   var conteoEstados = { sano:0, debil:0, muerto:0, replante:0, falta:0 };
+  var estadoPorVariedad = {}; // { estado: { variedad: n } }
   var totalPlantas = 0;
   var conteoPoliniz = {}; var totalPoliniz = 0;
   _ipMapaGenRegs = regs; // guardar para el detalle imprimible por estado
@@ -1939,6 +1940,12 @@ function ipMostrarMapaGeneral(preservarZoom){
       if(conteoEstados[est]===undefined) conteoEstados[est] = 0;
       conteoEstados[est]++;
       totalPlantas++;
+      // Variedad de la planta: polinizante usa su variedad; principal la del cuartel
+      var vari = (p && p.tipo==='poliniz')
+        ? (p.polinizante || r.polinizante || 'Polinizante')
+        : (r.variedad || 'Principal');
+      if(!estadoPorVariedad[est]) estadoPorVariedad[est] = {};
+      estadoPorVariedad[est][vari] = (estadoPorVariedad[est][vari]||0)+1;
       if(p && p.tipo==='poliniz'){
         var vp = p.polinizante || r.polinizante || 'Sin variedad';
         conteoPoliniz[vp] = (conteoPoliniz[vp]||0)+1;
@@ -1965,6 +1972,13 @@ function ipMostrarMapaGeneral(preservarZoom){
           '</div>'+
           '<div style="font-size:22px;font-weight:800;color:#23303d;line-height:1.1">'+n.toLocaleString('es-CL')+'</div>'+
           '<div style="font-size:11px;color:#7a8794">'+pct+'% del total'+(clickable?' · ver detalle ›':'')+'</div>'+
+          (function(){
+            var pv = estadoPorVariedad[k];
+            if(!pv || n===0) return '';
+            return '<div style="margin-top:5px;padding-top:5px;border-top:1px dashed #e0e6ec;font-size:10.5px;color:#5a6a78;line-height:1.5">'+
+              Object.keys(pv).sort().map(function(v){ return escapeHtml(v)+': <strong>'+pv[v].toLocaleString('es-CL')+'</strong>'; }).join('<br>')+
+            '</div>';
+          })()+
         '</div>';
       }).join('')+
       (function(){
