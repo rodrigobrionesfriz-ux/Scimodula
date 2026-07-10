@@ -3779,15 +3779,51 @@ function _ejecutarInformeStock(f){
     ws1['!cols']=[{wch:32},{wch:60}];
 
     // ─── Hoja 2: Detalle de productos ───
-    const detalleData=filas.map(r=>{
-      const c={...r};
-      delete c._p;delete c._b;delete c._lots;delete c._st;
-      return c;
+    // Para productos con manejo de atributos, se expande UNA FILA POR LOTE con
+    // su lote y vencimiento (trazabilidad completa). Los demás, una fila normal.
+    const hoy0=new Date();
+    const detalleData=[];
+    filas.forEach(r=>{
+      const base={
+        'Bodega':r.Bodega,'Código':r['Código'],'EAN':r.EAN,'Descripción':r.Descripción,
+        'Tipo':r.Tipo,'Grupo':r.Grupo,'Sub-grupo':r['Sub-grupo'],'UM':r.UM
+      };
+      if(r['Maneja lotes']==='SI' && r._lots.length>0){
+        r._lots.forEach(l=>{
+          const venc=l.fechaVenc?new Date(l.fechaVenc):null;
+          const dias=venc?Math.floor((venc-hoy0)/86400000):null;
+          let estadoVenc='Sin vencimiento';
+          if(dias!==null){ estadoVenc = dias<0?'VENCIDO':(dias<=30?'Por vencer (<=30d)':'Vigente'); }
+          detalleData.push({
+            ...base,
+            'Lote':l.lote||'(sin lote)',
+            'Vencimiento':l.fechaVenc?fmtDateOnly(l.fechaVenc):'',
+            'Estado venc.':estadoVenc,
+            'Cantidad':Number(l.cantidad)||0,
+            'Costo unitario':Number(l.costo)||0,
+            'Valor total':(Number(l.cantidad)||0)*(Number(l.costo)||0),
+            'Stock mínimo':r['Stock mínimo'],
+            'Bajo mínimo':r['Bajo mínimo']
+          });
+        });
+      } else {
+        detalleData.push({
+          ...base,
+          'Lote':r['Maneja lotes']==='SI'?'(sin lote)':'—',
+          'Vencimiento':'',
+          'Estado venc.':'—',
+          'Cantidad':r.Cantidad,
+          'Costo unitario':r['Costo PPP'],
+          'Valor total':r['Valor total'],
+          'Stock mínimo':r['Stock mínimo'],
+          'Bajo mínimo':r['Bajo mínimo']
+        });
+      }
     });
     const ws2=XLSX.utils.json_to_sheet(detalleData);
     ws2['!cols']=[
-      {wch:20},{wch:11},{wch:14},{wch:38},{wch:18},{wch:18},{wch:18},
-      {wch:5},{wch:11},{wch:13},{wch:14},{wch:12},{wch:11},{wch:13},{wch:11}
+      {wch:20},{wch:11},{wch:14},{wch:38},{wch:16},{wch:16},{wch:16},
+      {wch:5},{wch:16},{wch:12},{wch:16},{wch:11},{wch:13},{wch:14},{wch:12},{wch:11}
     ];
 
     // ─── Hoja 3: Resumen por grupo / sub-grupo ───
@@ -6274,5 +6310,4 @@ function confirmRestore(file){
       catch(e){hideLoading();toast('Error',e.message,'error')}
     },'Sí, restaurar',true);
 }
-
 
