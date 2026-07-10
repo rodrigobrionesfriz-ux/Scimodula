@@ -914,6 +914,8 @@ async function doLogin(){
       setTimeout(function(){ toast('⚠ Cambios sin subir','Hay datos guardados localmente que no se sincronizaron. Se reintentará automáticamente al conectar.','warning'); }, 2000);
     }
   }catch(e){}
+  // Recordatorio de respaldo consolidado (admin, cada 10 días)
+  try{ if(typeof verificarRecordatorioRespaldo==='function') verificarRecordatorioRespaldo(); }catch(e){}
   // Sembrar el history para el botón atrás (móvil)
   try{ sciSeedHistory(); }catch(e){}
   // Aplicar el tema de color guardado
