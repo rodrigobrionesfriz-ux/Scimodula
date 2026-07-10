@@ -1241,8 +1241,17 @@ function ipRenderResumenPanos(){
   html += keys.map(function(k){
     var g = grupos[k];
     var pano = ipBuscarPano(g.cuartel, g.variedad);
-    var registrado = pano ? (parseInt(pano.plantas)|| (pano.densidad&&pano.hectareas?Math.round(pano.densidad*pano.hectareas):0)) : null;
-    var dif = (registrado!=null) ? (g.total - registrado) : null;
+    // Comparar por variedad: principal contra su paño, cada polinizante contra el suyo.
+    var regPrin = pano ? (parseInt(pano.plantas)|| (pano.densidad&&pano.hectareas?Math.round(pano.densidad*pano.hectareas):0)) : null;
+    var difPrin = (regPrin!=null) ? (g.principal - regPrin) : null;
+    // ¿Alguna variedad (principal o polinizante) difiere de su paño?
+    var hayDif = (difPrin!=null && difPrin!==0);
+    Object.keys(g.poliniz).forEach(function(nom){
+      var pp = ipBuscarPano(g.cuartel, nom);
+      if(pp){ var rp=parseInt(pp.plantas)||0; if((g.poliniz[nom]-rp)!==0) hayDif=true; }
+    });
+    var registrado = regPrin;
+    var dif = difPrin;
     var difTxt = '';
     if(dif!=null && dif!==0){ difTxt = '<span style="color:'+(dif>0?'#0a6e2e':'#c0392b')+';font-weight:700">'+(dif>0?'+':'')+dif+'</span>'; }
     // Desglose: principal con su variedad + cada polinizante con su nombre
@@ -1291,11 +1300,11 @@ function ipRenderResumenPanos(){
       '</div>'+
       desglose+
       (registrado!=null ?
-        '<div style="font-size:12px;color:#666;margin-top:6px;padding-top:6px;border-top:1px dashed #dbe7f3">Registrado en el paño: <strong>'+registrado.toLocaleString('es-CL')+'</strong>'+(difTxt?(' · diferencia: '+difTxt):' · <span style="color:#0a6e2e">coincide ✓</span>')+'</div>'
+        '<div style="font-size:12px;color:#666;margin-top:6px;padding-top:6px;border-top:1px dashed #dbe7f3">'+escapeHtml(g.variedad)+' registrado en el paño: <strong>'+registrado.toLocaleString('es-CL')+'</strong> (contado: '+g.principal.toLocaleString('es-CL')+')'+(difTxt?(' · diferencia: '+difTxt):' · <span style="color:#0a6e2e">coincide ✓</span>')+'</div>'
         : '<div style="font-size:12px;color:#c0392b;margin-top:6px">⚠ No se encontró un paño con este cuartel y variedad en el Cuaderno</div>')+
-      (pano && dif!==0 && STATE.user && STATE.user.role==='admin' ?
+      (pano && hayDif && STATE.user && STATE.user.role==='admin' ?
         '<button onclick="ipTraspasarConteo(\''+escapeHtml(g.cuartel)+'\',\''+escapeHtml(g.variedad)+'\')" style="width:100%;margin-top:10px;padding:10px;background:#0a6ed1;color:#fff;border:none;border-radius:9px;font-size:13px;font-weight:700;cursor:pointer">⟳ Traspasar conteo (principal + polinizantes) y recalcular há</button>'
-        : (pano && dif!==0 ? '<div style="font-size:11px;color:#999;margin-top:8px;text-align:center">Solo el administrador puede traspasar el conteo</div>' : ''))+
+        : (pano && hayDif ? '<div style="font-size:11px;color:#999;margin-top:8px;text-align:center">Solo el administrador puede traspasar el conteo</div>' : ''))+
     '</div>';
   }).join('');
   html += '</div>';
