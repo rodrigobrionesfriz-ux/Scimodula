@@ -1293,9 +1293,9 @@ function ipRenderResumenPanos(){
       (registrado!=null ?
         '<div style="font-size:12px;color:#666;margin-top:6px;padding-top:6px;border-top:1px dashed #dbe7f3">Registrado en el paño: <strong>'+registrado.toLocaleString('es-CL')+'</strong>'+(difTxt?(' · diferencia: '+difTxt):' · <span style="color:#0a6e2e">coincide ✓</span>')+'</div>'
         : '<div style="font-size:12px;color:#c0392b;margin-top:6px">⚠ No se encontró un paño con este cuartel y variedad en el Cuaderno</div>')+
-      (pano && dif!==0 && can('cuaderno.panos') ?
-        '<button onclick="ipActualizarPlantasPano(\''+escapeHtml(pano.id)+'\','+g.total+')" style="width:100%;margin-top:10px;padding:10px;background:#0a6ed1;color:#fff;border:none;border-radius:9px;font-size:13px;font-weight:700;cursor:pointer">⟳ Actualizar paño a '+g.total.toLocaleString('es-CL')+' plantas</button>'
-        : '')+
+      (pano && dif!==0 && STATE.user && STATE.user.role==='admin' ?
+        '<button onclick="ipTraspasarConteo(\''+escapeHtml(g.cuartel)+'\',\''+escapeHtml(g.variedad)+'\')" style="width:100%;margin-top:10px;padding:10px;background:#0a6ed1;color:#fff;border:none;border-radius:9px;font-size:13px;font-weight:700;cursor:pointer">⟳ Traspasar conteo (principal + polinizantes) y recalcular há</button>'
+        : (pano && dif!==0 ? '<div style="font-size:11px;color:#999;margin-top:8px;text-align:center">Solo el administrador puede traspasar el conteo</div>' : ''))+
     '</div>';
   }).join('');
   html += '</div>';
@@ -1310,7 +1310,67 @@ function ipBuscarPano(cuartel, variedad){
   }) || null;
 }
 
-// Actualiza el N° de plantas de un paño con el valor contado (con confirmación)
+// Traspasa el conteo real (principal + polinizantes) a los paños del Cuaderno,
+// recalculando las hectáreas de cada variedad como plantas ÷ densidad. Solo admin.
+function ipTraspasarConteo(cuartel, variedad){
+  if(!STATE.user || STATE.user.role!=='admin'){ toast('Sin permiso','Solo el administrador puede traspasar el conteo','error'); return; }
+  // Recalcular los totales por variedad para este cuartel+variedad principal
+  var regs = (STATE.cache.invplantas||[]).filter(function(r){
+    return (r.cuartel||'')===cuartel && (r.variedad||'')===variedad;
+  });
+  if(!regs.length){ toast('Sin datos','No hay conteo para este grupo','error'); return; }
+  var principalTot = 0; var polTot = {};
+  regs.forEach(function(r){
+    principalTot += (r.countPrincipal||0);
+    var nom = (r.polinizante||'').trim();
+    var cz = (r.countPoliniz||0);
+    if(nom && cz>0){ polTot[nom] = (polTot[nom]||0) + cz; }
+  });
+
+  // Resolver paños del Cuaderno: el principal (cuartel+variedad) y cada polinizante
+  var panoPrin = ipBuscarPano(cuartel, variedad);
+  var cambios = []; // {pano, nuevoPlantas, nuevoHas, dens}
+  function preparar(pano, nuevoTotal){
+    if(!pano) return;
+    var dens = parseFloat(pano.densidad)||0;
+    var nuevoHas = dens>0 ? (nuevoTotal/dens) : (parseFloat(pano.hectareas)||0);
+    cambios.push({ pano:pano, plantas:nuevoTotal, has:nuevoHas, dens:dens });
+  }
+  preparar(panoPrin, principalTot);
+  Object.keys(polTot).forEach(function(nom){
+    // El polinizante es un paño del mismo cuartel con esa variedad
+    var pp = ipBuscarPano(cuartel, nom);
+    preparar(pp, polTot[nom]);
+  });
+
+  if(!cambios.length){ toast('Sin coincidencias','No se encontraron paños en el Cuaderno para actualizar','error'); return; }
+
+  // Construir resumen para confirmar
+  var resumen = cambios.map(function(c){
+    var hasTxt = c.dens>0 ? (' → '+c.has.toFixed(2)+' ha (÷'+c.dens+')') : ' (sin densidad; ha sin cambio)';
+    return '• '+c.pano.nombre+' · '+c.pano.variedad+': '+c.plantas.toLocaleString('es-CL')+' plantas'+hasTxt;
+  }).join('\n');
+  var faltantes = [];
+  if(!panoPrin) faltantes.push(variedad+' (principal)');
+  Object.keys(polTot).forEach(function(nom){ if(!ipBuscarPano(cuartel,nom)) faltantes.push(nom+' (polinizante)'); });
+  var aviso = faltantes.length ? '\n\n⚠ Sin paño en el Cuaderno (no se actualizan): '+faltantes.join(', ') : '';
+
+  confirmDialog('Traspasar conteo y recalcular hectáreas',
+    'Cuartel '+escapeHtml(cuartel)+':\n\n'+resumen+aviso+'\n\n¿Aplicar estos cambios en el Cuaderno de Campo?',
+    function(){
+      cambios.forEach(function(c){
+        c.pano.plantas = c.plantas;
+        if(c.dens>0){ c.pano.hectareas = Math.round(c.has*100)/100; }
+      });
+      try{ if(typeof save==='function') save(); }catch(e){ console.warn('save:',e); }
+      try{ if(typeof fbPush==='function') fbPush(true); }catch(e){}
+      ipRender();
+      toast('Conteo traspasado', cambios.length+' paño(s) actualizados con nuevas plantas y hectáreas','success');
+    },'Traspasar', false);
+}
+try{ window.ipTraspasarConteo=ipTraspasarConteo; }catch(e){}
+
+// (Compat) Actualiza solo el N° de plantas de un paño con el valor contado.
 function ipActualizarPlantasPano(panoId, nuevoTotal){
   if(!can('cuaderno.panos')){ toast('Sin permiso','No tiene permiso para editar paños','error'); return; }
   var pano = ipPanos().find(function(p){ return String(p.id)===String(panoId); });
