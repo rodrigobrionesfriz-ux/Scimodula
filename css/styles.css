@@ -1169,3 +1169,27 @@ input:focus,select:focus,textarea:focus{
 input::placeholder, textarea::placeholder{ color:#9aa7b4; opacity:1; }
 /* Select sin elegir (valor vacío) en gris; con dato en color normal */
 select:required:invalid{ color:#9aa7b4; }
+
+/* ═══ Efecto hover en tarjetas (solo dispositivos con cursor) ═══ */
+@media (hover:hover){
+  .card, .stat-card, .ip-card{
+    transition:transform .16s ease, box-shadow .16s ease, border-color .16s ease;
+  }
+  .card:hover, .ip-card:hover{
+    transform:translateY(-2px);
+    box-shadow:var(--shadow-lg);
+    border-color:var(--gl);
+  }
+  /* Tarjetas de estadística: elevación sutil */
+  .stat-card:hover{
+    transform:translateY(-3px);
+    box-shadow:var(--shadow-lg);
+  }
+  /* Las clicables se resaltan más y muestran la mano */
+  .stat-card[onclick]:hover, .card[onclick]:hover{
+    cursor:pointer;
+    box-shadow:0 8px 24px rgba(10,110,209,.18);
+  }
+  /* Filas de tabla clicables */
+  .row-link:hover{ background:var(--gp); cursor:pointer; }
+}
