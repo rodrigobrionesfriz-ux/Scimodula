@@ -1958,7 +1958,7 @@ function ipMostrarMapaGeneral(preservarZoom){
       '<div style="font-size:14px;font-weight:800;color:#23303d">📊 Resumen de plantas por estado</div>'+
       '<div style="font-size:13px;color:#3a4a5a">Total: <strong style="color:#23303d;font-size:15px">'+totalPlantas.toLocaleString('es-CL')+'</strong> plantas</div>'+
     '</div>'+
-    '<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;width:100%;max-width:100%">'+
+    '<div class="ip-estados-grid" style="display:grid;gap:8px;width:100%;max-width:100%">'+
       Object.keys(IP_ESTADOS).map(function(k){
         var e = IP_ESTADOS[k];
         var n = conteoEstados[k]||0;
