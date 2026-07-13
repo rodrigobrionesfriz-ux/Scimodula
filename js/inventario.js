@@ -508,14 +508,35 @@ async function exportBackupConsolidado(silent=false){
     };
     const json=JSON.stringify(data);
     const fname='SCI_respaldo_completo_'+new Date().toISOString().slice(0,10)+'.json';
-    const blob=new Blob([json],{type:'application/json'});
-    const url=URL.createObjectURL(blob);
-    const a=document.createElement('a');
-    a.href=url; a.download=fname; document.body.appendChild(a); a.click();
-    document.body.removeChild(a); URL.revokeObjectURL(url);
+
+    // 1) Si hay carpeta de respaldo configurada (ej. carpeta compartida del servidor),
+    //    guardar ahí automáticamente: un archivo "actual" y otro con fecha (histórico).
+    let guardadoEnCarpeta=false;
+    try{
+      const dir=await _getBackupDir(false);
+      if(dir){
+        await _writeFileToDir(dir,'SCI_respaldo_actual.json',json);
+        await _writeFileToDir(dir,fname,json);
+        guardadoEnCarpeta=true;
+      }
+    }catch(e){ console.warn('No se pudo escribir en la carpeta de respaldo:',e); }
+
+    // 2) Si no hay carpeta configurada, descargar el archivo.
+    if(!guardadoEnCarpeta){
+      const blob=new Blob([json],{type:'application/json'});
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement('a');
+      a.href=url; a.download=fname; document.body.appendChild(a); a.click();
+      document.body.removeChild(a); URL.revokeObjectURL(url);
+    }
 
     localStorage.setItem(BACKUP_KEY, new Date().toISOString());
-    if(!silent){ hideLoading(); toast('Respaldo generado',`Archivo: ${fname} (${Math.round(json.length/1024)} KB)`,'success'); }
+    if(!silent){
+      hideLoading();
+      toast('Respaldo generado',
+        (guardadoEnCarpeta ? 'Guardado en la carpeta de respaldo del servidor' : `Descargado: ${fname}`)+
+        ` (${Math.round(json.length/1024)} KB)`,'success');
+    }
     refreshBackupAlert();
     return true;
   }catch(e){
@@ -6242,6 +6263,8 @@ function renderConfig(c){
             </div>`;
           })()}
           <button class="btn btn-primary" onclick="exportBackupConsolidado()" style="justify-content:center">💾 Generar respaldo completo</button>
+          ${fsaSupported()?`<button class="btn btn-secondary" onclick="configurarCarpetaRespaldo()" style="justify-content:center">📁 Configurar carpeta de respaldo (servidor)</button>
+          <div class="hint" style="margin-top:-4px">Elija la carpeta compartida del servidor. Los respaldos se guardarán ahí automáticamente (archivo <strong>SCI_respaldo_actual.json</strong> + una copia con fecha), sin descargas manuales.</div>`:''}
           <label class="btn btn-secondary" style="justify-content:center;cursor:pointer"><span>📂 Restaurar respaldo completo...</span><input type="file" accept=".json,application/json" style="display:none" onchange="if(this.files[0]){confirmRestoreConsolidado(this.files[0]);this.value='';}"></label>
           <div class="hint" style="line-height:1.4">El archivo se descarga a tu carpeta de Descargas. Guárdalo en un lugar seguro (idealmente sincronizado con Google Drive u OneDrive). Restaurar reemplaza todos los datos actuales.</div>
           <div style="border-top:1px solid var(--bo);margin-top:6px;padding-top:12px">
@@ -6386,4 +6409,5 @@ function confirmRestore(file){
       catch(e){hideLoading();toast('Error',e.message,'error')}
     },'Sí, restaurar',true);
 }
+
 
