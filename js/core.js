@@ -905,13 +905,24 @@ async function doLogin(){
     document.body.classList.remove('solo-conteos');
   }
   setTimeout(refreshBackupAlert,100);
-  // Verificación de consistencia silenciosa al iniciar (solo admin)
+  // Verificación de consistencia al iniciar (solo admin).
+  // IMPORTANTE: esperar a que la sincronización con la nube termine y el cache
+  // esté completo; si se verifica antes, se comparan movimientos incompletos
+  // contra un stock ya sincronizado y se reportan inconsistencias falsas.
   if(u.role==='admin'){
-    setTimeout(async()=>{
+    (async()=>{
       try{
+        // Esperar a que la sincronización inicial termine (hasta 20s)
+        const t0=Date.now();
+        while(Date.now()-t0 < 20000){
+          if(typeof SCIFB!=='undefined' && SCIFB.ready && SCIFB.online) break;
+          await new Promise(r=>setTimeout(r,500));
+        }
+        await new Promise(r=>setTimeout(r,2000)); // margen tras el primer snapshot
+        try{ if(typeof reloadCache==='function') await reloadCache(); }catch(e){}
+        await new Promise(r=>setTimeout(r,1000));
         const check=await detectarInconsistenciaStock();
         if(!check.ok&&check.diferencias.length>0){
-          // Mostrar alerta no bloqueante con el detalle del primer producto afectado
           const total=check.diferencias.length;
           const d0=check.diferencias[0];
           let nom='';
@@ -921,7 +932,7 @@ async function doLogin(){
           console.warn('Inconsistencias de stock:',check.diferencias);
         }
       }catch(e){console.error('Error verificando consistencia:',e)}
-    },1500);
+    })();
   }
   document.getElementById('userChipName').textContent=u.nombre||u.id;
   document.getElementById('userChipRole').textContent=(ROLE_LABELS[u.role]||u.role);
