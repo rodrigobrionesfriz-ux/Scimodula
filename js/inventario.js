@@ -5429,7 +5429,6 @@ async function saveMovimiento(){
           return;
         }
       }
-      await applyMovementToStock(m);
       await dbPut('movements',m);
       // Confirmación de persistencia: releer de IndexedDB para asegurar que quedó guardado.
       var _verif = await dbGet('movements', numero);
@@ -5438,6 +5437,11 @@ async function saveMovimiento(){
         toast('⚠ No se guardó','El movimiento no pudo persistirse. Reintente o revise el almacenamiento.','error');
         return;
       }
+      // Reconstruir el stock desde TODOS los movimientos (mismo criterio que la
+      // verificación de consistencia). Evita divergencias del cálculo incremental
+      // cuando se registran movimientos con fecha retroactiva o tras un sync.
+      STATE.cache.movements = await dbAll('movements');
+      await _ejecutarRecalculoStock();
       await audit('movimiento.crear',`${tipoLabel(m.tipo)} ${numero}`,numero);
       // Si la salida vino de una confirmación del Cuaderno, marcarla como dada de baja.
       try{
