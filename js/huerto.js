@@ -109,6 +109,20 @@ function cteRenderInicio(){
           return '<option value="'+p.id+'">'+escapeHtml(p.nombre)+' ('+escapeHtml(p.variedad||'')+')</option>';
         }).join('')+
       '</select></div>'+
+      '<div class="cte-field"><label>Temporada</label><select id="cte-temporada">'+
+        (function(){
+          var actual = (typeof temporadaActual==='function') ? temporadaActual() : '';
+          var opts='';
+          // Desde 2022-2023 hasta la temporada siguiente a la actual
+          var aIni=2022;
+          var aFin=(actual && /^\d{4}/.test(actual)) ? (parseInt(actual.slice(0,4))+1) : (new Date().getFullYear()+1);
+          for(var a=aFin;a>=aIni;a--){
+            var t=a+'-'+(a+1);
+            opts+='<option value="'+t+'"'+(t===actual?' selected':'')+'>'+t+'</option>';
+          }
+          return opts;
+        })()+
+      '</select></div>'+
       '<div class="cte-field"><label>Etapa fenológica</label><select id="cte-etapa">'+
         CTE_ETAPAS.map(function(e){return '<option value="'+escapeHtml(e)+'">'+escapeHtml(e)+'</option>';}).join('')+
       '</select></div>'+
@@ -133,6 +147,8 @@ function cteIniciarSesion(){
   _ctePanoSel = pano;
   var etapaSel = document.getElementById('cte-etapa');
   _cteEtapa = etapaSel ? etapaSel.value : '';
+  var tempSel = document.getElementById('cte-temporada');
+  var temporada = tempSel ? tempSel.value : '';
   _cteTipoArbol = null;
   _cteSesion = {
     id: uid(),
@@ -140,6 +156,7 @@ function cteIniciarSesion(){
     panoNombre: pano.nombre,
     variedad: pano.variedad||'',
     especie: 'Cerezo',
+    temporada: temporada,
     etapa: _cteEtapa,
     fijosCodigos: (pano.fijos && pano.fijos.length) ? pano.fijos.slice() : ['F1','F2','F3'],
     fechaInicio: new Date().toISOString(),
@@ -171,7 +188,7 @@ function cteRenderSesion(){
   return '<div class="cte-card" style="background:#eef6ff;border-color:#bcd9f5">'+
       '<div style="font-size:13px;color:#0854a0;font-weight:700">PAÑO EN CONTEO</div>'+
       '<div style="font-size:22px;font-weight:800;color:#23303d">'+escapeHtml(s.panoNombre)+'</div>'+
-      '<div style="font-size:14px;color:#666">'+escapeHtml(s.variedad)+(s.etapa?(' · '+escapeHtml(s.etapa)):'')+'</div>'+
+      '<div style="font-size:14px;color:#666">'+escapeHtml(s.variedad)+(s.etapa?(' · '+escapeHtml(s.etapa)):'')+(s.temporada?(' · <strong>'+escapeHtml(s.temporada)+'</strong>'):'')+'</div>'+
       '<div style="font-size:11px;color:#0854a0;margin-top:3px">Fijos: '+nFijos+'/'+CTE_N_FIJOS+' · Al azar: '+nAzar+'/'+CTE_N_ALEATORIOS+' · Total: '+nArboles+'</div>'+
     '</div>'+
     '<div class="cte-card">'+
@@ -179,14 +196,31 @@ function cteRenderSesion(){
         '<button onclick="cteSetTipo(\'fijo\')" style="flex:1;padding:11px;border-radius:10px;border:2px solid '+(tipoActivo==='fijo'?'#0a6ed1':'#d9d9d9')+';background:'+(tipoActivo==='fijo'?'#f0f7ff':'#fff')+';font-weight:700;font-size:13px;cursor:pointer;color:#0a6ed1">📍 Fijo ('+nFijos+'/'+CTE_N_FIJOS+')</button>'+
         '<button onclick="cteSetTipo(\'aleatorio\')" style="flex:1;padding:11px;border-radius:10px;border:2px solid '+(tipoActivo==='aleatorio'?'#e9730c':'#d9d9d9')+';background:'+(tipoActivo==='aleatorio'?'#fff7ef':'#fff')+';font-weight:700;font-size:13px;cursor:pointer;color:#e9730c">🎲 Al azar ('+nAzar+'/'+CTE_N_ALEATORIOS+')</button>'+
       '</div>'+
-      '<div style="text-align:center;font-size:15px;font-weight:700;color:#444">🌳 Árbol N° '+numActual+' · <span style="color:'+(tipoActivo==='fijo'?'#0a6ed1':'#e9730c')+'">'+escapeHtml(codigoActual)+'</span></div>'+
+      '<div style="text-align:center;font-size:15px;font-weight:700;color:#444">🌳 Árbol N° '+numActual+'</div>'+
+      '<div class="cte-field" style="margin-bottom:10px"><label>Identificación del árbol (editable)</label>'+
+        '<input type="text" id="cte-codigo-input" value="'+escapeHtml(codigoActual)+'" placeholder="Ej: F1 (H12-P45)" '+
+        'style="width:100%;padding:11px;font-size:15px;text-align:center;font-weight:700;color:'+(tipoActivo==='fijo'?'#0a6ed1':'#e9730c')+';border:2px solid '+(tipoActivo==='fijo'?'#bcd9f5':'#fcd9a0')+';border-radius:10px">'+
+        '<div style="font-size:11px;color:#888;margin-top:3px;text-align:center">Puede indicar hilera y planta entre paréntesis, ej: <strong>F1 (H12-P45)</strong></div>'+
+      '</div>'+
       '<div style="text-align:center;font-size:13px;color:#888;margin-bottom:4px">Centros florales</div>'+
       '<div class="cte-counter">'+
         '<button class="minus" onclick="cteAjustar(-1)">−</button>'+
         '<div class="val" id="cte-val">0</div>'+
         '<button class="plus" onclick="cteAjustar(1)">+</button>'+
       '</div>'+
-      '<input type="number" id="cte-centros-input" inputmode="numeric" value="0" onchange="cteSetVal(this.value)" style="width:100%;padding:12px;font-size:18px;text-align:center;border:2px solid #d9d9d9;border-radius:10px;margin-bottom:14px">'+
+      '<input type="number" id="cte-centros-input" inputmode="numeric" value="0" onchange="cteSetVal(this.value)" style="width:100%;padding:12px;font-size:18px;text-align:center;border:2px solid #d9d9d9;border-radius:10px;margin-bottom:10px">'+
+      '<div style="border-top:1px dashed #dbe7f3;padding-top:10px;margin-bottom:10px">'+
+        '<div style="font-size:12px;font-weight:700;color:#0854a0;margin-bottom:6px">Registro adicional (opcional)</div>'+
+        '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">'+
+          '<div class="cte-field" style="margin:0"><label style="font-size:11px">N° Ramas</label>'+
+            '<input type="number" id="cte-ramas" inputmode="numeric" min="0" placeholder="0" style="width:100%;padding:9px;font-size:15px;text-align:center;border:2px solid #d9d9d9;border-radius:8px"></div>'+
+          '<div class="cte-field" style="margin:0"><label style="font-size:11px">N° Dardos</label>'+
+            '<input type="number" id="cte-dardos" inputmode="numeric" min="0" placeholder="0" oninput="cteCalcCuaja()" style="width:100%;padding:9px;font-size:15px;text-align:center;border:2px solid #d9d9d9;border-radius:8px"></div>'+
+          '<div class="cte-field" style="margin:0"><label style="font-size:11px">N° Frutos</label>'+
+            '<input type="number" id="cte-frutos" inputmode="numeric" min="0" placeholder="0" oninput="cteCalcCuaja()" style="width:100%;padding:9px;font-size:15px;text-align:center;border:2px solid #d9d9d9;border-radius:8px"></div>'+
+        '</div>'+
+        '<div id="cte-cuaja" style="text-align:center;font-size:13px;color:#888;margin-top:8px">Cuaja: <strong>—</strong> <span style="font-size:11px">(frutos ÷ dardos)</span></div>'+
+      '</div>'+
       '<button class="cte-big-btn cte-btn-green" onclick="cteGuardarArbol()">✓ Guardar árbol y siguiente</button>'+
       '<div id="cte-gps-status" style="font-size:12px;color:#888;text-align:center;margin-top:4px">📍 GPS: se captura al guardar</div>'+
     '</div>'+
@@ -197,7 +231,16 @@ function cteRenderSesion(){
       '</div>'+
       s.arboles.map(function(a,i){
         var et = a.tipo==='fijo'?'#0a6ed1':'#e9730c';
-        return '<div class="cte-arbol-row"><span><span style="color:'+et+';font-weight:700">'+escapeHtml(a.codigo||('Árbol '+a.n))+'</span></span><span style="font-weight:700">'+a.centros+' centros'+(a.lat?' 📍':'')+'</span>'+
+        var extra='';
+        if(a.ramas||a.dardos||a.frutos){
+          var partes=[];
+          if(a.ramas) partes.push(a.ramas+' ramas');
+          if(a.dardos) partes.push(a.dardos+' dardos');
+          if(a.frutos) partes.push(a.frutos+' frutos');
+          if(a.cuaja!=null) partes.push('cuaja '+a.cuaja.toFixed(2));
+          extra='<div style="font-size:11px;color:#888;margin-top:2px">'+partes.join(' · ')+'</div>';
+        }
+        return '<div class="cte-arbol-row" style="align-items:start"><span><span style="color:'+et+';font-weight:700">'+escapeHtml(a.codigo||('Árbol '+a.n))+'</span>'+extra+'</span><span style="font-weight:700;white-space:nowrap">'+a.centros+' centros'+(a.lat?' 📍':'')+'</span>'+
           '<button onclick="cteEliminarArbol('+i+')" style="background:none;border:none;color:#c0392b;font-size:18px;cursor:pointer">✕</button></div>';
       }).join('')+
     '</div>':'')+
@@ -217,6 +260,20 @@ function cteSetVal(val){
   var v=document.getElementById('cte-val'); if(v) v.textContent=_cteValActual;
 }
 
+// Calcula la cuaja en vivo: N° frutos ÷ N° dardos
+function cteCalcCuaja(){
+  var d=parseFloat((document.getElementById('cte-dardos')||{}).value)||0;
+  var f=parseFloat((document.getElementById('cte-frutos')||{}).value)||0;
+  var el=document.getElementById('cte-cuaja'); if(!el) return;
+  if(d>0 && f>0){
+    var c=f/d;
+    el.innerHTML='Cuaja: <strong style="color:#1a7e3e;font-size:15px">'+c.toFixed(2)+'</strong> <span style="font-size:11px">('+f+' frutos ÷ '+d+' dardos)</span>';
+  } else {
+    el.innerHTML='Cuaja: <strong>—</strong> <span style="font-size:11px">(frutos ÷ dardos)</span>';
+  }
+}
+try{ window.cteCalcCuaja=cteCalcCuaja; }catch(e){}
+
 function cteGuardarArbol(){
   var centros = _cteValActual;
   if(centros<=0){ toast('Sin valor','Ingrese los centros florales del árbol','error'); return; }
@@ -227,7 +284,24 @@ function cteGuardarArbol(){
   var tipo = _cteTipoArbol;
   if(!tipo){ tipo = nFijos<CTE_N_FIJOS ? 'fijo' : 'aleatorio'; }
   var codigo = tipo==='fijo' ? ((_cteSesion.fijosCodigos&&_cteSesion.fijosCodigos[nFijos])||('F'+(nFijos+1))) : ('Azar '+(nAzar+1));
-  var registro = { n:n, centros:centros, tipo:tipo, codigo:codigo, lat:null, lng:null, fecha:new Date().toISOString() };
+  // Permitir el código editado por el usuario (ej. "F1 (H12-P45)")
+  var codInp = document.getElementById('cte-codigo-input');
+  if(codInp && (codInp.value||'').trim()){ codigo = codInp.value.trim(); }
+  // Si es fijo, recordar el código para futuras sesiones del mismo paño
+  if(tipo==='fijo' && _ctePanoSel){
+    try{
+      if(!_ctePanoSel.fijos) _ctePanoSel.fijos=[];
+      _ctePanoSel.fijos[nFijos]=codigo;
+      _cteSesion.fijosCodigos[nFijos]=codigo;
+      if(typeof save==='function') save();
+    }catch(e){}
+  }
+  var ramas  = parseInt((document.getElementById('cte-ramas')||{}).value)||0;
+  var dardos = parseInt((document.getElementById('cte-dardos')||{}).value)||0;
+  var frutos = parseInt((document.getElementById('cte-frutos')||{}).value)||0;
+  var cuaja  = (dardos>0 && frutos>0) ? (frutos/dardos) : null;
+  var registro = { n:n, centros:centros, ramas:ramas, dardos:dardos, frutos:frutos, cuaja:cuaja,
+                   tipo:tipo, codigo:codigo, lat:null, lng:null, fecha:new Date().toISOString() };
   var gpsEl = document.getElementById('cte-gps-status');
   if(!navigator.geolocation){
     if(gpsEl) gpsEl.textContent='📍 Este dispositivo no soporta GPS';
@@ -282,6 +356,18 @@ async function cteFinalizarSesion(){
   var sumC = _cteSesion.arboles.reduce(function(a,x){ return a+(parseFloat(x.centros)||0); },0);
   _cteSesion.promedioCentros = sumC / _cteSesion.arboles.length;
   _cteSesion.nArboles = _cteSesion.arboles.length;
+  // Promedios del registro adicional (solo sobre los árboles que tengan el dato)
+  var prom = function(campo){
+    var vals=_cteSesion.arboles.map(function(x){ return parseFloat(x[campo])||0; }).filter(function(v){ return v>0; });
+    return vals.length ? (vals.reduce(function(a,b){return a+b;},0)/vals.length) : null;
+  };
+  _cteSesion.promedioRamas  = prom('ramas');
+  _cteSesion.promedioDardos = prom('dardos');
+  _cteSesion.promedioFrutos = prom('frutos');
+  // Cuaja global de la sesión: total frutos ÷ total dardos (más representativa que el promedio de cuajas)
+  var totD=_cteSesion.arboles.reduce(function(a,x){return a+(parseFloat(x.dardos)||0);},0);
+  var totF=_cteSesion.arboles.reduce(function(a,x){return a+(parseFloat(x.frutos)||0);},0);
+  _cteSesion.cuajaSesion = (totD>0 && totF>0) ? (totF/totD) : null;
   // Si hay internet al finalizar, se marca como sincronizado (sube a la nube al guardar)
   var online = navigator.onLine;
   _cteSesion.sincronizado = online;
@@ -366,12 +452,13 @@ function cteRenderLista(){
     return '<div class="cte-card">'+
       '<div style="display:flex;justify-content:space-between;align-items:start">'+
         '<div><div style="font-size:17px;font-weight:800;color:#23303d">'+escapeHtml(s.panoNombre||'')+'</div>'+
-          '<div style="font-size:13px;color:#666">'+escapeHtml(s.variedad||'')+' · '+fecha+' '+hora+'</div></div>'+
+          '<div style="font-size:13px;color:#666">'+escapeHtml(s.variedad||'')+' · '+fecha+' '+hora+(s.temporada?(' · <strong style="color:#0854a0">'+escapeHtml(s.temporada)+'</strong>'):'')+'</div></div>'+
         '<div style="text-align:right;font-size:12px">'+sync+(s.aplicadoEstim?'<br><span style="color:#1a7e3e;font-weight:700">📈 Aplicado</span>':'')+'</div>'+
       '</div>'+
       '<div style="display:flex;gap:16px;margin-top:10px;font-size:14px">'+
         '<div><span style="color:#888">Árboles:</span> <strong>'+(s.nArboles||s.arboles.length)+'</strong></div>'+
         '<div><span style="color:#888">Prom. centros:</span> <strong style="color:#0a6ed1">'+(s.promedioCentros!=null?s.promedioCentros.toFixed(1):'-')+'</strong></div>'+
+        (s.cuajaSesion!=null?'<div><span style="color:#888">Cuaja:</span> <strong style="color:#1a7e3e">'+s.cuajaSesion.toFixed(2)+'</strong></div>':'')+
       '</div>'+
       gpsHtml+
       '<div style="display:flex;gap:8px;margin-top:12px">'+
@@ -396,24 +483,29 @@ function cteExportarExcel(){
   var sesiones = STATE.cache.conteos||[];
   if(!sesiones.length){ toast('Sin datos','No hay conteos para exportar','error'); return; }
   // Hoja resumen por sesión
-  var resumen=[['Paño','Variedad','Especie','Fecha','Usuario','N° árboles','Promedio centros','Estado','Aplicado a estimación']];
+  var resumen=[['Temporada','Paño','Variedad','Especie','Fecha','Usuario','N° árboles','Promedio centros','Prom. ramas','Prom. dardos','Prom. frutos','Cuaja','Estado','Aplicado a estimación']];
   sesiones.forEach(function(s){
-    resumen.push([s.panoNombre||'', s.variedad||'', s.especie||'Cerezo', (s.fechaInicio||'').slice(0,10),
+    resumen.push([s.temporada||'', s.panoNombre||'', s.variedad||'', s.especie||'Cerezo', (s.fechaInicio||'').slice(0,10),
       s.usuario||'', s.nArboles||(s.arboles?s.arboles.length:0),
       s.promedioCentros!=null?Number(s.promedioCentros.toFixed(2)):'',
+      s.promedioRamas!=null?Number(s.promedioRamas.toFixed(2)):'',
+      s.promedioDardos!=null?Number(s.promedioDardos.toFixed(2)):'',
+      s.promedioFrutos!=null?Number(s.promedioFrutos.toFixed(2)):'',
+      s.cuajaSesion!=null?Number(s.cuajaSesion.toFixed(3)):'',
       s.sincronizado?'Subido':'Local', s.aplicadoEstim?'SÍ':'NO']);
   });
   // Hoja detalle por árbol (con GPS)
-  var detalle=[['Paño','Variedad','Fecha','N° árbol','Centros florales','Latitud','Longitud']];
+  var detalle=[['Temporada','Paño','Variedad','Fecha','N° árbol','Identificación','Tipo','Centros florales','N° Ramas','N° Dardos','N° Frutos','Cuaja','Latitud','Longitud']];
   sesiones.forEach(function(s){
     (s.arboles||[]).forEach(function(a){
-      detalle.push([s.panoNombre||'', s.variedad||'', (a.fecha||'').slice(0,10), a.n, a.centros,
+      detalle.push([s.temporada||'', s.panoNombre||'', s.variedad||'', (a.fecha||'').slice(0,10), a.n, a.codigo||'', a.tipo||'', a.centros,
+        a.ramas||'', a.dardos||'', a.frutos||'', a.cuaja!=null?Number(a.cuaja.toFixed(3)):'',
         a.lat!=null?a.lat:'', a.lng!=null?a.lng:'']);
     });
   });
   var wb=XLSX.utils.book_new();
   var ws1=XLSX.utils.aoa_to_sheet(resumen);
-  ws1['!cols']=[{wch:18},{wch:14},{wch:10},{wch:12},{wch:18},{wch:11},{wch:15},{wch:10},{wch:18}];
+  ws1['!cols']=[{wch:12},{wch:18},{wch:14},{wch:10},{wch:12},{wch:18},{wch:11},{wch:15},{wch:11},{wch:12},{wch:12},{wch:9},{wch:10},{wch:18}];
   var ws2=XLSX.utils.aoa_to_sheet(detalle);
   ws2['!cols']=[{wch:18},{wch:14},{wch:12},{wch:9},{wch:15},{wch:14},{wch:14}];
   XLSX.utils.book_append_sheet(wb,ws1,'Resumen conteos');
