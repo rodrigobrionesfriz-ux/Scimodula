@@ -1151,32 +1151,20 @@ function estPlantasDe(p){
 
 // Obtiene los conteos efectivos de un paño (los polinizantes heredan del padre)
 function estConteosDe(p){
-  // Herencia CAMPO POR CAMPO: el polinizante usa su propio valor en cada campo si lo tiene (>0);
-  // los campos que no tenga, los hereda de su paño principal.
-  var esPolin = (p.tipo||'Productivo')==='Polinizante';
-  var padre = null;
-  if(esPolin && p.panoPadre){
-    padre = S.panos.find(function(x){ return String(x.id)===String(p.panoPadre); }) || null;
-  }
-  function val(campo){
-    var propio = parseFloat(p[campo])||0;
-    if(propio>0) return { v:propio, her:false };
-    if(padre){ var pv = parseFloat(padre[campo])||0; if(pv>0) return { v:pv, her:true }; }
-    return { v:0, her:false };
-  }
-  var c = val('centrosFlorales');
-  var f = val('frutosPorCentro');
-  var k = val('kgPorFruto');
+  // Cada paño (principal o polinizante) usa EXCLUSIVAMENTE sus propios conteos.
+  // Los polinizantes ya no heredan del paño principal: se cuentan por separado
+  // en terreno y sus datos se importan de forma independiente.
+  var c = parseFloat(p.centrosFlorales)||0;
+  var f = parseFloat(p.frutosPorCentro)||0;
+  var k = parseFloat(p.kgPorFruto)||0;
   return {
-    centros: c.v,
-    frutos: f.v,
-    kgFruto: k.v,
-    // marcas de herencia por campo (para mostrar indicadores)
-    centrosHered: c.her,
-    frutosHered: f.her,
-    kgFrutoHered: k.her,
-    // "heredado" general = true si AL MENOS un campo se hereda
-    heredado: (c.her || f.her || k.her)
+    centros: c,
+    frutos: f,
+    kgFruto: k,
+    centrosHered: false,
+    frutosHered: false,
+    kgFrutoHered: false,
+    heredado: false
   };
 }
 
@@ -2116,7 +2104,26 @@ function renderEstimacion(){
 
   // ── Sección 1: Conteos editables por paño (solo productivos tienen campos; polinizantes heredan) ──
   html += '<div class="cc-card"><div class="cc-card-ttl">🔢 Conteos por paño</div>';
-  html += '<div style="font-size:12px;color:#888;margin-bottom:10px">Todos los conteos son editables. Los polinizantes <strong>heredan</strong> los valores de su paño principal (badge "\u2191 heredado"), pero el agrónomo puede ingresar valores propios para diferenciarlos.</div>';
+  html += '<div style="font-size:12px;color:#888;margin-bottom:10px">Todos los conteos son editables. Cada paño (principal y polinizante) usa <strong>sus propios conteos</strong>; los polinizantes se cuentan por separado en terreno.</div>';
+  // Filtro de temporada + importación de conteos registrados en terreno
+  html += (function(){
+    var tempsCte = [];
+    (STATE.cache.conteos||[]).forEach(function(s){ if(s.temporada && tempsCte.indexOf(s.temporada)<0) tempsCte.push(s.temporada); });
+    tempsCte.sort().reverse();
+    var sel = window._estCteTemporada || (tempsCte[0]||'');
+    return '<div style="display:flex;gap:10px;align-items:end;flex-wrap:wrap;background:#f0f7ff;border:1px solid #bcd9f5;border-radius:8px;padding:12px 14px;margin-bottom:14px">'+
+      '<div style="flex:1;min-width:180px">'+
+        '<label style="display:block;font-size:11px;font-weight:700;color:#0854a0;margin-bottom:4px">TEMPORADA DE LOS CONTEOS</label>'+
+        '<select id="est-cte-temp" onchange="window._estCteTemporada=this.value" style="width:100%;padding:9px;border:1px solid #bcd9f5;border-radius:7px;font-size:13px">'+
+          (tempsCte.length
+            ? tempsCte.map(function(t){ return '<option value="'+escapeHtml(t)+'"'+(t===sel?' selected':'')+'>'+escapeHtml(t)+'</option>'; }).join('')
+            : '<option value="">Sin conteos registrados en terreno</option>')+
+        '</select>'+
+      '</div>'+
+      '<button onclick="estImportarConteosTerreno()" class="cc-btn cc-btn-g" '+(tempsCte.length?'':'disabled')+' style="padding:10px 16px">⬇️ Importar conteos de terreno</button>'+
+      '<div style="flex-basis:100%;font-size:11px;color:#5a7590">Toma el promedio de centros florales de cada sesión de conteo (por paño y variedad) y lo carga en la fila correspondiente. Principales y polinizantes se importan por separado.</div>'+
+    '</div>';
+  })();
 
   ['2018','2024','2026'].forEach(function(y){
     var ps = ordenarPanosPadreHijo(S.panos.filter(function(p){ return p.anio===y; }));
@@ -2141,7 +2148,7 @@ function renderEstimacion(){
       var kgPano = estKgPano(p);
       var plantas = estPlantasDe(p);
       var polBadge = esPolin ? ' <span style="background:#fef3c7;color:#92600a;font-size:9px;font-weight:700;padding:1px 5px;border-radius:8px">🐝</span>' : '';
-      var heredBadge = (esPolin && c.heredado) ? ' <span style="background:#e0e8f0;color:#456;font-size:9px;padding:1px 5px;border-radius:8px" title="Algunos conteos se heredan del paño principal. Ingrese valores propios para diferenciar.">↑ hereda algo</span>' : '';
+      var heredBadge = '';
       var bgRow = esPolin ? 'background:#fafcff' : '';
       // Inputs SIEMPRE editables. Herencia CAMPO POR CAMPO: si ese campo se hereda, mostrar el valor del padre como placeholder y dejar el input vacío.
       var phC = c.centrosHered ? 'placeholder="'+(c.centros||'')+'"' : '';
@@ -2408,6 +2415,54 @@ function guardarVersionEstimacion(){
   renderEstimacion();
   showNotice('\u2713 Versión "'+nombre+'" guardada.','ok');
 }
+/* Importa los conteos registrados en terreno (módulo Conteos) a la estimación,
+   emparejando por paño Y variedad. Principales y polinizantes se cargan por
+   separado, cada uno con su propio promedio de centros florales. */
+function estImportarConteosTerreno(){
+  var temp = (document.getElementById('est-cte-temp')||{}).value || window._estCteTemporada || '';
+  var sesiones = (STATE.cache.conteos||[]).filter(function(s){
+    return (!temp || s.temporada===temp) && s.promedioCentros!=null;
+  });
+  if(!sesiones.length){ showNotice('No hay conteos de terreno para la temporada '+(temp||'seleccionada')+'.','err'); return; }
+
+  // Promedio por paño+variedad (si hay varias sesiones del mismo, se promedian)
+  var acum = {};
+  sesiones.forEach(function(s){
+    var clave = (s.panoNombre||'').trim().toLowerCase()+'|'+(s.variedad||'').trim().toLowerCase();
+    if(!acum[clave]) acum[clave] = { suma:0, n:0, pano:s.panoNombre, variedad:s.variedad };
+    acum[clave].suma += s.promedioCentros;
+    acum[clave].n++;
+  });
+
+  var cambios=[], sinPano=[];
+  Object.keys(acum).forEach(function(clave){
+    var a = acum[clave];
+    var promedio = a.suma / a.n;
+    // Buscar el paño del Cuaderno con ese nombre Y variedad (principal o polinizante)
+    var pano = (S.panos||[]).find(function(p){
+      return (p.nombre||'').trim().toLowerCase()===(a.pano||'').trim().toLowerCase()
+          && (p.variedad||'').trim().toLowerCase()===(a.variedad||'').trim().toLowerCase();
+    });
+    if(pano){ cambios.push({ pano:pano, valor:Math.round(promedio*100)/100, sesiones:a.n }); }
+    else { sinPano.push(a.pano+' · '+a.variedad); }
+  });
+
+  if(!cambios.length){ showNotice('No se encontraron paños que coincidan con los conteos de terreno.','err'); return; }
+
+  var resumen = cambios.map(function(c){
+    return '• '+c.pano.nombre+' · '+(c.pano.variedad||'')+': '+c.valor+' centros/árbol'+(c.sesiones>1?(' ('+c.sesiones+' sesiones promediadas)'):'');
+  }).join('\n');
+  var aviso = sinPano.length ? '\n\n⚠ Sin paño coincidente (no se importan): '+sinPano.join(', ') : '';
+
+  if(!confirm('Importar centros florales desde los conteos de terreno'+(temp?(' · temporada '+temp):'')+':\n\n'+resumen+aviso+'\n\n¿Aplicar?')) return;
+
+  cambios.forEach(function(c){ c.pano.centrosFlorales = c.valor; });
+  save();
+  renderEstimacion();
+  showNotice('\u2713 '+cambios.length+' paño(s) actualizados con los conteos de terreno.','ok');
+}
+try{ window.estImportarConteosTerreno=estImportarConteosTerreno; }catch(e){}
+
 function estFiltrarTemporada(t){
   window._estTempFiltro = t || '';
   renderEstimacion();
