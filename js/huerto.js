@@ -463,6 +463,7 @@ function cteRenderLista(){
       gpsHtml+
       '<div style="display:flex;gap:8px;margin-top:12px">'+
         (can('conteos.revisar')?'<button onclick="cteAplicarEstimacion(\''+s.id+'\')" style="flex:1;padding:12px;background:#1a7e3e;color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">📈 Aplicar a estimación</button>':'')+
+        '<button onclick="cteEditarSesion(\''+s.id+'\')" style="padding:12px 16px;background:#fff;color:#0854a0;border:2px solid #bcd9f5;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">✏️</button>'+
         '<button onclick="cteEliminarSesion(\''+s.id+'\')" style="padding:12px 16px;background:#fff;color:#c0392b;border:2px solid #f0b8b8;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">🗑️</button>'+
       '</div>'+
     '</div>';
@@ -762,6 +763,104 @@ function cteAplicarEstimacion(id){
     toast('Estimación actualizada','"'+pano.nombre+'" → '+s.promedioCentros.toFixed(1)+' centros florales','success');
   },'Aplicar',false);
 }
+
+/* Edita un conteo ya registrado: temporada, etapa y los datos de cada árbol. */
+function cteEditarSesion(id){
+  var s=(STATE.cache.conteos||[]).find(function(x){ return String(x.id)===String(id); });
+  if(!s){ toast('No encontrado','El conteo no existe','error'); return; }
+  _cteEditId = id;
+  var tempDef=(typeof temporadaActual==='function')?temporadaActual():'';
+  var aFin=(tempDef && /^\d{4}/.test(tempDef))?(parseInt(tempDef.slice(0,4))+1):(new Date().getFullYear()+1);
+  var opts='';
+  for(var a=aFin;a>=2022;a--){ var t=a+'-'+(a+1); opts+='<option value="'+t+'"'+(t===(s.temporada||'')?' selected':'')+'>'+t+'</option>'; }
+
+  var filas=(s.arboles||[]).map(function(ar,i){
+    return '<tr style="border-bottom:1px solid #eee">'+
+      '<td style="padding:5px"><input type="text" class="cte-ed-cod" data-i="'+i+'" value="'+escapeHtml(ar.codigo||('Árbol '+ar.n))+'" style="width:100%;padding:7px;border:1px solid #ccd;border-radius:6px;font-size:12px;font-weight:700"></td>'+
+      '<td style="padding:5px"><input type="number" class="cte-ed-cen" data-i="'+i+'" value="'+(ar.centros||0)+'" min="0" style="width:70px;padding:7px;border:1px solid #ccd;border-radius:6px;font-size:12px;text-align:center"></td>'+
+      '<td style="padding:5px"><input type="number" class="cte-ed-ram" data-i="'+i+'" value="'+(ar.ramas||'')+'" min="0" placeholder="0" style="width:65px;padding:7px;border:1px solid #ccd;border-radius:6px;font-size:12px;text-align:center"></td>'+
+      '<td style="padding:5px"><input type="number" class="cte-ed-dar" data-i="'+i+'" value="'+(ar.dardos||'')+'" min="0" placeholder="0" style="width:65px;padding:7px;border:1px solid #ccd;border-radius:6px;font-size:12px;text-align:center"></td>'+
+      '<td style="padding:5px"><input type="number" class="cte-ed-fru" data-i="'+i+'" value="'+(ar.frutos||'')+'" min="0" placeholder="0" style="width:65px;padding:7px;border:1px solid #ccd;border-radius:6px;font-size:12px;text-align:center"></td>'+
+    '</tr>';
+  }).join('');
+
+  var prev=document.getElementById('cte-edit-modal'); if(prev) prev.remove();
+  var m=document.createElement('div');
+  m.id='cte-edit-modal';
+  m.style.cssText='position:fixed;left:0;top:0;width:100vw;height:100dvh;background:rgba(0,0,0,.55);z-index:10005;display:flex;align-items:center;justify-content:center;padding:12px';
+  m.innerHTML=
+    '<div style="background:#fff;border-radius:12px;max-width:680px;width:100%;max-height:90vh;display:flex;flex-direction:column;overflow:hidden">'+
+      '<div style="background:#0854a0;color:#fff;padding:14px 18px;display:flex;justify-content:space-between;align-items:center">'+
+        '<div><div style="font-size:16px;font-weight:800">✏️ Editar conteo</div>'+
+          '<div style="font-size:12px;opacity:.9">'+escapeHtml(s.panoNombre||'')+' · '+escapeHtml(s.variedad||'')+'</div></div>'+
+        '<button onclick="document.getElementById(\'cte-edit-modal\').remove()" style="background:rgba(255,255,255,.25);border:none;color:#fff;font-size:22px;cursor:pointer;width:38px;height:38px;border-radius:8px">×</button>'+
+      '</div>'+
+      '<div style="padding:16px;overflow:auto;flex:1">'+
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">'+
+          '<div><label style="font-size:11px;font-weight:700;color:#0854a0">TEMPORADA</label>'+
+            '<select id="cte-ed-temp" style="width:100%;padding:9px;border:1px solid #ccd;border-radius:7px">'+opts+'</select></div>'+
+          '<div><label style="font-size:11px;font-weight:700;color:#0854a0">ETAPA FENOLÓGICA</label>'+
+            '<select id="cte-ed-etapa" style="width:100%;padding:9px;border:1px solid #ccd;border-radius:7px">'+
+              CTE_ETAPAS.map(function(e){ return '<option value="'+escapeHtml(e)+'"'+(e===(s.etapa||'')?' selected':'')+'>'+escapeHtml(e)+'</option>'; }).join('')+
+            '</select></div>'+
+        '</div>'+
+        '<div style="font-size:12px;font-weight:700;color:#23303d;margin-bottom:6px">Árboles contados ('+(s.arboles||[]).length+')</div>'+
+        '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">'+
+          '<thead><tr style="background:#f0f0f0"><th style="padding:6px;text-align:left">Identificación</th><th style="padding:6px">Centros</th><th style="padding:6px">Ramas</th><th style="padding:6px">Dardos</th><th style="padding:6px">Frutos</th></tr></thead>'+
+          '<tbody>'+(filas||'<tr><td colspan="5" style="padding:10px;color:#888">Sin árboles</td></tr>')+'</tbody>'+
+        '</table></div>'+
+      '</div>'+
+      '<div style="padding:12px 18px;border-top:1px solid #e3e8ee;display:flex;gap:10px;justify-content:flex-end">'+
+        '<button onclick="document.getElementById(\'cte-edit-modal\').remove()" style="padding:11px 16px;border:none;border-radius:9px;background:#f0f0f0;cursor:pointer;font-weight:700">Cancelar</button>'+
+        '<button onclick="cteGuardarEdicion()" style="padding:11px 18px;border:none;border-radius:9px;background:#1a7e3e;color:#fff;cursor:pointer;font-weight:700">💾 Guardar cambios</button>'+
+      '</div>'+
+    '</div>';
+  document.body.appendChild(m);
+}
+var _cteEditId=null;
+
+async function cteGuardarEdicion(){
+  var s=(STATE.cache.conteos||[]).find(function(x){ return String(x.id)===String(_cteEditId); });
+  if(!s){ toast('Error','Conteo no encontrado','error'); return; }
+  s.temporada=(document.getElementById('cte-ed-temp')||{}).value||s.temporada;
+  s.etapa=(document.getElementById('cte-ed-etapa')||{}).value||s.etapa;
+  // Actualizar cada árbol
+  document.querySelectorAll('#cte-edit-modal .cte-ed-cod').forEach(function(inp){
+    var i=parseInt(inp.getAttribute('data-i'));
+    var ar=s.arboles[i]; if(!ar) return;
+    ar.codigo=(inp.value||'').trim()||ar.codigo;
+  });
+  ['cen','ram','dar','fru'].forEach(function(campo){
+    var mapa={cen:'centros',ram:'ramas',dar:'dardos',fru:'frutos'};
+    document.querySelectorAll('#cte-edit-modal .cte-ed-'+campo).forEach(function(inp){
+      var i=parseInt(inp.getAttribute('data-i'));
+      var ar=s.arboles[i]; if(!ar) return;
+      var v=parseFloat(inp.value);
+      ar[mapa[campo]] = isNaN(v)?0:v;
+    });
+  });
+  // Recalcular cuaja por árbol y métricas de la sesión
+  s.arboles.forEach(function(ar){
+    ar.cuaja = (ar.dardos>0 && ar.frutos>0) ? (ar.frutos/ar.dardos) : null;
+  });
+  var sumC=s.arboles.reduce(function(a,x){ return a+(parseFloat(x.centros)||0); },0);
+  s.promedioCentros = s.arboles.length ? (sumC/s.arboles.length) : 0;
+  s.nArboles = s.arboles.length;
+  var prom=function(c){ var v=s.arboles.map(function(x){return parseFloat(x[c])||0;}).filter(function(x){return x>0;}); return v.length?(v.reduce(function(a,b){return a+b;},0)/v.length):null; };
+  s.promedioRamas=prom('ramas'); s.promedioDardos=prom('dardos'); s.promedioFrutos=prom('frutos');
+  var tD=s.arboles.reduce(function(a,x){return a+(parseFloat(x.dardos)||0);},0);
+  var tF=s.arboles.reduce(function(a,x){return a+(parseFloat(x.frutos)||0);},0);
+  s.cuajaSesion=(tD>0&&tF>0)?(tF/tD):null;
+  s.sincronizado=false;
+  try{
+    await dbPut('conteos', s);
+    STATE.cache.conteos = await dbAll('conteos');
+  }catch(e){ console.error(e); toast('Error','No se pudo guardar','error'); return; }
+  document.getElementById('cte-edit-modal').remove();
+  cteRender();
+  toast('Conteo actualizado','Los cambios se guardaron correctamente','success');
+}
+try{ window.cteEditarSesion=cteEditarSesion; window.cteGuardarEdicion=cteGuardarEdicion; }catch(e){}
 
 function cteEliminarSesion(id){
   var s = (STATE.cache.conteos||[]).find(function(x){ return String(x.id)===String(id); });
