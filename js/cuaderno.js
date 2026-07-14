@@ -2121,7 +2121,7 @@ function renderEstimacion(){
         '</select>'+
       '</div>'+
       '<button onclick="estImportarConteosTerreno()" class="cc-btn cc-btn-g" '+(tempsCte.length?'':'disabled')+' style="padding:10px 16px">⬇️ Importar conteos de terreno</button>'+
-      '<div style="flex-basis:100%;font-size:11px;color:#5a7590">Toma el promedio de centros florales de cada sesión de conteo (por paño y variedad) y lo carga en la fila correspondiente. Principales y polinizantes se importan por separado.</div>'+
+      '<div style="flex-basis:100%;font-size:11px;color:#5a7590">Importa desde las sesiones de conteo (por paño y variedad): <strong>centros florales/árbol</strong> y <strong>frutos/centro</strong> (la cuaja = frutos ÷ dardos). Principales y polinizantes se importan por separado.</div>'+
     '</div>';
   })();
 
@@ -2421,45 +2421,56 @@ function guardarVersionEstimacion(){
 function estImportarConteosTerreno(){
   var temp = (document.getElementById('est-cte-temp')||{}).value || window._estCteTemporada || '';
   var sesiones = (STATE.cache.conteos||[]).filter(function(s){
-    return (!temp || s.temporada===temp) && s.promedioCentros!=null;
+    return (!temp || s.temporada===temp) && (s.promedioCentros!=null || s.cuajaSesion!=null);
   });
   if(!sesiones.length){ showNotice('No hay conteos de terreno para la temporada '+(temp||'seleccionada')+'.','err'); return; }
 
-  // Promedio por paño+variedad (si hay varias sesiones del mismo, se promedian)
+  // Acumular por paño+variedad: centros florales y cuaja (frutos/centro)
   var acum = {};
   sesiones.forEach(function(s){
     var clave = (s.panoNombre||'').trim().toLowerCase()+'|'+(s.variedad||'').trim().toLowerCase();
-    if(!acum[clave]) acum[clave] = { suma:0, n:0, pano:s.panoNombre, variedad:s.variedad };
-    acum[clave].suma += s.promedioCentros;
-    acum[clave].n++;
+    if(!acum[clave]) acum[clave] = { sumC:0, nC:0, sumQ:0, nQ:0, pano:s.panoNombre, variedad:s.variedad };
+    if(s.promedioCentros!=null){ acum[clave].sumC += s.promedioCentros; acum[clave].nC++; }
+    if(s.cuajaSesion!=null){ acum[clave].sumQ += s.cuajaSesion; acum[clave].nQ++; }
   });
 
   var cambios=[], sinPano=[];
   Object.keys(acum).forEach(function(clave){
     var a = acum[clave];
-    var promedio = a.suma / a.n;
-    // Buscar el paño del Cuaderno con ese nombre Y variedad (principal o polinizante)
     var pano = (S.panos||[]).find(function(p){
       return (p.nombre||'').trim().toLowerCase()===(a.pano||'').trim().toLowerCase()
           && (p.variedad||'').trim().toLowerCase()===(a.variedad||'').trim().toLowerCase();
     });
-    if(pano){ cambios.push({ pano:pano, valor:Math.round(promedio*100)/100, sesiones:a.n }); }
-    else { sinPano.push(a.pano+' · '+a.variedad); }
+    if(!pano){ sinPano.push(a.pano+' · '+a.variedad); return; }
+    cambios.push({
+      pano: pano,
+      centros: a.nC ? Math.round((a.sumC/a.nC)*100)/100 : null,
+      cuaja:   a.nQ ? Math.round((a.sumQ/a.nQ)*1000)/1000 : null,
+      sesiones: Math.max(a.nC, a.nQ)
+    });
   });
 
   if(!cambios.length){ showNotice('No se encontraron paños que coincidan con los conteos de terreno.','err'); return; }
 
   var resumen = cambios.map(function(c){
-    return '• '+c.pano.nombre+' · '+(c.pano.variedad||'')+': '+c.valor+' centros/árbol'+(c.sesiones>1?(' ('+c.sesiones+' sesiones promediadas)'):'');
+    var partes=[];
+    if(c.centros!=null) partes.push(c.centros+' centros/árbol');
+    if(c.cuaja!=null)   partes.push('cuaja '+c.cuaja+' (frutos/centro)');
+    if(!partes.length)  partes.push('sin datos');
+    return '• '+c.pano.nombre+' · '+(c.pano.variedad||'')+': '+partes.join(' · ')+(c.sesiones>1?(' ['+c.sesiones+' sesiones]'):'');
   }).join('\n');
   var aviso = sinPano.length ? '\n\n⚠ Sin paño coincidente (no se importan): '+sinPano.join(', ') : '';
 
-  if(!confirm('Importar centros florales desde los conteos de terreno'+(temp?(' · temporada '+temp):'')+':\n\n'+resumen+aviso+'\n\n¿Aplicar?')) return;
+  if(!confirm('Importar desde los conteos de terreno'+(temp?(' · temporada '+temp):'')+':\n\n'+resumen+aviso+'\n\nSe actualizarán los campos "Centros florales/árbol" y "Frutos/centro (cuaja)".\n\n¿Aplicar?')) return;
 
-  cambios.forEach(function(c){ c.pano.centrosFlorales = c.valor; });
+  var nC=0, nQ=0;
+  cambios.forEach(function(c){
+    if(c.centros!=null){ c.pano.centrosFlorales = c.centros; nC++; }
+    if(c.cuaja!=null){ c.pano.frutosPorCentro = c.cuaja; nQ++; }
+  });
   save();
   renderEstimacion();
-  showNotice('\u2713 '+cambios.length+' paño(s) actualizados con los conteos de terreno.','ok');
+  showNotice('\u2713 Importado: '+nC+' paño(s) con centros florales, '+nQ+' con cuaja.','ok');
 }
 try{ window.estImportarConteosTerreno=estImportarConteosTerreno; }catch(e){}
 
