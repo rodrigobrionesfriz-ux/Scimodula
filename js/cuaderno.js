@@ -2224,19 +2224,35 @@ function renderEstimacion(){
 
   // ── Sección 3: Versiones guardadas ──
   var versiones = S.versionesEstim || [];
+  // Temporadas disponibles en las versiones guardadas
+  var tempsVer = [];
+  versiones.forEach(function(v){ if(v.temporada && tempsVer.indexOf(v.temporada)<0) tempsVer.push(v.temporada); });
+  tempsVer.sort().reverse();
+  var tempFiltro = window._estTempFiltro || '';
+  var versFiltradas = tempFiltro ? versiones.filter(function(v){ return v.temporada===tempFiltro; }) : versiones;
+
   html += '<div class="cc-card"><div class="cc-card-ttl" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px"><span>🗂️ Versiones de estimación</span>'+
-    '<button onclick="guardarVersionEstimacion()" class="cc-btn cc-btn-g cc-btn-sm">💾 Guardar versión actual</button></div>';
-  if(!versiones.length){
-    html += '<div style="font-size:12px;color:#888;padding:8px 0">Aún no hay versiones guardadas. Guarde una "foto" de la estimación actual para comparar su evolución (v0 floración, v1 cuaja, etc.).</div>';
+    '<div style="display:flex;gap:6px;flex-wrap:wrap">'+
+      (tempsVer.length?'<select onchange="estFiltrarTemporada(this.value)" style="padding:6px 10px;border:1px solid #ccd;border-radius:6px;font-size:12px">'+
+        '<option value="">Todas las temporadas</option>'+
+        tempsVer.map(function(t){ return '<option value="'+escapeHtml(t)+'"'+(t===tempFiltro?' selected':'')+'>'+escapeHtml(t)+'</option>'; }).join('')+
+      '</select>':'')+
+      (versiones.length>1?'<button onclick="estGraficarEvolucion()" class="cc-btn cc-btn-sm" style="background:#0a6ed1;color:#fff">📈 Evolución</button>':'')+
+      '<button onclick="guardarVersionEstimacion()" class="cc-btn cc-btn-g cc-btn-sm">💾 Guardar versión actual</button>'+
+    '</div></div>';
+  if(!versFiltradas.length){
+    html += '<div style="font-size:12px;color:#888;padding:8px 0">'+(tempFiltro?'No hay versiones en la temporada '+escapeHtml(tempFiltro)+'.':'Aún no hay versiones guardadas. Guarde una "foto" de la estimación actual para comparar su evolución (v0 floración, v1 cuaja, etc.).')+'</div>';
   } else {
     html += '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="background:#f0f0f0">'+
       '<th style="text-align:left;padding:7px 10px">Versión</th>'+
+      '<th style="text-align:left;padding:7px 10px">Temporada</th>'+
       '<th style="text-align:left;padding:7px 10px">Fecha</th>'+
       '<th style="text-align:right;padding:7px 10px">Kg totales</th>'+
       '<th style="text-align:center;padding:7px 10px">Acciones</th></tr></thead><tbody>';
-    versiones.slice().reverse().forEach(function(v){
+    versFiltradas.slice().reverse().forEach(function(v){
       html += '<tr style="border-bottom:1px solid #eee">'+
         '<td style="padding:7px 10px;font-weight:700">'+escapeHtml(v.nombre)+'</td>'+
+        '<td style="padding:7px 10px;color:#0854a0;font-weight:600;font-size:12px">'+escapeHtml(v.temporada||'—')+'</td>'+
         '<td style="padding:7px 10px;color:#888;font-size:12px">'+new Date(v.fecha).toLocaleDateString('es-CL')+'</td>'+
         '<td style="padding:7px 10px;text-align:right;font-weight:700;color:#354a5f">'+Math.round(v.totalKg).toLocaleString('es-CL')+' kg</td>'+
         '<td style="padding:7px 10px;text-align:center;white-space:nowrap">'+
@@ -2364,11 +2380,17 @@ function guardarVersionEstimacion(){
   if(nombre===null) return;
   nombre = (nombre||'').trim();
   if(!nombre) nombre = 'v'+((S.versionesEstim||[]).length);
+  // Temporada de la versión (permite comparar evolución entre temporadas)
+  var tempDef = (typeof temporadaActual==='function') ? temporadaActual() : '';
+  var temporada = prompt('Temporada de esta estimación (formato AAAA-AAAA):', tempDef||'');
+  if(temporada===null) return;
+  temporada = (temporada||'').trim() || tempDef;
   if(!Array.isArray(S.versionesEstim)) S.versionesEstim = [];
   // Capturar foto de la estimación actual
   var snapshot = {
     id: Date.now(),
     nombre: nombre,
+    temporada: temporada,
     fecha: new Date().toISOString(),
     panos: S.panos.map(function(p){
       return {
@@ -2386,6 +2408,90 @@ function guardarVersionEstimacion(){
   renderEstimacion();
   showNotice('\u2713 Versión "'+nombre+'" guardada.','ok');
 }
+function estFiltrarTemporada(t){
+  window._estTempFiltro = t || '';
+  renderEstimacion();
+}
+try{ window.estFiltrarTemporada=estFiltrarTemporada; }catch(e){}
+
+/* Gráfico de evolución de la estimación por paño a través de las versiones. */
+function estGraficarEvolucion(){
+  var versiones = (S.versionesEstim||[]).slice()
+    .sort(function(a,b){ return new Date(a.fecha)-new Date(b.fecha); });
+  var tempFiltro = window._estTempFiltro || '';
+  if(tempFiltro) versiones = versiones.filter(function(v){ return v.temporada===tempFiltro; });
+  if(versiones.length<2){ showNotice('Se necesitan al menos 2 versiones para graficar la evolución.','err'); return; }
+
+  // Paños presentes en las versiones (solo productivos con kg)
+  var panosMap = {};
+  versiones.forEach(function(v){
+    (v.panos||[]).forEach(function(p){
+      if((p.kgPano||0)>0) panosMap[p.nombre+' · '+(p.variedad||'')] = true;
+    });
+  });
+  var etiquetas = Object.keys(panosMap).sort();
+  var colores = ['#0a6ed1','#1a7e3e','#e9730c','#c0392b','#8e44ad','#16a085','#d35400','#2c3e50','#c2185b','#00838f','#558b2f','#6d4c41'];
+
+  var datasets = etiquetas.map(function(nom, i){
+    return {
+      label: nom,
+      data: versiones.map(function(v){
+        var p=(v.panos||[]).find(function(x){ return (x.nombre+' · '+(x.variedad||''))===nom; });
+        return p ? Math.round(p.kgPano) : null;
+      }),
+      borderColor: colores[i % colores.length],
+      backgroundColor: colores[i % colores.length]+'22',
+      tension: .3, borderWidth: 2, pointRadius: 4, spanGaps: true
+    };
+  });
+  // Serie total
+  datasets.push({
+    label:'TOTAL',
+    data: versiones.map(function(v){ return Math.round(v.totalKg||0); }),
+    borderColor:'#111', backgroundColor:'transparent',
+    borderDash:[6,4], borderWidth:3, tension:.3, pointRadius:5
+  });
+
+  var prev=document.getElementById('est-evo-modal'); if(prev) prev.remove();
+  var m=document.createElement('div');
+  m.id='est-evo-modal';
+  m.style.cssText='position:fixed;left:0;top:0;width:100vw;height:100dvh;background:rgba(0,0,0,.55);z-index:10004;display:flex;align-items:center;justify-content:center;padding:16px';
+  m.innerHTML=
+    '<div style="background:#fff;border-radius:12px;max-width:960px;width:100%;max-height:90vh;display:flex;flex-direction:column;overflow:hidden">'+
+      '<div style="background:#0a6ed1;color:#fff;padding:14px 18px;display:flex;justify-content:space-between;align-items:center">'+
+        '<div><div style="font-size:17px;font-weight:800">📈 Evolución de la estimación por paño</div>'+
+          '<div style="font-size:12px;opacity:.9">'+versiones.length+' versiones'+(tempFiltro?(' · temporada '+escapeHtml(tempFiltro)):' · todas las temporadas')+'</div></div>'+
+        '<button onclick="document.getElementById(\'est-evo-modal\').remove()" style="background:rgba(255,255,255,.25);border:none;color:#fff;font-size:24px;cursor:pointer;width:40px;height:40px;border-radius:8px">×</button>'+
+      '</div>'+
+      '<div style="padding:18px;overflow:auto;flex:1"><canvas id="est-evo-chart" style="max-height:520px"></canvas></div>'+
+    '</div>';
+  document.body.appendChild(m);
+
+  setTimeout(function(){
+    try{
+      var ctx=document.getElementById('est-evo-chart').getContext('2d');
+      new Chart(ctx,{
+        type:'line',
+        data:{
+          labels: versiones.map(function(v){ return v.nombre + (v.temporada?(' ('+v.temporada+')'):''); }),
+          datasets: datasets
+        },
+        options:{
+          responsive:true, maintainAspectRatio:false,
+          interaction:{mode:'index',intersect:false},
+          plugins:{
+            legend:{position:'bottom',labels:{boxWidth:12,font:{size:11}}},
+            tooltip:{callbacks:{label:function(c){ return c.dataset.label+': '+(c.parsed.y!=null?c.parsed.y.toLocaleString('es-CL'):'—')+' kg'; }}}
+          },
+          scales:{ y:{ beginAtZero:true, title:{display:true,text:'Kilos estimados'},
+            ticks:{callback:function(v){ return v.toLocaleString('es-CL'); }} } }
+        }
+      });
+    }catch(e){ console.error('Gráfico evolución:',e); }
+  },60);
+}
+try{ window.estGraficarEvolucion=estGraficarEvolucion; }catch(e){}
+
 function eliminarVersionEstim(id){
   if(!confirm('¿Eliminar esta versión guardada?')) return;
   S.versionesEstim = (S.versionesEstim||[]).filter(function(v){ return v.id!=id; });
@@ -6562,4 +6668,3 @@ function initApp(){
     }
   });
 }
-
