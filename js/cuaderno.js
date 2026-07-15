@@ -2531,7 +2531,7 @@ function estGraficarEvolucion(){
           '<div style="font-size:12px;opacity:.9">'+versiones.length+' versiones'+(tempFiltro?(' · temporada '+escapeHtml(tempFiltro)):' · todas las temporadas')+'</div></div>'+
         '<button onclick="document.getElementById(\'est-evo-modal\').remove()" style="background:rgba(255,255,255,.25);border:none;color:#fff;font-size:24px;cursor:pointer;width:40px;height:40px;border-radius:8px">×</button>'+
       '</div>'+
-      '<div style="padding:18px;overflow:auto;flex:1"><canvas id="est-evo-chart" style="max-height:520px"></canvas></div>'+
+      '<div style="padding:18px;overflow:auto;flex:1"><canvas id="est-evo-chart" style="height:1040px;max-height:1040px"></canvas></div>'+
     '</div>';
   document.body.appendChild(m);
 
