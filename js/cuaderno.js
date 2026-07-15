@@ -2732,8 +2732,9 @@ function verAplicacionesPano(panoId){
   // Construir el cuerpo del reporte (una sección por aplicación)
   // Solo lo aplicado EN ESTE PAÑO: se prorratea producto y agua por hectáreas
   // del grupo (paño + polinizantes hijos) sobre el total de paños cubiertos.
-  var hasDe=function(pid){ var px=getPano(pid); if(!px) return 0; return (parseFloat(px.hectareas)||parseFloat(px.has_riego)||0); };
+  var hasDe=function(pid){ var px=getPano(pid); if(!px) return 0; return (parseFloat(px.hectareas)||0); };
   var cuerpo='';
+  var totalAguaGrupo=0;
   confs.forEach(function(c){
     var orden=(S.ordenes||[]).find(function(o){ return String(o.id)===String(c.ordenId); });
     var tipoApp=orden?(orden.tipo||orden.tipoApp||''):'';
@@ -2743,6 +2744,7 @@ function verAplicacionesPano(panoId){
     var haGrupo=(c.panoIds||[]).filter(function(pid){ return idsGrupo.indexOf(String(pid))>=0; })
       .reduce(function(s,pid){ return s+hasDe(pid); },0);
     var factor=(haTotal>0 && haGrupo>0) ? (haGrupo/haTotal) : 1;
+    totalAguaGrupo += (parseFloat(c.aguaReal)||0)*factor;
     var prods=(c.productosReales||[]).map(function(pr){
       return '<tr><td style="padding:4px 8px;border:1px solid #ddd">'+escapeHtml(pr.nombre||'')+'</td>'+
         '<td style="padding:4px 8px;border:1px solid #ddd;text-align:right">'+fmtN((parseFloat(pr.qtyAplicada)||0)*factor,3)+' '+escapeHtml(pr.unitS||'')+'</td></tr>';
@@ -2765,6 +2767,7 @@ function verAplicacionesPano(panoId){
     '</div>';
   });
   if(!cuerpo) cuerpo='<div style="color:#888;padding:20px;text-align:center">Sin aplicaciones confirmadas para este cuartel.</div>';
+  else cuerpo+='<div style="margin-top:6px;padding:12px 14px;background:#eef6ff;border:1px solid #cfe4fb;border-radius:8px;font-size:13px;color:#1565c0;font-weight:800">💧 Total agua aplicada al grupo: '+fmtN(totalAguaGrupo,0)+' L</div>';
 
   var fecha=new Date().toLocaleString('es-CL');
   var titulo='Aplicaciones confirmadas · '+(p.nombre||'')+(p.variedad?' ('+p.variedad+')':'');
