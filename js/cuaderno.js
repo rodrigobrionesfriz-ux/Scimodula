@@ -2531,33 +2531,70 @@ function estGraficarEvolucion(){
 
   // Paños presentes en las versiones (solo productivos con kg)
   var panosMap = {};
+  var variedadesSet = {};
   versiones.forEach(function(v){
     (v.panos||[]).forEach(function(p){
-      if((p.kgPano||0)>0) panosMap[p.nombre+' · '+(p.variedad||'')] = true;
+      if((p.kgPano||0)>0){
+        panosMap[p.nombre+' · '+(p.variedad||'')] = (p.variedad||'');
+        variedadesSet[(p.variedad||'Sin variedad')] = true;
+      }
     });
   });
   var etiquetas = Object.keys(panosMap).sort();
+  var variedades = Object.keys(variedadesSet).sort();
   var colores = ['#0a6ed1','#1a7e3e','#e9730c','#c0392b','#8e44ad','#16a085','#d35400','#2c3e50','#c2185b','#00838f','#558b2f','#6d4c41'];
+  var _chartEvo = null;
 
-  var datasets = etiquetas.map(function(nom, i){
-    return {
-      label: nom,
-      data: versiones.map(function(v){
-        var p=(v.panos||[]).find(function(x){ return (x.nombre+' · '+(x.variedad||''))===nom; });
-        return p ? Math.round(p.kgPano) : null;
-      }),
-      borderColor: colores[i % colores.length],
-      backgroundColor: colores[i % colores.length]+'22',
-      tension: .3, borderWidth: 2, pointRadius: 4, spanGaps: true
-    };
-  });
-  // Serie total
-  datasets.push({
-    label:'TOTAL',
-    data: versiones.map(function(v){ return Math.round(v.totalKg||0); }),
-    borderColor:'#111', backgroundColor:'transparent',
-    borderDash:[6,4], borderWidth:3, tension:.3, pointRadius:5
-  });
+  function construirDatasets(varFiltro){
+    var ds = etiquetas.filter(function(nom){
+      if(!varFiltro) return true;
+      return (panosMap[nom]||'Sin variedad')===varFiltro || panosMap[nom]===varFiltro;
+    }).map(function(nom, i){
+      return {
+        label: nom,
+        data: versiones.map(function(v){
+          var p=(v.panos||[]).find(function(x){ return (x.nombre+' · '+(x.variedad||''))===nom; });
+          return p ? Math.round(p.kgPano) : null;
+        }),
+        borderColor: colores[i % colores.length],
+        backgroundColor: colores[i % colores.length]+'22',
+        tension: .3, borderWidth: 2, pointRadius: 4, spanGaps: true
+      };
+    });
+    // Serie total: solo cuando se muestran todas las variedades
+    if(!varFiltro){
+      ds.push({
+        label:'TOTAL',
+        data: versiones.map(function(v){ return Math.round(v.totalKg||0); }),
+        borderColor:'#111', backgroundColor:'transparent',
+        borderDash:[6,4], borderWidth:3, tension:.3, pointRadius:5
+      });
+    }
+    return ds;
+  }
+
+  function dibujar(varFiltro){
+    var cv=document.getElementById('est-evo-chart'); if(!cv) return;
+    if(_chartEvo){ try{ _chartEvo.destroy(); }catch(e){} }
+    _chartEvo = new Chart(cv.getContext('2d'),{
+      type:'line',
+      data:{
+        labels: versiones.map(function(v){ return v.nombre + (v.temporada?(' ('+v.temporada+')'):''); }),
+        datasets: construirDatasets(varFiltro)
+      },
+      options:{
+        responsive:true, maintainAspectRatio:false,
+        interaction:{mode:'index',intersect:false},
+        plugins:{
+          legend:{position:'bottom',labels:{boxWidth:12,font:{size:11}}},
+          tooltip:{callbacks:{label:function(c){ return c.dataset.label+': '+(c.parsed.y!=null?c.parsed.y.toLocaleString('es-CL'):'—')+' kg'; }}}
+        },
+        scales:{ y:{ beginAtZero:true, title:{display:true,text:'Kilos estimados'},
+          ticks:{callback:function(v){ return v.toLocaleString('es-CL'); }} } }
+      }
+    });
+  }
+  window._estEvoDibujar = function(val){ window._estEvoVarFiltro = val; dibujar(val); };
 
   var prev=document.getElementById('est-evo-modal'); if(prev) prev.remove();
   var m=document.createElement('div');
@@ -2565,36 +2602,23 @@ function estGraficarEvolucion(){
   m.style.cssText='position:fixed;left:0;top:0;width:100vw;height:100dvh;background:rgba(0,0,0,.55);z-index:10004;display:flex;align-items:center;justify-content:center;padding:16px';
   m.innerHTML=
     '<div style="background:#fff;border-radius:12px;max-width:960px;width:100%;max-height:90vh;display:flex;flex-direction:column;overflow:hidden">'+
-      '<div style="background:#0a6ed1;color:#fff;padding:14px 18px;display:flex;justify-content:space-between;align-items:center">'+
+      '<div style="background:#0a6ed1;color:#fff;padding:14px 18px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">'+
         '<div><div style="font-size:17px;font-weight:800">📈 Evolución de la estimación por paño</div>'+
           '<div style="font-size:12px;opacity:.9">'+versiones.length+' versiones'+(tempFiltro?(' · temporada '+escapeHtml(tempFiltro)):' · todas las temporadas')+'</div></div>'+
-        '<button onclick="document.getElementById(\'est-evo-modal\').remove()" style="background:rgba(255,255,255,.25);border:none;color:#fff;font-size:24px;cursor:pointer;width:40px;height:40px;border-radius:8px">×</button>'+
+        '<div style="display:flex;align-items:center;gap:8px">'+
+          '<select onchange="window._estEvoDibujar(this.value)" style="padding:8px 10px;border:none;border-radius:7px;font-size:13px;font-weight:700;color:#0854a0;cursor:pointer">'+
+            '<option value="">Todas las variedades</option>'+
+            variedades.map(function(vv){ return '<option value="'+escapeHtml(vv)+'">'+escapeHtml(vv)+'</option>'; }).join('')+
+          '</select>'+
+          '<button onclick="document.getElementById(\'est-evo-modal\').remove()" style="background:rgba(255,255,255,.25);border:none;color:#fff;font-size:24px;cursor:pointer;width:40px;height:40px;border-radius:8px">×</button>'+
+        '</div>'+
       '</div>'+
       '<div style="padding:18px;overflow:auto;flex:1"><canvas id="est-evo-chart" style="height:1040px;max-height:1040px"></canvas></div>'+
     '</div>';
   document.body.appendChild(m);
 
   setTimeout(function(){
-    try{
-      var ctx=document.getElementById('est-evo-chart').getContext('2d');
-      new Chart(ctx,{
-        type:'line',
-        data:{
-          labels: versiones.map(function(v){ return v.nombre + (v.temporada?(' ('+v.temporada+')'):''); }),
-          datasets: datasets
-        },
-        options:{
-          responsive:true, maintainAspectRatio:false,
-          interaction:{mode:'index',intersect:false},
-          plugins:{
-            legend:{position:'bottom',labels:{boxWidth:12,font:{size:11}}},
-            tooltip:{callbacks:{label:function(c){ return c.dataset.label+': '+(c.parsed.y!=null?c.parsed.y.toLocaleString('es-CL'):'—')+' kg'; }}}
-          },
-          scales:{ y:{ beginAtZero:true, title:{display:true,text:'Kilos estimados'},
-            ticks:{callback:function(v){ return v.toLocaleString('es-CL'); }} } }
-        }
-      });
-    }catch(e){ console.error('Gráfico evolución:',e); }
+    try{ dibujar(''); }catch(e){ console.error('Gráfico evolución:',e); }
   },60);
 }
 try{ window.estGraficarEvolucion=estGraficarEvolucion; }catch(e){}
