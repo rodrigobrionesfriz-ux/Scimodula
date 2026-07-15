@@ -402,6 +402,7 @@ function fbApplyRemote(data){
       if(!Array.isArray(S.equipos)) S.equipos = [];
       S.equipos = S.equipos.map(function(e){ return (typeof e==='string')?{nombre:e,capacidad:0}:{nombre:(e&&e.nombre)||'',capacidad:(e&&parseFloat(e.capacidad))||0}; }).filter(function(e){ return e.nombre; });
       if(remote.prodPorEstado !== undefined) S.prodPorEstado = remote.prodPorEstado;
+      if(remote.versionesEstim !== undefined) S.versionesEstim = remote.versionesEstim;
       if(remote.oCounter !== undefined) S.oCounter = remote.oCounter;
       if(remote.comprasUrgentes !== undefined) S.comprasUrgentes = remote.comprasUrgentes;
       if(!Array.isArray(S.comprasUrgentes)) S.comprasUrgentes = [];
@@ -458,7 +459,8 @@ function fbPush(immediate){
       panos: S.panos, registros: S.registros, productos: S.productos,
       ordenes: S.ordenes, confirmaciones: S.confirmaciones, oCounter: S.oCounter,
       equipos: S.equipos, comprasUrgentes: S.comprasUrgentes,
-      fertirriego: S.fertirriego, prodPorEstado: S.prodPorEstado
+      fertirriego: S.fertirriego, prodPorEstado: S.prodPorEstado,
+      versionesEstim: S.versionesEstim
     });
     var userName = '';
     try { if(typeof STATE!=='undefined' && STATE.user){ userName = STATE.user.nombre || STATE.user.id || ''; } }catch(e){}
@@ -552,7 +554,7 @@ function _migrarPanos(){
 function load(){
   try{
     var d = localStorage.getItem('cc_v2');
-    if(d){ var p=JSON.parse(d); ['panos','registros','productos','ordenes','confirmaciones','fertirriego','equipos','comprasUrgentes'].forEach(function(k){ if(p[k]) S[k]=p[k]; }); if(p.oCounter) S.oCounter=p.oCounter;
+    if(d){ var p=JSON.parse(d); ['panos','registros','productos','ordenes','confirmaciones','fertirriego','equipos','comprasUrgentes','versionesEstim'].forEach(function(k){ if(p[k]) S[k]=p[k]; }); if(p.oCounter) S.oCounter=p.oCounter;
       if(!Array.isArray(S.confirmaciones)) S.confirmaciones = [];
       if(!Array.isArray(S.comprasUrgentes)) S.comprasUrgentes = [];
       if(!Array.isArray(S.equipos)) S.equipos = [];
@@ -3375,23 +3377,45 @@ function renderHist(){
   });
   document.getElementById('cc-fl-cnt').textContent=recs.length+' registro(s)';
   var tb=document.getElementById('cc-hist-tbody');
-  if(!recs.length){ tb.innerHTML='<tr><td colspan="12" class="cc-no-data"><span>📋</span>Sin registros</td></tr>'; return; }
+  if(!recs.length){ tb.innerHTML='<tr><td colspan="5" class="cc-no-data"><span>📋</span>Sin registros</td></tr>'; return; }
   tb.innerHTML=recs.map(function(r){
     var p=getPano(r.panoId);
-    var tc=TIPO_C[r.tipo]||TIPO_C['Otro'];
-    return '<tr><td style="font-weight:700;white-space:nowrap">'+r.fecha+'</td>'+
+    return '<tr style="cursor:pointer" onclick="verRegDetalle('+r.id+')">'+
+      '<td style="font-weight:700;white-space:nowrap">'+r.fecha+'</td>'+
       '<td><span class="cc-pano-tag"><span class="cc-pano-dot" style="background:'+(p&&p.color||'#888')+'"></span>'+(p&&p.nombre||'—')+'</span></td>'+
-      '<td style="font-style:italic;color:#888">'+(p&&p.variedad||'—')+'</td>'+
-      '<td><span class="cc-badge" style="background:#e8f8e8;color:#1a5c1a;font-size:10px">'+(p&&p.anio||'—')+'</span></td>'+
       '<td>'+badge(r.tipo)+'</td>'+
       '<td style="font-weight:700">'+r.producto+'</td>'+
-      '<td style="white-space:nowrap">'+r.dosis+' '+r.unidad+'</td>'+
-      '<td style="font-size:12px;color:#888">'+r.metodo+'</td>'+
-      '<td style="color:#888">'+(r.operador||'—')+'</td>'+
-      '<td style="font-size:12px;color:#888">'+(r.lote||'—')+'</td>'+
-      '<td style="font-size:12px;color:#888;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(r.obs||'—')+'</td>'+
-      '<td><button class="cc-btn-del" onclick="delReg('+r.id+')">✕</button></td></tr>';
+      '<td><button class="cc-btn-del" onclick="event.stopPropagation();delReg('+r.id+')">✕</button></td></tr>';
   }).join('');
+}
+function verRegDetalle(id){
+  var r=(S.registros||[]).find(function(x){ return x.id==id; });
+  if(!r){ return; }
+  var p=getPano(r.panoId);
+  function fila(lbl,val){ return '<div style="display:flex;justify-content:space-between;gap:14px;padding:9px 0;border-bottom:1px solid #f0f0f0"><span style="color:#888;font-size:13px">'+lbl+'</span><span style="font-weight:600;text-align:right">'+(val||'—')+'</span></div>'; }
+  var body='<div style="padding:2px 2px 6px">'+
+    fila('Fecha', r.fecha)+
+    fila('Paño', (p&&p.nombre||'—'))+
+    fila('Variedad', (p&&p.variedad||'—'))+
+    fila('Año', (p&&p.anio||'—'))+
+    fila('Tipo', r.tipo)+
+    fila('Producto', r.producto)+
+    fila('Dosis', (r.dosis||'')+' '+(r.unidad||''))+
+    fila('Método', r.metodo)+
+    fila('Operador', r.operador)+
+    fila('Lote', r.lote)+
+    fila('Observación', r.obs)+
+    '</div>';
+  var ov=document.createElement('div');
+  ov.id='cc-reg-detalle-ov';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px';
+  ov.onclick=function(e){ if(e.target===ov) ov.remove(); };
+  ov.innerHTML='<div style="background:#fff;border-radius:14px;max-width:440px;width:100%;max-height:85vh;overflow-y:auto;box-shadow:0 12px 40px rgba(0,0,0,.3)">'+
+    '<div style="display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid #eee;position:sticky;top:0;background:#fff">'+
+      '<strong style="font-size:16px">📋 Detalle del registro</strong>'+
+      '<button onclick="document.getElementById(\'cc-reg-detalle-ov\').remove()" style="border:none;background:#f0f0f0;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer">✕</button>'+
+    '</div><div style="padding:12px 18px 18px">'+body+'</div></div>';
+  document.body.appendChild(ov);
 }
 function delReg(id){ if(!confirm('¿Eliminar este registro?')) return; S.registros=S.registros.filter(function(r){ return r.id!==id; }); save(); renderHist(); renderHeader(); }
 function limpiarFiltros(){ ['cc-fl-anio','cc-fl-pano','cc-fl-tipo'].forEach(function(id){ document.getElementById(id).value=''; }); document.getElementById('cc-fl-q').value=''; renderHist(); }
