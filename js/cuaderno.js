@@ -2718,6 +2718,60 @@ function exportarEstimacionExcel(){
 // ══ RESUMEN ══
 // Reporte de aplicaciones confirmadas de un cuartel (paño principal + sus
 // polinizantes), imprimible, con todos los datos de cada aplicación.
+function verResumenAplicaciones(){
+  var confs=(S.confirmaciones||[]).slice().sort(function(a,b){ return String(b.fechaApp||'').localeCompare(String(a.fechaApp||'')); });
+  function fmtN(n,d){ n=parseFloat(n)||0; return n.toLocaleString('es-CL',{minimumFractionDigits:d||0,maximumFractionDigits:d||0}); }
+  var totalAgua=0;
+  var filas=confs.map(function(c){
+    var orden=(S.ordenes||[]).find(function(o){ return String(o.id)===String(c.ordenId); });
+    var tipoApp=orden?(orden.tipo||orden.tipoApp||''):'';
+    var nroOrden=c.ordenNumero||(orden?(orden.numero||orden.id||''):(c.ordenId||''));
+    var nombresPanos=(c.panoIds||[]).map(function(pid){ var px=getPano(pid); return px?px.nombre:('#'+pid); });
+    var panosUnicos=nombresPanos.filter(function(x,i){ return nombresPanos.indexOf(x)===i; });
+    var agua=parseFloat(c.aguaReal)||0; totalAgua+=agua;
+    var nProd=(c.productosReales||[]).filter(function(pr){ return pr.nombre; }).length;
+    return '<tr style="border-bottom:1px solid #eee">'+
+      '<td style="padding:8px 10px;white-space:nowrap;font-weight:700">'+escapeHtml(c.fechaApp||'—')+(c.turno?'<div style="font-size:11px;color:#888;font-weight:400">'+escapeHtml(c.turno)+'</div>':'')+'</td>'+
+      '<td style="padding:8px 10px;font-size:12px">'+escapeHtml(String(nroOrden||'—'))+(tipoApp?'<div style="color:#1565c0;font-weight:700">'+escapeHtml(tipoApp)+'</div>':'')+'</td>'+
+      '<td style="padding:8px 10px;font-size:12px">'+escapeHtml(panosUnicos.join(', '))+'</td>'+
+      '<td style="padding:8px 10px;font-size:12px;color:#555">'+escapeHtml(c.operador||'—')+(c.equipo?'<div style="color:#888">'+escapeHtml(c.equipo)+'</div>':'')+'</td>'+
+      '<td style="padding:8px 10px;text-align:center">'+nProd+'</td>'+
+      '<td style="padding:8px 10px;text-align:right;font-weight:700;color:#1a5a8a;white-space:nowrap">'+fmtN(agua,0)+' L</td>'+
+    '</tr>';
+  }).join('');
+  if(!filas) filas='<tr><td colspan="6" style="padding:24px;text-align:center;color:#888">Sin aplicaciones confirmadas.</td></tr>';
+
+  var prev=document.getElementById('cc-resumen-aplic-modal'); if(prev) prev.remove();
+  var modal=document.createElement('div');
+  modal.id='cc-resumen-aplic-modal';
+  modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:10005;display:flex;align-items:center;justify-content:center;padding:16px';
+  modal.onclick=function(e){ if(e.target===modal) modal.remove(); };
+  modal.innerHTML='<div style="background:#fff;border-radius:12px;max-width:820px;width:100%;max-height:90vh;display:flex;flex-direction:column;overflow:hidden">'+
+    '<div style="background:#1565c0;color:#fff;padding:14px 18px;display:flex;justify-content:space-between;align-items:center">'+
+      '<div><div style="font-size:16px;font-weight:800">🧪 Resumen de aplicaciones confirmadas</div>'+
+        '<div style="font-size:12px;opacity:.9">'+confs.length+' aplicación(es) · '+fmtN(totalAgua,0)+' L de agua en total</div></div>'+
+      '<button onclick="document.getElementById(\'cc-resumen-aplic-modal\').remove()" style="background:rgba(255,255,255,.25);border:none;color:#fff;font-size:24px;cursor:pointer;width:40px;height:40px;border-radius:8px">×</button>'+
+    '</div>'+
+    '<div style="padding:0;overflow:auto;flex:1">'+
+      '<table style="width:100%;border-collapse:collapse;font-size:13px;min-width:640px">'+
+        '<thead><tr style="background:#f0f7ff;position:sticky;top:0">'+
+          '<th style="padding:9px 10px;text-align:left">Fecha</th>'+
+          '<th style="padding:9px 10px;text-align:left">Orden / Tipo</th>'+
+          '<th style="padding:9px 10px;text-align:left">Paños</th>'+
+          '<th style="padding:9px 10px;text-align:left">Operador / Equipo</th>'+
+          '<th style="padding:9px 10px;text-align:center">Prod.</th>'+
+          '<th style="padding:9px 10px;text-align:right">Agua</th>'+
+        '</tr></thead><tbody>'+filas+'</tbody>'+
+        '<tfoot><tr style="background:#f0f0f0;font-weight:800"><td colspan="5" style="padding:10px">TOTAL AGUA</td><td style="padding:10px;text-align:right;color:#1a5a8a">'+fmtN(totalAgua,0)+' L</td></tr></tfoot>'+
+      '</table>'+
+    '</div>'+
+    '<div style="padding:12px 18px;border-top:1px solid #e3e8ee;display:flex;justify-content:flex-end">'+
+      '<button onclick="document.getElementById(\'cc-resumen-aplic-modal\').remove()" style="padding:11px 16px;border:none;border-radius:9px;background:#f0f0f0;cursor:pointer;font-size:14px;font-weight:700">Cerrar</button>'+
+    '</div></div>';
+  document.body.appendChild(modal);
+}
+try{ window.verResumenAplicaciones=verResumenAplicaciones; }catch(e){}
+
 function verAplicacionesPano(panoId){
   var p=getPano(panoId); if(!p){ if(typeof toast==='function') toast('No encontrado','Paño no encontrado','error'); return; }
   var hijosP=S.panos.filter(function(x){ return (x.tipo||'Productivo')==='Polinizante' && String(x.panoPadre)===String(p.id); });
@@ -3139,10 +3193,16 @@ function renderResumen(){
   }catch(e){}
   renderBkAlert();
   var tHas=S.panos.reduce(function(s,p){ return s+p.hectareas; },0);
+  var nConfirm=(S.confirmaciones||[]).length;
   document.getElementById('cc-stats').innerHTML=[
     {n:S.panos.length,l:'Paños activos'},{n:tHas.toFixed(1)+' há',l:'Superficie total'},
-    {n:S.registros.length,l:'Aplicaciones'},{n:S.ordenes.length,l:'Órdenes emitidas'}
-  ].map(function(s){ return '<div class="cc-stat-c"><div class="cc-n">'+s.n+'</div><div class="cc-l">'+s.l+'</div></div>'; }).join('');
+    {n:nConfirm,l:'Aplicaciones confirmadas',click:nConfirm>0?'verResumenAplicaciones()':''},{n:S.ordenes.length,l:'Órdenes emitidas'}
+  ].map(function(s){
+    var cursor=s.click?';cursor:pointer':'';
+    var onclk=s.click?(' onclick="'+s.click+'"'):'';
+    var flecha=s.click?' <span style="color:#1565c0;font-size:13px">›</span>':'';
+    return '<div class="cc-stat-c" style="position:relative'+cursor+'"'+onclk+'><div class="cc-n">'+s.n+'</div><div class="cc-l">'+s.l+flecha+'</div></div>';
+  }).join('');
 
   // Función para calcular plantas (valor manual o estimado de densidad × ha)
   function _plantasDe(pano){
