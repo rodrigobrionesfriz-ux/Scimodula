@@ -2228,9 +2228,9 @@ function renderEstimacion(){
       '<td style="padding:8px 11px;text-align:right">'+d.plantasPrincipal.toLocaleString('es-CL')+'</td>'+
       '<td style="padding:8px 11px;text-align:right;color:#92600a">'+(d.plantasPolin?d.plantasPolin.toLocaleString('es-CL'):'—')+'</td>'+
       '<td style="padding:8px 11px;text-align:right">'+(d.kgPrincipal>0?d.kgPrincipal.toLocaleString('es-CL',{maximumFractionDigits:0})+' kg':'—')+'</td>'+
-      '<td style="padding:8px 11px;text-align:center">'+inputPct('principal', pctP, d.kgPrincipal<=0)+'</td>'+
+      '<td style="padding:8px 11px;text-align:center">'+inputPct('principal', pctP, false)+'</td>'+
       '<td style="padding:8px 11px;text-align:right;color:#92600a">'+(d.kgPolin>0?d.kgPolin.toLocaleString('es-CL',{maximumFractionDigits:0})+' kg':'—')+'</td>'+
-      '<td style="padding:8px 11px;text-align:center">'+inputPct('polin', pctPol, d.kgPolin<=0)+'</td>'+
+      '<td style="padding:8px 11px;text-align:center">'+inputPct('polin', pctPol, false)+'</td>'+
       '<td style="padding:8px 11px;text-align:right;font-weight:700;color:#1a7e3e">'+(kgExpV>0?kgExpV.toLocaleString('es-CL',{maximumFractionDigits:0})+' kg':'—')+'</td>'+
       '<td style="padding:8px 11px;text-align:right;color:#b45309">'+(kgIntV>0?kgIntV.toLocaleString('es-CL',{maximumFractionDigits:0})+' kg':'—')+'</td>'+
       '<td style="padding:8px 11px;text-align:right;font-weight:800;color:#354a5f">'+(totalV>0?totalV.toLocaleString('es-CL',{maximumFractionDigits:0})+' kg':'—')+'</td>'+
