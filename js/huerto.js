@@ -409,6 +409,115 @@ function cteCancelarSesion(){
 function cteVerLista(){ _cteVista='lista'; cteRender(); }
 function cteVolverInicio(){ _cteVista='inicio'; cteRender(); }
 
+function cteRenderLista(){
+  var sesiones = (STATE.cache.conteos||[]).slice().sort(function(a,b){ return (b.fechaInicio||'').localeCompare(a.fechaInicio||''); });
+  var html = '<button class="cte-big-btn cte-btn-gray" onclick="cteVolverInicio()" style="padding:14px;font-size:16px">‹ Volver</button>';
+  if(can('conteos.revisar') && sesiones.length){
+    html += '<button class="cte-big-btn cte-btn-amber" onclick="cteExportarExcel()">📊 Exportar registros a Excel</button>';
+  }
+  if(!sesiones.length){
+    html += '<div class="cte-card" style="text-align:center;color:#999;padding:30px">Sin conteos guardados todavía.</div>';
+    return html;
+  }
+  html += sesiones.map(function(s){
+    var fecha = (s.fechaInicio||'').slice(0,10);
+    var hora = (s.fechaInicio||'').slice(11,16);
+    var sync = s.sincronizado ? '<span style="color:#0a6e2e;font-weight:700">☁️ Subido</span>' : '<span style="color:#e9730c;font-weight:700">📱 Local</span>';
+    // Buscar la primera ubicación GPS disponible entre los árboles de la sesión
+    var arbolGps = (s.arboles||[]).find(function(a){ return a.lat!=null && a.lng!=null; });
+    var conGps = (s.arboles||[]).filter(function(a){ return a.lat!=null && a.lng!=null; }).length;
+    var gpsHtml = '';
+    if(arbolGps){
+      var lat = arbolGps.lat.toFixed(6), lng = arbolGps.lng.toFixed(6);
+      gpsHtml = '<div style="margin-top:10px;padding:10px;background:#f0f7ff;border-radius:8px;display:flex;align-items:center;justify-content:space-between;gap:8px">'+
+        '<div style="font-size:12px;color:#666"><span style="color:#888">📍 Georreferencia</span><br>'+lat+', '+lng+(conGps>1?(' <span style="color:#888">('+conGps+' puntos)</span>'):'')+'</div>'+
+        '<button onclick="cteAbrirMapa('+arbolGps.lat+','+arbolGps.lng+')" style="padding:10px 14px;background:#0a6ed1;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap">🗺️ Ver en mapa</button>'+
+      '</div>';
+    } else {
+      gpsHtml = '<div style="margin-top:10px;font-size:12px;color:#aaa">📍 Sin georreferencia capturada</div>';
+    }
+    return '<div class="cte-card">'+
+      '<div style="display:flex;justify-content:space-between;align-items:start">'+
+        '<div><div style="font-size:17px;font-weight:800;color:#23303d">'+escapeHtml(s.panoNombre||'')+'</div>'+
+          '<div style="font-size:13px;color:#666">'+escapeHtml(s.variedad||'')+' · '+fecha+' '+hora+(s.temporada?(' · <strong style="color:#0854a0">'+escapeHtml(s.temporada)+'</strong>'):'')+'</div></div>'+
+        '<div style="text-align:right;font-size:12px">'+sync+(s.aplicadoEstim?'<br><span style="color:#1a7e3e;font-weight:700">📈 Aplicado</span>':'')+'</div>'+
+      '</div>'+
+      '<div style="display:flex;gap:16px;margin-top:10px;font-size:14px">'+
+        '<div><span style="color:#888">Árboles:</span> <strong>'+(s.nArboles||s.arboles.length)+'</strong></div>'+
+        '<div><span style="color:#888">Prom. centros:</span> <strong style="color:#0a6ed1">'+(s.promedioCentros!=null?s.promedioCentros.toFixed(1):'-')+'</strong></div>'+
+        (s.cuajaSesion!=null?'<div><span style="color:#888">Cuaja:</span> <strong style="color:#1a7e3e">'+s.cuajaSesion.toFixed(2)+'</strong></div>':'')+
+      '</div>'+
+      gpsHtml+
+      '<div style="display:flex;gap:8px;margin-top:12px">'+
+        (can('conteos.revisar')?'<button onclick="cteAplicarEstimacion(\''+s.id+'\')" style="flex:1;padding:12px;background:#1a7e3e;color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">📈 Aplicar a estimación</button>':'')+
+        '<button onclick="cteEditarSesion(\''+s.id+'\')" style="padding:12px 16px;background:#fff;color:#0854a0;border:2px solid #bcd9f5;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">✏️</button>'+
+        '<button onclick="cteEliminarSesion(\''+s.id+'\')" style="padding:12px 16px;background:#fff;color:#c0392b;border:2px solid #f0b8b8;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">🗑️</button>'+
+      '</div>'+
+    '</div>';
+  }).join('');
+  return html;
+}
+
+// Abrir una ubicación en Google Maps (nueva pestaña / app)
+function cteAbrirMapa(lat, lng){
+  var url = 'https://www.google.com/maps/search/?api=1&query='+lat+','+lng;
+  window.open(url, '_blank');
+}
+
+// ── Exportar registros a Excel (solo con permiso de revisión) ──
+function cteExportarExcel(){
+  if(!can('conteos.revisar')){ toast('Sin permiso','No tiene permiso para exportar','error'); return; }
+  if(typeof XLSX==='undefined'){ toast('Sin librería','Excel no disponible','error'); return; }
+  var sesiones = STATE.cache.conteos||[];
+  if(!sesiones.length){ toast('Sin datos','No hay conteos para exportar','error'); return; }
+  // Hoja resumen por sesión
+  var resumen=[['Temporada','Paño','Variedad','Especie','Fecha','Usuario','N° árboles','Promedio centros','Prom. ramas','Prom. dardos','Prom. frutos','Cuaja','Estado','Aplicado a estimación']];
+  sesiones.forEach(function(s){
+    resumen.push([s.temporada||'', s.panoNombre||'', s.variedad||'', s.especie||'Cerezo', (s.fechaInicio||'').slice(0,10),
+      s.usuario||'', s.nArboles||(s.arboles?s.arboles.length:0),
+      s.promedioCentros!=null?Number(s.promedioCentros.toFixed(2)):'',
+      s.promedioRamas!=null?Number(s.promedioRamas.toFixed(2)):'',
+      s.promedioDardos!=null?Number(s.promedioDardos.toFixed(2)):'',
+      s.promedioFrutos!=null?Number(s.promedioFrutos.toFixed(2)):'',
+      s.cuajaSesion!=null?Number(s.cuajaSesion.toFixed(3)):'',
+      s.sincronizado?'Subido':'Local', s.aplicadoEstim?'SÍ':'NO']);
+  });
+  // Hoja detalle por árbol (con GPS)
+  var detalle=[['Temporada','Paño','Variedad','Fecha','N° árbol','Identificación','Tipo','Centros florales','N° Ramas','N° Dardos','N° Frutos','Cuaja','Latitud','Longitud']];
+  sesiones.forEach(function(s){
+    (s.arboles||[]).forEach(function(a){
+      detalle.push([s.temporada||'', s.panoNombre||'', s.variedad||'', (a.fecha||'').slice(0,10), a.n, a.codigo||'', a.tipo||'', a.centros,
+        a.ramas||'', a.dardos||'', a.frutos||'', a.cuaja!=null?Number(a.cuaja.toFixed(3)):'',
+        a.lat!=null?a.lat:'', a.lng!=null?a.lng:'']);
+    });
+  });
+  var wb=XLSX.utils.book_new();
+  var ws1=XLSX.utils.aoa_to_sheet(resumen);
+  ws1['!cols']=[{wch:12},{wch:18},{wch:14},{wch:10},{wch:12},{wch:18},{wch:11},{wch:15},{wch:11},{wch:12},{wch:12},{wch:9},{wch:10},{wch:18}];
+  var ws2=XLSX.utils.aoa_to_sheet(detalle);
+  ws2['!cols']=[{wch:18},{wch:14},{wch:12},{wch:9},{wch:15},{wch:14},{wch:14}];
+  XLSX.utils.book_append_sheet(wb,ws1,'Resumen conteos');
+  XLSX.utils.book_append_sheet(wb,ws2,'Detalle por árbol');
+  XLSX.writeFile(wb,'Conteos_Centros_Florales_'+new Date().toISOString().slice(0,10)+'.xlsx');
+  toast('Exportado','Archivo Excel generado','success');
+}
+
+// ── Sincronizar (subir a la nube) ──
+async function cteSincronizar(){
+  if(!navigator.onLine){ toast('Sin conexión','Conéctese a internet para subir los registros','error'); return; }
+  var pend = (STATE.cache.conteos||[]).filter(function(x){ return !x.sincronizado; });
+  if(!pend.length){ toast('Todo al día','No hay registros pendientes de subir','info'); return; }
+  var n=0;
+  for(var i=0;i<pend.length;i++){
+    pend[i].sincronizado = true;
+    pend[i].fechaSync = new Date().toISOString();
+    try{ await dbPut('conteos', pend[i]); n++; }catch(e){ console.error(e); }
+  }
+  STATE.cache.conteos = await dbAll('conteos');
+  cteRender();
+  toast('Registros subidos', n+' conteo(s) sincronizados con la nube','success');
+}
+
 function cteAplicarEstimacion(id){
   if(!can('conteos.revisar')){ toast('Sin permiso','Solo usuarios con permiso de revisión pueden aplicar a estimación','error'); return; }
   var s = (STATE.cache.conteos||[]).find(function(x){ return String(x.id)===String(id); });
