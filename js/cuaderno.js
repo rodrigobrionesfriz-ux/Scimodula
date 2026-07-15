@@ -2729,17 +2729,26 @@ function verResumenAplicaciones(){
     var nombresPanos=(c.panoIds||[]).map(function(pid){ var px=getPano(pid); return px?px.nombre:('#'+pid); });
     var panosUnicos=nombresPanos.filter(function(x,i){ return nombresPanos.indexOf(x)===i; });
     var agua=parseFloat(c.aguaReal)||0; totalAgua+=agua;
-    var nProd=(c.productosReales||[]).filter(function(pr){ return pr.nombre; }).length;
-    return '<tr style="border-bottom:1px solid #eee">'+
+    // Objetivo(s) desde la orden
+    var objs=(orden&&orden.objetivos?orden.objetivos.slice():[]);
+    if(orden&&orden.objetivoOtro) objs.push('Otro: '+orden.objetivoOtro);
+    var objetivoHtml=objs.length?('<div style="margin-top:4px;font-size:11px;color:#8a5a00">🎯 '+escapeHtml(objs.join(', '))+'</div>'):'';
+    // Detalle de productos aplicados
+    var prods=(c.productosReales||[]).filter(function(pr){ return pr.nombre; });
+    var prodHtml=prods.length
+      ? '<div style="margin-top:5px;font-size:11px;color:#444">'+prods.map(function(pr){
+          return '• '+escapeHtml(pr.nombre)+' <strong>'+fmtN(pr.qtyAplicada,3)+' '+escapeHtml(pr.unitS||'')+'</strong>';
+        }).join('<br>')+'</div>'
+      : '<div style="margin-top:5px;font-size:11px;color:#aaa">Sin productos</div>';
+    return '<tr style="border-bottom:1px solid #eee;vertical-align:top">'+
       '<td style="padding:8px 10px;white-space:nowrap;font-weight:700">'+escapeHtml(c.fechaApp||'—')+(c.turno?'<div style="font-size:11px;color:#888;font-weight:400">'+escapeHtml(c.turno)+'</div>':'')+'</td>'+
-      '<td style="padding:8px 10px;font-size:12px">'+escapeHtml(String(nroOrden||'—'))+(tipoApp?'<div style="color:#1565c0;font-weight:700">'+escapeHtml(tipoApp)+'</div>':'')+'</td>'+
-      '<td style="padding:8px 10px;font-size:12px">'+escapeHtml(panosUnicos.join(', '))+'</td>'+
+      '<td style="padding:8px 10px;font-size:12px">'+escapeHtml(String(nroOrden||'—'))+(tipoApp?'<div style="color:#1565c0;font-weight:700">'+escapeHtml(tipoApp)+'</div>':'')+objetivoHtml+'</td>'+
+      '<td style="padding:8px 10px;font-size:12px">'+escapeHtml(panosUnicos.join(', '))+prodHtml+'</td>'+
       '<td style="padding:8px 10px;font-size:12px;color:#555">'+escapeHtml(c.operador||'—')+(c.equipo?'<div style="color:#888">'+escapeHtml(c.equipo)+'</div>':'')+'</td>'+
-      '<td style="padding:8px 10px;text-align:center">'+nProd+'</td>'+
       '<td style="padding:8px 10px;text-align:right;font-weight:700;color:#1a5a8a;white-space:nowrap">'+fmtN(agua,0)+' L</td>'+
     '</tr>';
   }).join('');
-  if(!filas) filas='<tr><td colspan="6" style="padding:24px;text-align:center;color:#888">Sin aplicaciones confirmadas.</td></tr>';
+  if(!filas) filas='<tr><td colspan="5" style="padding:24px;text-align:center;color:#888">Sin aplicaciones confirmadas.</td></tr>';
 
   var prev=document.getElementById('cc-resumen-aplic-modal'); if(prev) prev.remove();
   var modal=document.createElement('div');
@@ -2756,13 +2765,12 @@ function verResumenAplicaciones(){
       '<table style="width:100%;border-collapse:collapse;font-size:13px;min-width:640px">'+
         '<thead><tr style="background:#f0f7ff;position:sticky;top:0">'+
           '<th style="padding:9px 10px;text-align:left">Fecha</th>'+
-          '<th style="padding:9px 10px;text-align:left">Orden / Tipo</th>'+
-          '<th style="padding:9px 10px;text-align:left">Paños</th>'+
+          '<th style="padding:9px 10px;text-align:left">Orden / Tipo / Objetivo</th>'+
+          '<th style="padding:9px 10px;text-align:left">Paños y productos</th>'+
           '<th style="padding:9px 10px;text-align:left">Operador / Equipo</th>'+
-          '<th style="padding:9px 10px;text-align:center">Prod.</th>'+
           '<th style="padding:9px 10px;text-align:right">Agua</th>'+
         '</tr></thead><tbody>'+filas+'</tbody>'+
-        '<tfoot><tr style="background:#f0f0f0;font-weight:800"><td colspan="5" style="padding:10px">TOTAL AGUA</td><td style="padding:10px;text-align:right;color:#1a5a8a">'+fmtN(totalAgua,0)+' L</td></tr></tfoot>'+
+        '<tfoot><tr style="background:#f0f0f0;font-weight:800"><td colspan="4" style="padding:10px">TOTAL AGUA</td><td style="padding:10px;text-align:right;color:#1a5a8a">'+fmtN(totalAgua,0)+' L</td></tr></tfoot>'+
       '</table>'+
     '</div>'+
     '<div style="padding:12px 18px;border-top:1px solid #e3e8ee;display:flex;justify-content:flex-end">'+
