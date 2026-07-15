@@ -419,44 +419,71 @@ function cteRenderLista(){
     html += '<div class="cte-card" style="text-align:center;color:#999;padding:30px">Sin conteos guardados todavía.</div>';
     return html;
   }
+  html += '<div style="max-height:60vh;overflow-y:auto;border:1px solid #e5e5e5;border-radius:12px;background:#fff">';
   html += sesiones.map(function(s){
     var fecha = (s.fechaInicio||'').slice(0,10);
-    var hora = (s.fechaInicio||'').slice(11,16);
-    var sync = s.sincronizado ? '<span style="color:#0a6e2e;font-weight:700">☁️ Subido</span>' : '<span style="color:#e9730c;font-weight:700">📱 Local</span>';
-    // Buscar la primera ubicación GPS disponible entre los árboles de la sesión
-    var arbolGps = (s.arboles||[]).find(function(a){ return a.lat!=null && a.lng!=null; });
-    var conGps = (s.arboles||[]).filter(function(a){ return a.lat!=null && a.lng!=null; }).length;
-    var gpsHtml = '';
-    if(arbolGps){
-      var lat = arbolGps.lat.toFixed(6), lng = arbolGps.lng.toFixed(6);
-      gpsHtml = '<div style="margin-top:10px;padding:10px;background:#f0f7ff;border-radius:8px;display:flex;align-items:center;justify-content:space-between;gap:8px">'+
-        '<div style="font-size:12px;color:#666"><span style="color:#888">📍 Georreferencia</span><br>'+lat+', '+lng+(conGps>1?(' <span style="color:#888">('+conGps+' puntos)</span>'):'')+'</div>'+
-        '<button onclick="cteAbrirMapa('+arbolGps.lat+','+arbolGps.lng+')" style="padding:10px 14px;background:#0a6ed1;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap">🗺️ Ver en mapa</button>'+
-      '</div>';
-    } else {
-      gpsHtml = '<div style="margin-top:10px;font-size:12px;color:#aaa">📍 Sin georreferencia capturada</div>';
-    }
-    return '<div class="cte-card">'+
-      '<div style="display:flex;justify-content:space-between;align-items:start">'+
-        '<div><div style="font-size:17px;font-weight:800;color:#23303d">'+escapeHtml(s.panoNombre||'')+'</div>'+
-          '<div style="font-size:13px;color:#666">'+escapeHtml(s.variedad||'')+' · '+fecha+' '+hora+(s.temporada?(' · <strong style="color:#0854a0">'+escapeHtml(s.temporada)+'</strong>'):'')+'</div></div>'+
-        '<div style="text-align:right;font-size:12px">'+sync+(s.aplicadoEstim?'<br><span style="color:#1a7e3e;font-weight:700">📈 Aplicado</span>':'')+'</div>'+
+    var sync = s.sincronizado ? '☁️' : '📱';
+    return '<div onclick="cteVerSesionDetalle(\''+s.id+'\')" style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:13px 14px;border-bottom:1px solid #eee;cursor:pointer">'+
+      '<div style="min-width:0">'+
+        '<div style="font-size:15px;font-weight:800;color:#23303d">'+sync+' '+escapeHtml(s.panoNombre||'')+(s.aplicadoEstim?' <span style="color:#1a7e3e;font-size:11px">📈</span>':'')+'</div>'+
+        '<div style="font-size:12px;color:#777;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+escapeHtml(s.variedad||'')+' · '+fecha+(s.temporada?(' · '+escapeHtml(s.temporada)):'')+'</div>'+
       '</div>'+
-      '<div style="display:flex;gap:16px;margin-top:10px;font-size:14px">'+
-        '<div><span style="color:#888">Árboles:</span> <strong>'+(s.nArboles||s.arboles.length)+'</strong></div>'+
-        '<div><span style="color:#888">Prom. centros:</span> <strong style="color:#0a6ed1">'+(s.promedioCentros!=null?s.promedioCentros.toFixed(1):'-')+'</strong></div>'+
-        (s.cuajaSesion!=null?'<div><span style="color:#888">Cuaja:</span> <strong style="color:#1a7e3e">'+s.cuajaSesion.toFixed(2)+'</strong></div>':'')+
-      '</div>'+
-      gpsHtml+
-      '<div style="display:flex;gap:8px;margin-top:12px">'+
-        (can('conteos.revisar')?'<button onclick="cteAplicarEstimacion(\''+s.id+'\')" style="flex:1;padding:12px;background:#1a7e3e;color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">📈 Aplicar a estimación</button>':'')+
-        '<button onclick="cteEditarSesion(\''+s.id+'\')" style="padding:12px 16px;background:#fff;color:#0854a0;border:2px solid #bcd9f5;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">✏️</button>'+
-        '<button onclick="cteEliminarSesion(\''+s.id+'\')" style="padding:12px 16px;background:#fff;color:#c0392b;border:2px solid #f0b8b8;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">🗑️</button>'+
+      '<div style="display:flex;align-items:center;gap:12px;flex-shrink:0">'+
+        '<div style="text-align:right"><div style="font-size:10px;color:#999">Prom.</div><div style="font-size:16px;font-weight:800;color:#0a6ed1">'+(s.promedioCentros!=null?s.promedioCentros.toFixed(1):'-')+'</div></div>'+
+        '<span style="color:#bbb;font-size:20px">›</span>'+
       '</div>'+
     '</div>';
   }).join('');
+  html += '</div>';
   return html;
 }
+
+// Detalle completo de una sesión de conteo (modal)
+function cteVerSesionDetalle(id){
+  var s = (STATE.cache.conteos||[]).find(function(x){ return String(x.id)===String(id); });
+  if(!s){ return; }
+  var fecha = (s.fechaInicio||'').slice(0,10), hora = (s.fechaInicio||'').slice(11,16);
+  var sync = s.sincronizado ? '<span style="color:#0a6e2e;font-weight:700">☁️ Subido</span>' : '<span style="color:#e9730c;font-weight:700">📱 Local</span>';
+  var arbolGps = (s.arboles||[]).find(function(a){ return a.lat!=null && a.lng!=null; });
+  var conGps = (s.arboles||[]).filter(function(a){ return a.lat!=null && a.lng!=null; }).length;
+  var gpsHtml;
+  if(arbolGps){
+    var lat = arbolGps.lat.toFixed(6), lng = arbolGps.lng.toFixed(6);
+    gpsHtml = '<div style="margin-top:12px;padding:10px;background:#f0f7ff;border-radius:8px;display:flex;align-items:center;justify-content:space-between;gap:8px">'+
+      '<div style="font-size:12px;color:#666"><span style="color:#888">📍 Georreferencia</span><br>'+lat+', '+lng+(conGps>1?(' <span style="color:#888">('+conGps+' puntos)</span>'):'')+'</div>'+
+      '<button onclick="cteAbrirMapa('+arbolGps.lat+','+arbolGps.lng+')" style="padding:10px 14px;background:#0a6ed1;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap">🗺️ Ver en mapa</button>'+
+    '</div>';
+  } else {
+    gpsHtml = '<div style="margin-top:12px;font-size:12px;color:#aaa">📍 Sin georreferencia capturada</div>';
+  }
+  var stats = '<div style="display:flex;flex-wrap:wrap;gap:16px;margin-top:12px;font-size:14px">'+
+    '<div><span style="color:#888">Árboles:</span> <strong>'+(s.nArboles||(s.arboles?s.arboles.length:0))+'</strong></div>'+
+    '<div><span style="color:#888">Prom. centros:</span> <strong style="color:#0a6ed1">'+(s.promedioCentros!=null?s.promedioCentros.toFixed(1):'-')+'</strong></div>'+
+    (s.cuajaSesion!=null?'<div><span style="color:#888">Cuaja:</span> <strong style="color:#1a7e3e">'+s.cuajaSesion.toFixed(2)+'</strong></div>':'')+
+    '</div>';
+  function cerrar(){ return 'document.getElementById(\'cte-ses-ov\').remove()'; }
+  var acciones = '<div style="display:flex;gap:8px;margin-top:16px">'+
+    (can('conteos.revisar')?'<button onclick="'+cerrar()+';cteAplicarEstimacion(\''+s.id+'\')" style="flex:1;padding:12px;background:#1a7e3e;color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">📈 Aplicar a estimación</button>':'')+
+    '<button onclick="'+cerrar()+';cteEditarSesion(\''+s.id+'\')" style="padding:12px 16px;background:#fff;color:#0854a0;border:2px solid #bcd9f5;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">✏️</button>'+
+    '<button onclick="'+cerrar()+';cteEliminarSesion(\''+s.id+'\')" style="padding:12px 16px;background:#fff;color:#c0392b;border:2px solid #f0b8b8;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer">🗑️</button>'+
+    '</div>';
+  var ov = document.createElement('div');
+  ov.id = 'cte-ses-ov';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10005;display:flex;align-items:center;justify-content:center;padding:16px';
+  ov.onclick = function(e){ if(e.target===ov) ov.remove(); };
+  ov.innerHTML = '<div style="background:#fff;border-radius:14px;max-width:480px;width:100%;max-height:88vh;overflow-y:auto;box-shadow:0 12px 40px rgba(0,0,0,.3)">'+
+    '<div style="display:flex;justify-content:space-between;align-items:start;padding:16px 18px;border-bottom:1px solid #eee;position:sticky;top:0;background:#fff">'+
+      '<div><div style="font-size:18px;font-weight:800;color:#23303d">'+escapeHtml(s.panoNombre||'')+'</div>'+
+        '<div style="font-size:13px;color:#666">'+escapeHtml(s.variedad||'')+' · '+fecha+' '+hora+(s.temporada?(' · <strong style="color:#0854a0">'+escapeHtml(s.temporada)+'</strong>'):'')+'</div></div>'+
+      '<button onclick="'+cerrar()+'" style="border:none;background:#f0f0f0;border-radius:8px;width:32px;height:32px;font-size:16px;cursor:pointer;flex-shrink:0">✕</button>'+
+    '</div>'+
+    '<div style="padding:14px 18px 18px">'+
+      '<div style="font-size:13px">'+sync+(s.aplicadoEstim?' · <span style="color:#1a7e3e;font-weight:700">📈 Aplicado a estimación</span>':'')+'</div>'+
+      stats + gpsHtml + acciones +
+    '</div></div>';
+  document.body.appendChild(ov);
+}
+try{ window.cteVerSesionDetalle=cteVerSesionDetalle; }catch(e){}
 
 // Abrir una ubicación en Google Maps (nueva pestaña / app)
 function cteAbrirMapa(lat, lng){
