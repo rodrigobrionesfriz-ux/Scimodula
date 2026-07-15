@@ -403,6 +403,7 @@ function fbApplyRemote(data){
       S.equipos = S.equipos.map(function(e){ return (typeof e==='string')?{nombre:e,capacidad:0}:{nombre:(e&&e.nombre)||'',capacidad:(e&&parseFloat(e.capacidad))||0}; }).filter(function(e){ return e.nombre; });
       if(remote.prodPorEstado !== undefined) S.prodPorEstado = remote.prodPorEstado;
       if(remote.versionesEstim !== undefined) S.versionesEstim = remote.versionesEstim;
+      if(remote.pctExport !== undefined) S.pctExport = remote.pctExport;
       if(remote.oCounter !== undefined) S.oCounter = remote.oCounter;
       if(remote.comprasUrgentes !== undefined) S.comprasUrgentes = remote.comprasUrgentes;
       if(!Array.isArray(S.comprasUrgentes)) S.comprasUrgentes = [];
@@ -460,7 +461,8 @@ function fbPush(immediate){
       ordenes: S.ordenes, confirmaciones: S.confirmaciones, oCounter: S.oCounter,
       equipos: S.equipos, comprasUrgentes: S.comprasUrgentes,
       fertirriego: S.fertirriego, prodPorEstado: S.prodPorEstado,
-      versionesEstim: S.versionesEstim
+      versionesEstim: S.versionesEstim,
+      pctExport: S.pctExport
     });
     var userName = '';
     try { if(typeof STATE!=='undefined' && STATE.user){ userName = STATE.user.nombre || STATE.user.id || ''; } }catch(e){}
@@ -554,7 +556,7 @@ function _migrarPanos(){
 function load(){
   try{
     var d = localStorage.getItem('cc_v2');
-    if(d){ var p=JSON.parse(d); ['panos','registros','productos','ordenes','confirmaciones','fertirriego','equipos','comprasUrgentes','versionesEstim'].forEach(function(k){ if(p[k]) S[k]=p[k]; }); if(p.oCounter) S.oCounter=p.oCounter;
+    if(d){ var p=JSON.parse(d); ['panos','registros','productos','ordenes','confirmaciones','fertirriego','equipos','comprasUrgentes','versionesEstim','pctExport'].forEach(function(k){ if(p[k]) S[k]=p[k]; }); if(p.oCounter) S.oCounter=p.oCounter;
       if(!Array.isArray(S.confirmaciones)) S.confirmaciones = [];
       if(!Array.isArray(S.comprasUrgentes)) S.comprasUrgentes = [];
       if(!Array.isArray(S.equipos)) S.equipos = [];
@@ -2195,26 +2197,42 @@ function renderEstimacion(){
   });
 
   html += '<div class="cc-card"><div class="cc-card-ttl">🍒 Estimación por variedad</div>';
-  html += '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px;min-width:560px">';
+  html += '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px;min-width:900px">';
   html += '<thead><tr style="background:#354a5f;color:#d1e8ff">'+
     '<th style="text-align:left;padding:9px 11px">Variedad</th>'+
     '<th style="text-align:right;padding:9px 11px">Plantas principal</th>'+
     '<th style="text-align:right;padding:9px 11px">Plantas polin.</th>'+
     '<th style="text-align:right;padding:9px 11px">Kg variedad principal</th>'+
+    '<th style="text-align:center;padding:9px 11px">% Export principal</th>'+
     '<th style="text-align:right;padding:9px 11px">Kg polinizantes</th>'+
+    '<th style="text-align:center;padding:9px 11px">% Export polin.</th>'+
+    '<th style="text-align:right;padding:9px 11px">Kg Export</th>'+
+    '<th style="text-align:right;padding:9px 11px">Kg Merc. interno</th>'+
     '<th style="text-align:right;padding:9px 11px">Kg TOTAL</th>'+
     '</tr></thead><tbody>';
-  var totalKgGeneral = 0, totalKgPrincipal = 0, totalKgPolin = 0;
+  var totalKgGeneral = 0, totalKgPrincipal = 0, totalKgPolin = 0, totalKgExport = 0, totalKgInterno = 0;
   Object.keys(porVariedad).sort().forEach(function(v){
     var d = porVariedad[v];
     var totalV = d.kgPrincipal + d.kgPolin;
+    var pctP = estGetPctExport(v,'principal');
+    var pctPol = estGetPctExport(v,'polin');
+    var kgExpV = d.kgPrincipal*(pctP/100) + d.kgPolin*(pctPol/100);
+    var kgIntV = totalV - kgExpV;
     totalKgGeneral += totalV; totalKgPrincipal += d.kgPrincipal; totalKgPolin += d.kgPolin;
+    totalKgExport += kgExpV; totalKgInterno += kgIntV;
+    function inputPct(tipo, val, dis){
+      return '<input type="number" min="0" max="100" step="1" value="'+(val||'')+'"'+(dis?' disabled':'')+' onchange="estGuardarPctExport(\''+v.replace(/'/g,"\\'")+'\',\''+tipo+'\',this.value)" style="width:56px;padding:4px 6px;border:1px solid #d9d9d9;border-radius:5px;text-align:center'+(dis?';background:#f5f5f5':'')+'">';
+    }
     html += '<tr style="border-bottom:1px solid #eee">'+
       '<td style="padding:8px 11px;font-weight:700">'+escapeHtml(v)+'</td>'+
       '<td style="padding:8px 11px;text-align:right">'+d.plantasPrincipal.toLocaleString('es-CL')+'</td>'+
       '<td style="padding:8px 11px;text-align:right;color:#92600a">'+(d.plantasPolin?d.plantasPolin.toLocaleString('es-CL'):'—')+'</td>'+
       '<td style="padding:8px 11px;text-align:right">'+(d.kgPrincipal>0?d.kgPrincipal.toLocaleString('es-CL',{maximumFractionDigits:0})+' kg':'—')+'</td>'+
+      '<td style="padding:8px 11px;text-align:center">'+inputPct('principal', pctP, d.kgPrincipal<=0)+'</td>'+
       '<td style="padding:8px 11px;text-align:right;color:#92600a">'+(d.kgPolin>0?d.kgPolin.toLocaleString('es-CL',{maximumFractionDigits:0})+' kg':'—')+'</td>'+
+      '<td style="padding:8px 11px;text-align:center">'+inputPct('polin', pctPol, d.kgPolin<=0)+'</td>'+
+      '<td style="padding:8px 11px;text-align:right;font-weight:700;color:#1a7e3e">'+(kgExpV>0?kgExpV.toLocaleString('es-CL',{maximumFractionDigits:0})+' kg':'—')+'</td>'+
+      '<td style="padding:8px 11px;text-align:right;color:#b45309">'+(kgIntV>0?kgIntV.toLocaleString('es-CL',{maximumFractionDigits:0})+' kg':'—')+'</td>'+
       '<td style="padding:8px 11px;text-align:right;font-weight:800;color:#354a5f">'+(totalV>0?totalV.toLocaleString('es-CL',{maximumFractionDigits:0})+' kg':'—')+'</td>'+
       '</tr>';
   });
@@ -2222,7 +2240,11 @@ function renderEstimacion(){
     '<td style="padding:10px 11px">TOTAL GENERAL</td>'+
     '<td style="padding:10px 11px"></td><td style="padding:10px 11px"></td>'+
     '<td style="padding:10px 11px;text-align:right">'+totalKgPrincipal.toLocaleString('es-CL',{maximumFractionDigits:0})+' kg</td>'+
+    '<td style="padding:10px 11px"></td>'+
     '<td style="padding:10px 11px;text-align:right;color:#92600a">'+totalKgPolin.toLocaleString('es-CL',{maximumFractionDigits:0})+' kg</td>'+
+    '<td style="padding:10px 11px"></td>'+
+    '<td style="padding:10px 11px;text-align:right;color:#1a7e3e">'+totalKgExport.toLocaleString('es-CL',{maximumFractionDigits:0})+' kg</td>'+
+    '<td style="padding:10px 11px;text-align:right;color:#b45309">'+totalKgInterno.toLocaleString('es-CL',{maximumFractionDigits:0})+' kg</td>'+
     '<td style="padding:10px 11px;text-align:right;color:#354a5f;font-size:15px">'+totalKgGeneral.toLocaleString('es-CL',{maximumFractionDigits:0})+' kg</td>'+
     '</tr></tfoot></table></div>';
   // Equivalencia en cajas (referencial: 5kg por caja)
@@ -2284,6 +2306,23 @@ function estGuardarConteo(panoId, campo, valor){
   save();
   renderEstimacion(); // re-render para actualizar cálculos (incluye polinizantes que heredan)
 }
+
+// Guardar % de exportación por variedad y tipo (principal / polinizante). Se persiste y sincroniza.
+function estGuardarPctExport(variedad, tipo, valor){
+  if(!S.pctExport) S.pctExport = {};
+  var pct = parseFloat(valor);
+  if(isNaN(pct)) pct = 0;
+  if(pct<0) pct=0; if(pct>100) pct=100;
+  S.pctExport[variedad+'||'+tipo] = pct;
+  save();
+  renderEstimacion();
+}
+function estGetPctExport(variedad, tipo){
+  if(!S.pctExport) return 0;
+  var v = S.pctExport[variedad+'||'+tipo];
+  return (v==null||isNaN(v)) ? 0 : v;
+}
+try{ window.estGuardarPctExport=estGuardarPctExport; }catch(e){}
 
 // ══ FORMULARIO DE CONTEO DE ÁRBOLES (promedio) ══
 var _conteoActivePano = null;
