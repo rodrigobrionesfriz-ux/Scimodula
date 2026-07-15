@@ -73,7 +73,7 @@ var FBCOUNT = (function(){
   });
 })();
 </script>
-<link rel="stylesheet" href="css/styles.css?v=49">
+<link rel="stylesheet" href="css/styles.css?v=51">
 </head>
 <body>
 <!-- Hoja de estilo dinámica para el tema forestal (se llena vía JS) -->
@@ -332,10 +332,9 @@ var FBCOUNT = (function(){
         <button class="cc-btn cc-btn-gold cc-btn-sm" onclick="exportCSV()">⬇ Exportar CSV</button>
         <span id="cc-fl-cnt" style="font-size:12px;color:#a0a0a0;margin-left:auto;align-self:center"></span>
       </div>
-      <div class="cc-tbl-wrap">
+      <div class="cc-tbl-wrap" style="max-height:60vh;overflow-y:auto">
         <table class="cc-tbl"><thead><tr>
-          <th>Fecha</th><th>Paño</th><th>Variedad</th><th>Año</th><th>Tipo</th>
-          <th>Producto</th><th>Dosis</th><th>Método</th><th>Operador</th><th>Lote</th><th>Obs.</th><th></th>
+          <th>Fecha</th><th>Paño</th><th>Tipo</th><th>Producto</th><th></th>
         </tr></thead><tbody id="cc-hist-tbody"></tbody></table>
       </div>
     </div>
@@ -704,7 +703,7 @@ var FBCOUNT = (function(){
 
 <script>
 </script>
-<script src="js/core.js?v=49"></script>
+<script src="js/core.js?v=51"></script>
 <script>
 /* ═══════════════ MÓDULO: CONTROL DE PRESUPUESTO ═══════════════ */
 /* Integra el dashboard de Control de Presupuesto (Huerto Cerezos 2018) como
@@ -1871,8 +1870,8 @@ function renderPresupuesto(main){
 }
 
 </script>
-<script src="js/inventario.js?v=49"></script>
-<script src="js/huerto.js?v=49"></script>
+<script src="js/inventario.js?v=51"></script>
+<script src="js/huerto.js?v=51"></script>
 <script>
 
 /* ═══════════════ MÓDULO: MANTENCIONES ═══════════════ */
@@ -2631,7 +2630,7 @@ var S = { panos:[], registros:[], productos:[], ordenes:[], oCounter:1, confirma
 };
 
 </script>
-<script src="js/cuaderno.js?v=49"></script>
+<script src="js/cuaderno.js?v=51"></script>
 <script>
 
 /* ═══════════════ INTEGRACIÓN CUADERNO DE CAMPO ═══════════════ */
@@ -2688,8 +2687,8 @@ function renderCuaderno(main){
 </script>
 
 
-<script src="data/presupuesto-data.js?v=49"></script>
-<script src="js/presupuesto.js?v=49"></script>
+<script src="data/presupuesto-data.js?v=51"></script>
+<script src="js/presupuesto.js?v=51"></script>
 <script>
 /* ── Normalización global a MAYÚSCULAS en la entrada de datos ──
    Aplica a inputs de texto y textareas de todo el sistema.
