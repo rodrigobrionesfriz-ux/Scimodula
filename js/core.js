@@ -1254,9 +1254,9 @@ function seAbrirModal(esNuevo){
     '<div style="padding:16px 18px;border-bottom:1px solid #eee;font-size:17px;font-weight:800;color:#23303d">'+(esNuevo?'Nuevo enlace':'Editar enlace')+'</div>'+
     '<div style="padding:18px;display:flex;flex-direction:column;gap:14px">'+
       '<div><label style="font-size:13px;color:#555;font-weight:700">Nombre</label>'+
-        '<input id="se-nombre" value="'+escapeHtml(_seEdit.nombre||'')+'" placeholder="Ej: Informe de Madera" autocapitalize="sentences" style="width:100%;padding:10px;border:1px solid #d9d9d9;border-radius:8px;box-sizing:border-box;margin-top:4px;text-transform:none"></div>'+
+        '<input id="se-nombre" data-nouppercase value="'+escapeHtml(_seEdit.nombre||'')+'" placeholder="Ej: Informe de Madera" autocapitalize="sentences" style="width:100%;padding:10px;border:1px solid #d9d9d9;border-radius:8px;box-sizing:border-box;margin-top:4px;text-transform:none"></div>'+
       '<div><label style="font-size:13px;color:#555;font-weight:700">URL</label>'+
-        '<input id="se-url" value="'+escapeHtml(_seEdit.url||'')+'" placeholder="https://..." autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" inputmode="url" style="width:100%;padding:10px;border:1px solid #d9d9d9;border-radius:8px;box-sizing:border-box;margin-top:4px;text-transform:none"></div>'+
+        '<input id="se-url" data-nouppercase value="'+escapeHtml(_seEdit.url||'')+'" placeholder="https://..." autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" inputmode="url" style="width:100%;padding:10px;border:1px solid #d9d9d9;border-radius:8px;box-sizing:border-box;margin-top:4px;text-transform:none"></div>'+
       '<div><label style="font-size:13px;color:#555;font-weight:700">Ícono (emoji)</label>'+
         '<input id="se-icon" value="'+escapeHtml(_seEdit.icon||'🔗')+'" maxlength="4" style="width:90px;padding:10px;border:1px solid #d9d9d9;border-radius:8px;margin-top:4px;text-align:center;font-size:18px"></div>'+
       '<div><label style="font-size:13px;color:#555;font-weight:700">¿Qué roles pueden ver este enlace?</label>'+
