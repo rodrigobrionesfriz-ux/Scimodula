@@ -1122,8 +1122,8 @@ function renderSidebar(){
           `<div class="nav-section-items">`;
         ext.forEach(l=>{
           const safeUrl = String(l.url||'').replace(/"/g,'&quot;').replace(/'/g,"\\'");
-          html+=`<div class="nav-item" onclick="abrirSistemaExterno('${safeUrl}')">`+
-            `<span class="nav-item-icon">${escapeHtml(l.icon||'🔗')}</span>${escapeHtml(l.nombre||'Enlace')}`+
+          html+=`<div class="nav-item" onclick="abrirSistemaExterno('${safeUrl}')" style="text-transform:none">`+
+            `<span class="nav-item-icon">${escapeHtml(l.icon||'🔗')}</span><span style="text-transform:none">${escapeHtml(l.nombre||'Enlace')}</span>`+
             `<span style="margin-left:auto;opacity:.6;font-size:12px">↗</span>`+
           `</div>`;
         });
@@ -1214,8 +1214,8 @@ function renderSistemasExternos(main){
         : l.roles.map(function(r){ return ROLE_LABELS[r]||r; }).join(', ');
       html += '<div style="border:1px solid #e5e5e5;border-radius:12px;padding:14px;background:#fff;display:flex;justify-content:space-between;align-items:start;gap:12px">'+
         '<div style="min-width:0">'+
-          '<div style="font-size:16px;font-weight:800;color:#23303d">'+escapeHtml(l.icon||'🔗')+' '+escapeHtml(l.nombre||'')+'</div>'+
-          '<div style="font-size:12px;color:#0854a0;word-break:break-all;margin-top:2px">'+escapeHtml(l.url||'')+'</div>'+
+          '<div style="font-size:16px;font-weight:800;color:#23303d;text-transform:none">'+escapeHtml(l.icon||'🔗')+' '+escapeHtml(l.nombre||'')+'</div>'+
+          '<div style="font-size:12px;color:#0854a0;word-break:break-all;margin-top:2px;text-transform:none">'+escapeHtml(l.url||'')+'</div>'+
           '<div style="font-size:12px;color:#777;margin-top:5px">👁️ '+escapeHtml(rolesTxt)+'</div>'+
         '</div>'+
         '<div style="display:flex;gap:6px;flex-shrink:0">'+
@@ -1254,9 +1254,9 @@ function seAbrirModal(esNuevo){
     '<div style="padding:16px 18px;border-bottom:1px solid #eee;font-size:17px;font-weight:800;color:#23303d">'+(esNuevo?'Nuevo enlace':'Editar enlace')+'</div>'+
     '<div style="padding:18px;display:flex;flex-direction:column;gap:14px">'+
       '<div><label style="font-size:13px;color:#555;font-weight:700">Nombre</label>'+
-        '<input id="se-nombre" value="'+escapeHtml(_seEdit.nombre||'')+'" placeholder="Ej: Informe de Madera" style="width:100%;padding:10px;border:1px solid #d9d9d9;border-radius:8px;box-sizing:border-box;margin-top:4px"></div>'+
+        '<input id="se-nombre" value="'+escapeHtml(_seEdit.nombre||'')+'" placeholder="Ej: Informe de Madera" autocapitalize="sentences" style="width:100%;padding:10px;border:1px solid #d9d9d9;border-radius:8px;box-sizing:border-box;margin-top:4px;text-transform:none"></div>'+
       '<div><label style="font-size:13px;color:#555;font-weight:700">URL</label>'+
-        '<input id="se-url" value="'+escapeHtml(_seEdit.url||'')+'" placeholder="https://..." style="width:100%;padding:10px;border:1px solid #d9d9d9;border-radius:8px;box-sizing:border-box;margin-top:4px"></div>'+
+        '<input id="se-url" value="'+escapeHtml(_seEdit.url||'')+'" placeholder="https://..." autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" inputmode="url" style="width:100%;padding:10px;border:1px solid #d9d9d9;border-radius:8px;box-sizing:border-box;margin-top:4px;text-transform:none"></div>'+
       '<div><label style="font-size:13px;color:#555;font-weight:700">Ícono (emoji)</label>'+
         '<input id="se-icon" value="'+escapeHtml(_seEdit.icon||'🔗')+'" maxlength="4" style="width:90px;padding:10px;border:1px solid #d9d9d9;border-radius:8px;margin-top:4px;text-align:center;font-size:18px"></div>'+
       '<div><label style="font-size:13px;color:#555;font-weight:700">¿Qué roles pueden ver este enlace?</label>'+
