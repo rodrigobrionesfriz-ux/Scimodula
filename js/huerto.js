@@ -1412,6 +1412,7 @@ function ipRenderLista(){
   // ── Resumen por paño/variedad con opción de actualizar el N° de plantas del paño ──
   html += ipRenderResumenPanos();
   html += '<div style="font-weight:800;color:#23303d;margin:14px 0 8px">Hileras registradas ('+regs.length+')</div>';
+  html += '<div style="max-height:65vh;overflow-y:auto;padding:2px 4px 4px;border:1px solid #e5e5e5;border-radius:12px;background:#fafafa">';
   html += regs.map(function(s,idx){
     var fecha=(s.fechaInicio||'').slice(0,10);
     var sync = s.sincronizado ? '☁️' : '📱';
@@ -1444,6 +1445,7 @@ function ipRenderLista(){
       '<div id="ip-hil-det-'+idx+'" style="display:none;padding:0 14px 14px">'+det+'</div>'+
     '</div>';
   }).join('');
+  html += '</div>';
   return html;
 }
 
