@@ -709,6 +709,29 @@ const ROLE_LABELS={
   'opcombustible':'OP. COMBUSTIBLE'
 };
 
+/* ═══════════ SISTEMAS EXTERNOS (enlaces a otros sistemas) ═══════════ */
+// Lee los enlaces guardados en config (sincronizados). Cada enlace:
+// { id, nombre, url, icon, roles:[...] }  roles vacío = visible para todos.
+function getSistemasExternos(){
+  var c = STATE.cache && STATE.cache.config ? STATE.cache.config['sistemasExternos'] : null;
+  return (c && Array.isArray(c.links)) ? c.links : [];
+}
+// Enlaces visibles para el usuario actual según su rol.
+function sistemasExternosVisibles(){
+  var role = STATE.user ? STATE.user.role : null;
+  return getSistemasExternos().filter(function(l){
+    if(!l.url) return false;
+    if(!l.roles || !l.roles.length) return true; // sin restricción = todos
+    return l.roles.indexOf(role) !== -1;
+  });
+}
+async function guardarSistemasExternos(links){
+  var obj = { key:'sistemasExternos', links:links };
+  STATE.cache.config['sistemasExternos'] = obj;
+  await dbPut('config', obj); // dbPut sincroniza a la nube
+}
+try{ window.getSistemasExternos=getSistemasExternos; window.sistemasExternosVisibles=sistemasExternosVisibles; }catch(e){}
+
 function can(perm){
   if(!STATE.user)return false;
   return (STATE.user.permissions||[]).includes(perm);
@@ -1028,6 +1051,7 @@ async function _doLogout(){
 const PAGES=[
   {section:'PRINCIPAL',items:[
     {id:'dashboard',label:'Dashboard',icon:'📊',perm:null},
+    {id:'sistemasExternos',label:'Gestionar enlaces',icon:'🔗',perm:null,adminOnly:true},
   ]},
   {section:'INVENTARIO',items:[
     {id:'productos',label:'Productos',icon:'📦',perm:'productos.ver'},
@@ -1089,6 +1113,23 @@ function renderSidebar(){
       </div>`;
     });
     html+=`</div></div>`;
+    // Tras la sección PRINCIPAL, insertar los enlaces a sistemas externos (abren en pestaña nueva)
+    if(sec.section==='PRINCIPAL'){
+      const ext = (typeof sistemasExternosVisibles==='function') ? sistemasExternosVisibles() : [];
+      if(ext.length){
+        html+=`<div class="nav-section" data-section="SISTEMAS EXTERNOS">`+
+          `<div class="nav-label"><span>SISTEMAS EXTERNOS</span></div>`+
+          `<div class="nav-section-items">`;
+        ext.forEach(l=>{
+          const safeUrl = String(l.url||'').replace(/"/g,'&quot;').replace(/'/g,"\\'");
+          html+=`<div class="nav-item" onclick="abrirSistemaExterno('${safeUrl}')">`+
+            `<span class="nav-item-icon">${escapeHtml(l.icon||'🔗')}</span>${escapeHtml(l.nombre||'Enlace')}`+
+            `<span style="margin-left:auto;opacity:.6;font-size:12px">↗</span>`+
+          `</div>`;
+        });
+        html+=`</div></div>`;
+      }
+    }
   });
   html+=`<div class="nav-section" style="margin-top:auto"><div class="nav-item" onclick="logout()" style="color:rgba(255,180,180,.85)"><span class="nav-item-icon">🚪</span>Cerrar sesión</div></div>`;
   nav.innerHTML=html;
@@ -1139,6 +1180,132 @@ function mostrarMenuConteos(){
     + '</div>';
 }
 
+/* ═══════════ SISTEMAS EXTERNOS: abrir + gestión ═══════════ */
+function abrirSistemaExterno(url){
+  if(!url) return;
+  var u = String(url);
+  if(!/^https?:\/\//i.test(u)) u = 'https://' + u;
+  window.open(u, '_blank', 'noopener,noreferrer');
+}
+try{ window.abrirSistemaExterno=abrirSistemaExterno; }catch(e){}
+
+// Estado temporal de edición (solo en memoria de la pantalla)
+var _seEdit = null;
+
+function renderSistemasExternos(main){
+  if(!STATE.user || STATE.user.role!=='admin'){
+    main.innerHTML='<div style="padding:24px;color:#c0392b">Solo el administrador puede gestionar los enlaces.</div>';
+    return;
+  }
+  var links = getSistemasExternos();
+  var roles = Object.keys(ROLE_LABELS);
+  var html = '<div style="max-width:820px;margin:0 auto;padding:8px 4px">';
+  html += '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px">'+
+    '<div style="font-size:14px;color:#555">Enlaces a otros sistemas (Informe de Madera, Control Gestión Forestal, etc.). Abren en una pestaña nueva. Puedes asignar qué roles ven cada enlace.</div>'+
+    '<button onclick="seNuevo()" style="padding:11px 16px;background:#0854a0;color:#fff;border:none;border-radius:9px;font-size:14px;font-weight:700;cursor:pointer;white-space:nowrap">+ Nuevo enlace</button>'+
+  '</div>';
+
+  if(!links.length){
+    html += '<div style="text-align:center;color:#999;padding:30px;background:#fafafa;border:1px dashed #ddd;border-radius:12px">Aún no hay enlaces. Crea el primero con "+ Nuevo enlace".</div>';
+  } else {
+    html += '<div style="display:flex;flex-direction:column;gap:10px">';
+    links.forEach(function(l){
+      var rolesTxt = (!l.roles || !l.roles.length) ? 'Todos los roles'
+        : l.roles.map(function(r){ return ROLE_LABELS[r]||r; }).join(', ');
+      html += '<div style="border:1px solid #e5e5e5;border-radius:12px;padding:14px;background:#fff;display:flex;justify-content:space-between;align-items:start;gap:12px">'+
+        '<div style="min-width:0">'+
+          '<div style="font-size:16px;font-weight:800;color:#23303d">'+escapeHtml(l.icon||'🔗')+' '+escapeHtml(l.nombre||'')+'</div>'+
+          '<div style="font-size:12px;color:#0854a0;word-break:break-all;margin-top:2px">'+escapeHtml(l.url||'')+'</div>'+
+          '<div style="font-size:12px;color:#777;margin-top:5px">👁️ '+escapeHtml(rolesTxt)+'</div>'+
+        '</div>'+
+        '<div style="display:flex;gap:6px;flex-shrink:0">'+
+          '<button onclick="seEditar(\''+l.id+'\')" style="padding:9px 12px;background:#fff;color:#0854a0;border:2px solid #bcd9f5;border-radius:9px;font-weight:700;cursor:pointer">✏️</button>'+
+          '<button onclick="seEliminar(\''+l.id+'\')" style="padding:9px 12px;background:#fff;color:#c0392b;border:2px solid #f0b8b8;border-radius:9px;font-weight:700;cursor:pointer">🗑️</button>'+
+        '</div>'+
+      '</div>';
+    });
+    html += '</div>';
+  }
+  html += '</div>';
+  main.innerHTML = html;
+}
+
+function seNuevo(){ _seEdit = { id:'se-'+Date.now(), nombre:'', url:'', icon:'🔗', roles:[] }; seAbrirModal(true); }
+function seEditar(id){
+  var l = getSistemasExternos().find(function(x){ return x.id===id; });
+  if(!l) return;
+  _seEdit = JSON.parse(JSON.stringify(l));
+  if(!Array.isArray(_seEdit.roles)) _seEdit.roles=[];
+  seAbrirModal(false);
+}
+function seAbrirModal(esNuevo){
+  var roles = Object.keys(ROLE_LABELS);
+  var chips = roles.map(function(r){
+    var on = _seEdit.roles.indexOf(r)!==-1;
+    return '<label style="display:inline-flex;align-items:center;gap:6px;padding:7px 11px;border:2px solid '+(on?'#0854a0':'#d9d9d9')+';border-radius:20px;cursor:pointer;font-size:13px;background:'+(on?'#eaf3fc':'#fff')+'">'+
+      '<input type="checkbox" '+(on?'checked':'')+' onchange="seToggleRol(\''+r+'\',this.checked)" style="margin:0"> '+escapeHtml(ROLE_LABELS[r])+'</label>';
+  }).join(' ');
+  var prev=document.getElementById('se-modal'); if(prev) prev.remove();
+  var m=document.createElement('div');
+  m.id='se-modal';
+  m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10006;display:flex;align-items:center;justify-content:center;padding:16px';
+  m.onclick=function(e){ if(e.target===m) m.remove(); };
+  m.innerHTML='<div style="background:#fff;border-radius:14px;max-width:560px;width:100%;max-height:90vh;overflow-y:auto">'+
+    '<div style="padding:16px 18px;border-bottom:1px solid #eee;font-size:17px;font-weight:800;color:#23303d">'+(esNuevo?'Nuevo enlace':'Editar enlace')+'</div>'+
+    '<div style="padding:18px;display:flex;flex-direction:column;gap:14px">'+
+      '<div><label style="font-size:13px;color:#555;font-weight:700">Nombre</label>'+
+        '<input id="se-nombre" value="'+escapeHtml(_seEdit.nombre||'')+'" placeholder="Ej: Informe de Madera" style="width:100%;padding:10px;border:1px solid #d9d9d9;border-radius:8px;box-sizing:border-box;margin-top:4px"></div>'+
+      '<div><label style="font-size:13px;color:#555;font-weight:700">URL</label>'+
+        '<input id="se-url" value="'+escapeHtml(_seEdit.url||'')+'" placeholder="https://..." style="width:100%;padding:10px;border:1px solid #d9d9d9;border-radius:8px;box-sizing:border-box;margin-top:4px"></div>'+
+      '<div><label style="font-size:13px;color:#555;font-weight:700">Ícono (emoji)</label>'+
+        '<input id="se-icon" value="'+escapeHtml(_seEdit.icon||'🔗')+'" maxlength="4" style="width:90px;padding:10px;border:1px solid #d9d9d9;border-radius:8px;margin-top:4px;text-align:center;font-size:18px"></div>'+
+      '<div><label style="font-size:13px;color:#555;font-weight:700">¿Qué roles pueden ver este enlace?</label>'+
+        '<div style="font-size:12px;color:#999;margin:2px 0 8px">Si no marcas ninguno, lo verán todos los roles.</div>'+
+        '<div id="se-roles" style="display:flex;flex-wrap:wrap;gap:8px">'+chips+'</div></div>'+
+    '</div>'+
+    '<div style="padding:14px 18px;border-top:1px solid #eee;display:flex;justify-content:flex-end;gap:8px">'+
+      '<button onclick="document.getElementById(\'se-modal\').remove()" style="padding:11px 16px;background:#f0f0f0;border:none;border-radius:9px;font-weight:700;cursor:pointer">Cancelar</button>'+
+      '<button onclick="seGuardar()" style="padding:11px 18px;background:#0854a0;color:#fff;border:none;border-radius:9px;font-weight:700;cursor:pointer">Guardar</button>'+
+    '</div></div>';
+  document.body.appendChild(m);
+}
+function seToggleRol(r, on){
+  if(!_seEdit) return;
+  var i=_seEdit.roles.indexOf(r);
+  if(on && i===-1) _seEdit.roles.push(r);
+  if(!on && i!==-1) _seEdit.roles.splice(i,1);
+  seAbrirModal(false);
+}
+async function seGuardar(){
+  if(!_seEdit) return;
+  var nombre=(document.getElementById('se-nombre').value||'').trim();
+  var url=(document.getElementById('se-url').value||'').trim();
+  var icon=(document.getElementById('se-icon').value||'🔗').trim()||'🔗';
+  if(!nombre){ toast('Falta nombre','Escribe un nombre para el enlace','error'); return; }
+  if(!url){ toast('Falta URL','Escribe la dirección del sistema','error'); return; }
+  _seEdit.nombre=nombre; _seEdit.url=url; _seEdit.icon=icon;
+  var links=getSistemasExternos().slice();
+  var idx=links.findIndex(function(x){ return x.id===_seEdit.id; });
+  if(idx===-1) links.push(_seEdit); else links[idx]=_seEdit;
+  await guardarSistemasExternos(links);
+  var m=document.getElementById('se-modal'); if(m) m.remove();
+  renderSidebar();
+  renderSistemasExternos(document.getElementById('mainContent'));
+  toast('Enlace guardado', nombre+' está disponible en la barra lateral','success');
+}
+function seEliminar(id){
+  var l=getSistemasExternos().find(function(x){ return x.id===id; });
+  if(!l) return;
+  confirmDialog('Eliminar enlace','¿Eliminar "'+escapeHtml(l.nombre||'')+'"?',async function(){
+    var links=getSistemasExternos().filter(function(x){ return x.id!==id; });
+    await guardarSistemasExternos(links);
+    renderSidebar();
+    renderSistemasExternos(document.getElementById('mainContent'));
+    toast('Enlace eliminado','','success');
+  },'Eliminar',true);
+}
+try{ window.renderSistemasExternos=renderSistemasExternos; window.seNuevo=seNuevo; window.seEditar=seEditar; window.seToggleRol=seToggleRol; window.seGuardar=seGuardar; window.seEliminar=seEliminar; }catch(e){}
+
 function navigate(page, fromHistory){
   // ── Guard OP. CONTEOS: solo puede entrar a 'conteos' o 'invplantas'.
   // Cualquier otro destino (p.ej. 'dashboard') lo devuelve al menú. ──
@@ -1180,6 +1347,7 @@ function navigate(page, fromHistory){
   if(window.innerWidth<880){document.getElementById('sidebar').classList.remove('open');var _ov=document.getElementById('sidebarOverlay');if(_ov)_ov.remove();}
   const titles={
     dashboard:'Dashboard',productos:'Productos',bodegas:'Bodegas',
+    sistemasExternos:'Enlaces a Sistemas Externos',
     proveedores:'Proveedores',clientes:'Clientes',centrosCosto:'Centros de Costo',stock:'Stock por Bodega',movimientos:'Movimientos',
     entradas:'Nueva Entrada',salidas:'Nueva Salida',
     tomas:'Tomas de Inventario',tomaCapturar:'Capturando Toma',tomaVer:'Detalle de Toma',
@@ -1194,6 +1362,7 @@ function navigate(page, fromHistory){
   main.scrollTop=0;
   switch(page){
     case 'dashboard':renderDashboard(main);break;
+    case 'sistemasExternos':renderSistemasExternos(main);break;
     case 'productos':renderProductos(main);break;
     case 'bodegas':renderBodegas(main);break;
     case 'proveedores':renderProveedores(main);break;
