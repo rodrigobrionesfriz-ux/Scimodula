@@ -78,7 +78,7 @@ function ocRenderTabla(rows){
   var el = document.getElementById('ocTable');
   if(!el) return;
   if(!rows.length){ el.innerHTML = '<div class="empty-state" style="padding:36px;text-align:center;color:var(--mu)">No hay órdenes de compra</div>'; return; }
-  el.innerHTML = `<div style="overflow-x:auto"><table class="table">
+  el.innerHTML = `<div style="overflow-x:auto"><table class="data" style="width:100%">
     <thead><tr><th>Folio</th><th>Fecha</th><th>Proveedor</th><th>C. Costo</th><th class="num">Total</th><th>Estado</th><th></th></tr></thead>
     <tbody>${rows.map(function(o){
       var anulada = (o.estado==='ANULADA');
@@ -246,29 +246,29 @@ function ocRenderLineas(){
       return '<option value="'+escapeHtml(c.codigo)+'" '+(sel===c.codigo?'selected':'')+'>'+escapeHtml(c.codigo)+'</option>';
     }).join('');
   };
-  wrap.innerHTML = `<div style="overflow-x:auto"><table class="table">
+  wrap.innerHTML = `<div style="overflow-x:auto"><table class="data" style="width:100%">
     <thead><tr>
-      <th style="min-width:110px">Producto</th><th style="min-width:180px">Descripción</th>
-      <th>C. Costo</th><th class="num">Cantidad</th><th class="num">P. Unit. Neto</th>
-      <th class="num">Neto</th><th class="num">IVA 19%</th><th class="num">Otros Imp.</th><th class="num">Total</th><th></th>
+      <th style="width:13%;min-width:120px">Producto</th><th style="width:26%;min-width:180px">Descripción</th>
+      <th style="width:9%;min-width:95px">C. Costo</th><th class="num" style="width:8%;min-width:75px">Cantidad</th><th class="num" style="width:10%;min-width:95px">P. Unit. Neto</th>
+      <th class="num" style="width:9%">Neto</th><th class="num" style="width:9%">IVA 19%</th><th class="num" style="width:9%;min-width:85px">Otros Imp.</th><th class="num" style="width:10%">Total</th><th style="width:36px"></th>
     </tr></thead>
     <tbody>${ocDraft.lineas.map(function(l,i){
       var c = ocCalcLinea(l);
       var p = l.codigoInterno ? getProduct(l.codigoInterno) : null;
       return `<tr>
-        <td style="min-width:150px"><input type="text" class="mono" style="width:150px" id="oc-prod-${i}" value="${escapeHtml(l.codigoInterno||'')}" placeholder="🔍 Buscar en SCI..."
+        <td style="min-width:150px"><input type="text" class="mono" style="width:100%;box-sizing:border-box" id="oc-prod-${i}" value="${escapeHtml(l.codigoInterno||'')}" placeholder="🔍 Buscar en SCI..."
              oninput="ocBuscarProd(${i})" onfocus="ocBuscarProd(${i})" onblur="setTimeout(function(){ocHideAC(${i})},250)">
             <div class="cc-ac-list" id="oc-ac-${i}" style="display:none;text-align:left"></div></td>
-        <td><input type="text" style="width:100%;min-width:180px" value="${escapeHtml(l.descripcion||'')}" placeholder="Descripción"
+        <td><input type="text" style="width:100%;box-sizing:border-box" value="${escapeHtml(l.descripcion||'')}" placeholder="Descripción"
              onchange="ocUpd(${i},'descripcion',this.value)">${p?`<div class="hint">${escapeHtml(p.unidadMedida||'')}${c.afectoIVA?'':' · EXENTO IVA'}</div>`:''}</td>
-        <td><select style="width:110px" onchange="ocUpd(${i},'cc',this.value)">${ccOpts(l.cc||'')}</select></td>
-        <td class="num"><input type="number" min="0" step="any" style="width:85px;text-align:right" value="${l.cantidad!=null?l.cantidad:''}"
+        <td><select style="width:100%;box-sizing:border-box" onchange="ocUpd(${i},'cc',this.value)">${ccOpts(l.cc||'')}</select></td>
+        <td class="num"><input type="number" min="0" step="any" style="width:100%;box-sizing:border-box;text-align:right" value="${l.cantidad!=null?l.cantidad:''}"
              oninput="ocUpd(${i},'cantidad',this.value)"></td>
-        <td class="num"><input type="number" min="0" step="any" style="width:105px;text-align:right" value="${l.precio!=null?l.precio:''}"
+        <td class="num"><input type="number" min="0" step="any" style="width:100%;box-sizing:border-box;text-align:right" value="${l.precio!=null?l.precio:''}"
              oninput="ocUpd(${i},'precio',this.value)"></td>
         <td class="num mono" id="oc-neto-${i}">${fmtMon(c.neto)}</td>
         <td class="num mono" id="oc-iva-${i}">${fmtMon(c.iva)}</td>
-        <td class="num"><input type="number" min="0" step="any" style="width:90px;text-align:right" value="${l.otros!=null?l.otros:''}"
+        <td class="num"><input type="number" min="0" step="any" style="width:100%;box-sizing:border-box;text-align:right" value="${l.otros!=null?l.otros:''}"
              oninput="ocUpd(${i},'otros',this.value)"></td>
         <td class="num mono" id="oc-total-${i}"><strong>${fmtMon(c.total)}</strong></td>
         <td><button class="btn btn-secondary btn-sm" onclick="ocRemoveLinea(${i})" title="Quitar línea">✕</button></td>
@@ -442,7 +442,7 @@ function verOrdenCompra(id){
       <div class="form-field"><label>Entregar en</label><div>${escapeHtml(o.entregarEn||'-')}</div></div>
       ${o.notas?`<div class="form-field span-2"><label>Notas</label><div>${escapeHtml(o.notas)}</div></div>`:''}
     </div>
-    <div style="overflow-x:auto;margin-top:10px"><table class="table">
+    <div style="overflow-x:auto;margin-top:10px"><table class="data" style="width:100%">
       <thead><tr><th>Código</th><th>Descripción</th><th>C.C.</th><th class="num">Cant.</th><th class="num">P. Unit.</th><th class="num">Neto</th><th class="num">IVA</th><th class="num">Otros</th><th class="num">Total</th></tr></thead>
       <tbody>${(o.lineas||[]).map(function(l){
         return `<tr><td class="mono">${escapeHtml(l.codigoInterno||'-')}</td><td>${escapeHtml(l.descripcion||'')}</td><td class="mono">${escapeHtml(l.cc||'-')}</td>
