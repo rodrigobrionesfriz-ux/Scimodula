@@ -257,8 +257,7 @@ function ocRenderLineas(){
       var p = l.codigoInterno ? getProduct(l.codigoInterno) : null;
       return `<tr>
         <td style="min-width:150px"><input type="text" class="mono" style="width:100%;box-sizing:border-box" id="oc-prod-${i}" value="${escapeHtml(l.codigoInterno||'')}" placeholder="🔍 Buscar en SCI..."
-             oninput="ocBuscarProd(${i})" onfocus="ocBuscarProd(${i})" onblur="setTimeout(function(){ocHideAC(${i})},250)">
-            <div class="cc-ac-list" id="oc-ac-${i}" style="display:none;text-align:left"></div></td>
+             oninput="ocBuscarProd(${i})" onfocus="ocBuscarProd(${i})" onblur="setTimeout(ocHideAC,250)"></td>
         <td><input type="text" style="width:100%;box-sizing:border-box" value="${escapeHtml(l.descripcion||'')}" placeholder="Descripción"
              onchange="ocUpd(${i},'descripcion',this.value)">${p?`<div class="hint">${escapeHtml(p.unidadMedida||'')}${c.afectoIVA?'':' · EXENTO IVA'}</div>`:''}</td>
         <td><select style="width:100%;box-sizing:border-box" onchange="ocUpd(${i},'cc',this.value)">${ccOpts(l.cc||'')}</select></td>
@@ -298,10 +297,31 @@ function ocRecalc(){
   set('oc-tot-neto',tt.neto); set('oc-tot-iva',tt.iva); set('oc-tot-otros',tt.otros); set('oc-tot-total',tt.total,true);
 }
 
-/* ── Buscador dinámico de productos del SCI (autocompletado) ── */
+/* ── Buscador dinámico de productos del SCI (autocompletado) ──
+   La lista se monta en <body> con posición fija: así nunca queda oculta
+   bajo la tarjeta/tabla (overflow) ni desplazada por transforms. ── */
+function _ocACEl(){
+  var el=document.getElementById('oc-ac-global');
+  if(!el){
+    el=document.createElement('div');
+    el.id='oc-ac-global';
+    el.className='cc-ac-list';
+    el.style.cssText='display:none;position:fixed;z-index:9000;width:340px;max-height:240px;overflow-y:auto;text-align:left';
+    document.body.appendChild(el);
+    window.addEventListener('resize',ocHideAC);
+    window.addEventListener('scroll',ocHideAC,true);
+  }
+  return el;
+}
+function ocHideAC(e){
+  // No ocultar si el scroll ocurre dentro de la propia lista
+  if(e && e.target && e.target.id==='oc-ac-global') return;
+  var l=document.getElementById('oc-ac-global'); if(l) l.style.display='none';
+}
 function ocBuscarProd(i){
-  var inp=document.getElementById('oc-prod-'+i), list=document.getElementById('oc-ac-'+i);
-  if(!inp||!list) return;
+  var inp=document.getElementById('oc-prod-'+i);
+  if(!inp) return;
+  var list=_ocACEl();
   var q=(inp.value||'').trim().toLowerCase();
   var res=[];
   if(q){
@@ -322,16 +342,23 @@ function ocBuscarProd(i){
   }
   if(!html){ list.style.display='none'; return; }
   list.innerHTML=html;
-  // Posición fija: evita que el scroll horizontal de la tabla recorte la lista
   var r=inp.getBoundingClientRect();
-  list.style.position='fixed';
-  list.style.left=Math.max(8,Math.min(r.left,window.innerWidth-336))+'px';
-  list.style.top=(r.bottom+2)+'px';
-  list.style.width='320px';
+  var w=Math.min(340,window.innerWidth-16);
+  list.style.width=w+'px';
+  list.style.left=Math.max(8,Math.min(r.left,window.innerWidth-w-8))+'px';
+  // Si no cabe abajo, mostrar hacia arriba
+  var abajo=window.innerHeight-r.bottom;
+  if(abajo<180 && r.top>240){
+    list.style.top='auto';
+    list.style.bottom=(window.innerHeight-r.top+2)+'px';
+  }else{
+    list.style.bottom='auto';
+    list.style.top=(r.bottom+2)+'px';
+  }
   list.style.display='block';
 }
-function ocHideAC(i){ var l=document.getElementById('oc-ac-'+i); if(l) l.style.display='none'; }
 function ocSelProd(i,codigo){
+  ocHideAC();
   var p=getProduct(codigo); if(!p) return;
   ocCaptureHeader();
   ocDraft.lineas[i].codigoInterno=p.codigoInterno;
@@ -340,6 +367,7 @@ function ocSelProd(i,codigo){
   ocRenderLineas();
 }
 function ocCrearDesdeBusqueda(i){
+  ocHideAC();
   var inp=document.getElementById('oc-prod-'+i);
   var q=inp?inp.value.trim():'';
   var isEAN=/^\d{8,14}$/.test(q);
