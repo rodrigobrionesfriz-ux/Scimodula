@@ -1291,6 +1291,12 @@ async function saveProduct(codigo,opts){
     return;
   }
 
+  // Si fue creado desde una Orden de Compra: rellenar la línea de la OC.
+  if(opts.fromOC){
+    if(typeof ocProductoCreado==='function') ocProductoCreado(nuevoCodigo, opts.lineIndex);
+    return;
+  }
+
   // Si fue creado desde la búsqueda de una orden de aplicación: volver al
   // Cuaderno y rellenar el producto recién creado en el input de la orden.
   if(opts.fromOrden){
