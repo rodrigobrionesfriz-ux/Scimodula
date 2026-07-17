@@ -9,7 +9,7 @@
 
 /* ═══════════════ DB LAYER (IndexedDB) ═══════════════ */
 const DB_NAME='SCI_DB';
-const DB_VERSION=10;
+const DB_VERSION=11;
 const STORES=[
   ['users','id'],
   ['products','codigoInterno'],
@@ -21,6 +21,7 @@ const STORES=[
   ['costCenters','codigo'],
   ['inventoryCounts','id'],
   ['movements','numero'],
+  ['ordenescompra','id'],
   ['mantenciones','id'],
   ['conteos','id'],
   ['estimaciones','id'],
@@ -188,7 +189,7 @@ var SCIFB = {
   applyingRemote: false,
   saveTimer: null,
   // Tablas que se sincronizan (todas las del SCI)
-  stores: ['users','products','warehouses','groups','productTypes','providers','customers','costCenters','inventoryCounts','movements','stock','lots','config','mantenciones','conteos','estimaciones','invplantas','combustible']
+  stores: ['users','products','warehouses','groups','productTypes','providers','customers','costCenters','inventoryCounts','movements','ordenescompra','stock','lots','config','mantenciones','conteos','estimaciones','invplantas','combustible']
 };
 
 function sciFbDocRef(){
@@ -395,7 +396,7 @@ function _sciEstaEliminado(store, rec, key){
    dispositivo borre datos que otro creó. */
 var SCI_STORES_ACUMULATIVOS = {
   'invplantas':1,'conteos':1,'estimaciones':1,'movements':1,'combustible':1,
-  'mantenciones':1,'inventoryCounts':1,'audit':1,'lots':1
+  'mantenciones':1,'inventoryCounts':1,'audit':1,'lots':1,'ordenescompra':1
 };
 function _sciStoreKey(store){
   try{ for(var i=0;i<STORES.length;i++){ if(STORES[i][0]===store) return STORES[i][1]; } }catch(e){}
@@ -532,7 +533,7 @@ async function sha256(text){
 const STATE={
   user:null,
   page:'dashboard',
-  cache:{products:[],warehouses:[],groups:[],productTypes:[],providers:[],customers:[],costCenters:[],inventoryCounts:[],movements:[],stock:[],lots:[],users:[],config:{},mantenciones:[],conteos:[],estimaciones:[],invplantas:[],combustible:[]}
+  cache:{products:[],warehouses:[],groups:[],productTypes:[],providers:[],customers:[],costCenters:[],inventoryCounts:[],movements:[],ordenescompra:[],stock:[],lots:[],users:[],config:{},mantenciones:[],conteos:[],estimaciones:[],invplantas:[],combustible:[]}
 };
 
 // ── Advertencia al cerrar / recargar / volver atrás (evita salir por error) ──
@@ -818,6 +819,7 @@ async function reloadCache(){
   STATE.cache.costCenters=await dbAll('costCenters');
   STATE.cache.inventoryCounts=await dbAll('inventoryCounts');
   STATE.cache.movements=await dbAll('movements');
+  STATE.cache.ordenescompra=await dbAll('ordenescompra');
   STATE.cache.mantenciones=await dbAll('mantenciones');
   STATE.cache.conteos=await dbAll('conteos');
   STATE.cache.invplantas=await dbAll('invplantas');
@@ -1065,6 +1067,7 @@ const PAGES=[
     {id:'movimientos',label:'Movimientos',icon:'🔄',perm:'movimientos.ver'},
     {id:'entradas',label:'Nueva Entrada',icon:'⬇️',perm:'movimientos.crear'},
     {id:'salidas',label:'Nueva Salida',icon:'⬆️',perm:'combustible.registrar'},
+    {id:'ordenesCompra',label:'Órdenes de Compra',icon:'🧾',perm:'movimientos.ver'},
     {id:'tomas',label:'Tomas de Inventario',icon:'📋',perm:'tomas.ver'},
     {id:'repCombustible',label:'Rendimiento combustible',icon:'⛽',perm:'combustible.registrar',adminOnly:true},
   ]},
@@ -1370,6 +1373,8 @@ function navigate(page, fromHistory){
     case 'centrosCosto':renderCentrosCosto(main);break;
     case 'stock':renderStock(main);break;
     case 'movimientos':renderMovimientos(main);break;
+    case 'ordenesCompra':renderOrdenesCompra(main);break;
+    case 'ordenCompraForm':renderOrdenCompraForm(main);break;
     case 'entradas':renderMovimientoForm(main,'ENT');break;
     case 'salidas':renderSelectorSalida(main);break;
     case 'repCombustible':renderReporteCombustible(main);break;
