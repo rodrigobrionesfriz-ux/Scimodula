@@ -1,41 +1,44 @@
-/* SCI — Service Worker (cache de la app para uso offline) */
-const CACHE = 'sci-v66';
+/* SCI PWA — cache offline de los archivos de la app */
+const CACHE = 'sci-v67';
 const APP_FILES = [
   './',
   './index.html',
-  './manifest.json',
   './css/styles.css',
+  './data/presupuesto-data.js',
   './js/core.js',
   './js/inventario.js',
   './js/ordencompra.js',
   './js/huerto.js',
   './js/cuaderno.js',
   './js/presupuesto.js',
-  './data/presupuesto-data.js',
+  './manifest.json',
   './icons/icon-192.png',
   './icons/icon-512.png'
 ];
-
+ 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(APP_FILES)).then(() => self.skipWaiting()));
 });
-
+ 
 self.addEventListener('activate', e => {
   e.waitUntil(
     caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });
-
+ 
 self.addEventListener('fetch', e => {
-  if (e.request.method !== 'GET') return;
   const url = new URL(e.request.url);
-  if (url.origin !== location.origin) return;
+  // Firebase/Google y peticiones no-GET: siempre red (la app ya maneja su offline con IndexedDB)
+  if (e.request.method !== 'GET' || url.hostname.includes('googleapis') ||
+      url.hostname.includes('gstatic') || url.hostname.includes('firebase')) return;
+  // Archivos propios y CDNs: red primero, caché como respaldo (offline)
   e.respondWith(
-    fetch(e.request).then(r => {
-      const copy = r.clone();
+    fetch(e.request).then(resp => {
+      const copy = resp.clone();
       caches.open(CACHE).then(c => c.put(e.request, copy)).catch(()=>{});
-      return r;
-    }).catch(() => caches.match(e.request, {ignoreSearch:true}))
+      return resp;
+    }).catch(() => caches.match(e.request, {ignoreSearch:true})
+      .then(r => r || caches.match('./index.html')))
   );
 });
