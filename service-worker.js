@@ -1,16 +1,17 @@
-/* SCI PWA — cache offline de los archivos de la app */
-const CACHE = 'sci-v65';
+/* SCI — Service Worker (cache de la app para uso offline) */
+const CACHE = 'sci-v66';
 const APP_FILES = [
   './',
   './index.html',
+  './manifest.json',
   './css/styles.css',
-  './data/presupuesto-data.js',
   './js/core.js',
   './js/inventario.js',
+  './js/ordencompra.js',
   './js/huerto.js',
   './js/cuaderno.js',
   './js/presupuesto.js',
-  './manifest.json',
+  './data/presupuesto-data.js',
   './icons/icon-192.png',
   './icons/icon-512.png'
 ];
@@ -27,17 +28,14 @@ self.addEventListener('activate', e => {
 });
 
 self.addEventListener('fetch', e => {
+  if (e.request.method !== 'GET') return;
   const url = new URL(e.request.url);
-  // Firebase/Google y peticiones no-GET: siempre red (la app ya maneja su offline con IndexedDB)
-  if (e.request.method !== 'GET' || url.hostname.includes('googleapis') ||
-      url.hostname.includes('gstatic') || url.hostname.includes('firebase')) return;
-  // Archivos propios y CDNs: red primero, caché como respaldo (offline)
+  if (url.origin !== location.origin) return;
   e.respondWith(
-    fetch(e.request).then(resp => {
-      const copy = resp.clone();
+    fetch(e.request).then(r => {
+      const copy = r.clone();
       caches.open(CACHE).then(c => c.put(e.request, copy)).catch(()=>{});
-      return resp;
-    }).catch(() => caches.match(e.request, {ignoreSearch:true})
-      .then(r => r || caches.match('./index.html')))
+      return r;
+    }).catch(() => caches.match(e.request, {ignoreSearch:true}))
   );
 });
