@@ -256,8 +256,9 @@ function ocRenderLineas(){
       var c = ocCalcLinea(l);
       var p = l.codigoInterno ? getProduct(l.codigoInterno) : null;
       return `<tr>
-        <td><input type="text" class="mono" style="width:110px" value="${escapeHtml(l.codigoInterno||'')}" placeholder="Código/EAN"
-             onchange="ocUpd(${i},'codigoInterno',this.value);ocResolveProducto(${i})"></td>
+        <td style="min-width:150px"><input type="text" class="mono" style="width:150px" id="oc-prod-${i}" value="${escapeHtml(l.codigoInterno||'')}" placeholder="🔍 Buscar en SCI..."
+             oninput="ocBuscarProd(${i})" onfocus="ocBuscarProd(${i})" onblur="setTimeout(function(){ocHideAC(${i})},250)">
+            <div class="cc-ac-list" id="oc-ac-${i}" style="display:none;text-align:left"></div></td>
         <td><input type="text" style="width:100%;min-width:180px" value="${escapeHtml(l.descripcion||'')}" placeholder="Descripción"
              onchange="ocUpd(${i},'descripcion',this.value)">${p?`<div class="hint">${escapeHtml(p.unidadMedida||'')}${c.afectoIVA?'':' · EXENTO IVA'}</div>`:''}</td>
         <td><select style="width:110px" onchange="ocUpd(${i},'cc',this.value)">${ccOpts(l.cc||'')}</select></td>
@@ -297,43 +298,53 @@ function ocRecalc(){
   set('oc-tot-neto',tt.neto); set('oc-tot-iva',tt.iva); set('oc-tot-otros',tt.otros); set('oc-tot-total',tt.total,true);
 }
 
-/* ── Producto: resolver código; si no existe, ofrecer crearlo en el SCI ── */
-function ocResolveProducto(i){
-  var code = (ocDraft.lineas[i].codigoInterno||'').trim();
-  if(!code) return;
-  var p = getProduct(code);
-  if(!p){ p = (STATE.cache.products||[]).find(function(x){ return x.codigoEAN===code; }); }
-  if(p){
-    ocDraft.lineas[i].codigoInterno = p.codigoInterno;
-    if(!ocDraft.lineas[i].descripcion) ocDraft.lineas[i].descripcion = p.descripcion||'';
-    if(!ocDraft.lineas[i].cc) ocDraft.lineas[i].cc = ocDraft.ccDefault||'';
-    ocCaptureHeader();
-    ocRenderLineas();
-  }else{
-    if(can('productos.crear')){
-      ocCaptureHeader();
-      ocPromptCrearProducto(code,i);
-    }else{
-      toast('Producto no encontrado', code+' — sin permiso para crear','warning');
-      ocDraft.lineas[i].codigoInterno='';
-      ocRenderLineas();
-    }
+/* ── Buscador dinámico de productos del SCI (autocompletado) ── */
+function ocBuscarProd(i){
+  var inp=document.getElementById('oc-prod-'+i), list=document.getElementById('oc-ac-'+i);
+  if(!inp||!list) return;
+  var q=(inp.value||'').trim().toLowerCase();
+  var res=[];
+  if(q){
+    res=(STATE.cache.products||[]).filter(function(p){
+      if(p.activo===false) return false;
+      return ((p.descripcion||'')+' '+(p.codigoInterno||'')+' '+(p.codigoEAN||'')+' '+(p.grupo||'')+' '+(p.tipoProducto||'')).toLowerCase().includes(q);
+    }).slice(0,12);
   }
+  var html=res.map(function(p){
+    return '<div class="cc-ac-item" onmousedown="ocSelProd('+i+',\''+escapeHtml(p.codigoInterno)+'\')">'+
+      '<strong>'+escapeHtml(p.descripcion||'')+'</strong>'+
+      '<div class="cc-ac-sub">'+escapeHtml(p.codigoInterno||'')+(p.codigoEAN?' · EAN '+escapeHtml(p.codigoEAN):'')+(p.grupo?' · '+escapeHtml(p.grupo):'')+' · '+escapeHtml(p.unidadMedida||'')+(p.aplicaIVA===false?' · EXENTO IVA':'')+'</div></div>';
+  }).join('');
+  if(q && can('productos.crear')){
+    html+='<div class="cc-ac-item" style="border-top:1px solid #e3e8ee;background:#f0f7ff;color:#1565c0;font-weight:700" onmousedown="ocCrearDesdeBusqueda('+i+')">'+
+      '➕ Crear «'+escapeHtml(inp.value.trim())+'» en el SCI'+
+      '<div class="cc-ac-sub" style="color:#5a7fa6;font-weight:400">'+(res.length?'¿No es ninguno de estos?':'Sin coincidencias en el catálogo.')+' Crear ficha de producto.</div></div>';
+  }
+  if(!html){ list.style.display='none'; return; }
+  list.innerHTML=html;
+  // Posición fija: evita que el scroll horizontal de la tabla recorte la lista
+  var r=inp.getBoundingClientRect();
+  list.style.position='fixed';
+  list.style.left=Math.max(8,Math.min(r.left,window.innerWidth-336))+'px';
+  list.style.top=(r.bottom+2)+'px';
+  list.style.width='320px';
+  list.style.display='block';
 }
-function ocPromptCrearProducto(typedCode,i){
-  var isEAN = /^\d{8,14}$/.test(typedCode);
-  showModal('Producto no encontrado',
-    `<div style="font-size:14px;line-height:1.6">
-      <div>El código <strong class="mono" style="color:var(--gd)">${escapeHtml(typedCode)}</strong> no existe en el SCI.</div>
-      <div style="margin-top:12px;color:var(--mu);font-size:13px">¿Desea crearlo ahora? Los datos de la orden de compra en curso se mantendrán intactos.</div>
-    </div>`,
-    `<button class="btn btn-secondary" id="ocpCancel">Cancelar</button>
-     <button class="btn btn-primary" id="ocpCreate">+ Crear producto en SCI</button>`,'sm');
-  document.getElementById('ocpCancel').onclick=function(){ closeModal(); ocDraft.lineas[i].codigoInterno=''; ocRenderLineas(); };
-  document.getElementById('ocpCreate').onclick=function(){
-    closeModal();
-    openProductForm(null,{ fromOC:true, lineIndex:i, prefilledEAN:isEAN?typedCode:'', prefilledDesc:isEAN?'':typedCode });
-  };
+function ocHideAC(i){ var l=document.getElementById('oc-ac-'+i); if(l) l.style.display='none'; }
+function ocSelProd(i,codigo){
+  var p=getProduct(codigo); if(!p) return;
+  ocCaptureHeader();
+  ocDraft.lineas[i].codigoInterno=p.codigoInterno;
+  ocDraft.lineas[i].descripcion=p.descripcion||'';
+  if(!ocDraft.lineas[i].cc) ocDraft.lineas[i].cc=ocDraft.ccDefault||'';
+  ocRenderLineas();
+}
+function ocCrearDesdeBusqueda(i){
+  var inp=document.getElementById('oc-prod-'+i);
+  var q=inp?inp.value.trim():'';
+  var isEAN=/^\d{8,14}$/.test(q);
+  ocCaptureHeader();
+  openProductForm(null,{ fromOC:true, lineIndex:i, prefilledEAN:isEAN?q:'', prefilledDesc:isEAN?'':q });
 }
 /* Llamado desde saveProduct (inventario.js) cuando el producto se crea desde una OC */
 function ocProductoCreado(codigo,i){
