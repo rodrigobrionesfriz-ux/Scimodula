@@ -3256,9 +3256,7 @@ function renderResumen(){
             '<span style="font-weight:700">\u{1F331} '+(Math.round(hasTotal*100)/100)+' h\u00e1</span>'+
             '<span style="color:#1a5a8a;font-weight:700">\u{1F4A7} '+(Math.round(riegoTotal*100)/100)+'</span>'+
             '<span style="color:#5a3a8a;font-weight:700">\u{1F33F} '+(p.densidad||0)+'</span>'+
-            (r>0
-              ? '<span onclick="verAplicacionesPano(\''+p.id+'\')" style="color:#1565c0;font-weight:700;cursor:pointer;text-decoration:underline">'+r+' aplic. \u203A</span>'
-              : '<span style="color:#888">0 aplic.</span>')+'</div>'+
+            '</div>'+
           detVar+'</div>';
       }).join('')+'</div></div>';
   }).join('');
