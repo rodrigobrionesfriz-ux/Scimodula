@@ -5917,7 +5917,10 @@ function renderPanosApp(){
   }
   el.innerHTML='';
   ps.forEach(function(p){
-    var r=S.registros.filter(function(x){ return x.panoId==p.id; }).length;
+    var _idsGrupo=[String(p.id)].concat(_polinizantesDe(p.id).map(function(h){ return String(h.id); }));
+    var r=(S.confirmaciones||[]).filter(function(c){
+      return (c.panoIds||[]).some(function(pid){ return _idsGrupo.indexOf(String(pid))>=0; });
+    }).length;
     var card=document.createElement('div');
     card.className='cc-pano-c'; card.style.borderLeftColor=p.color;
     // Header
@@ -5970,7 +5973,9 @@ function renderPanosApp(){
           var pl=plantasDe(p);
           return pl?'<span style="color:#92600a">&#x1F41D; '+pl.toLocaleString('es-CL')+' pl</span>':'';
         })()
-      +'<span>'+r+' aplic.</span>'
+      +(r>0
+          ? '<span onclick="event.stopPropagation();verAplicacionesPano(\''+p.id+'\')" style="color:#1565c0;font-weight:700;cursor:pointer;text-decoration:underline">'+r+' aplic. \u203A</span>'
+          : '<span>0 aplic.</span>')
       +'</div>';
     // Body
     var body=document.createElement('div'); body.className='cc-pano-c-body'; body.id='cc-pe-'+p.id; body.style.display='none';
