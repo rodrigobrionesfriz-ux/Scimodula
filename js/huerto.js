@@ -2410,6 +2410,28 @@ async function ipCambiarOrientacion(){
 }
 try{ window.ipCambiarOrientacion=ipCambiarOrientacion; }catch(e){}
 
+// Cambia la orientación de las HILERAS del cuartel: indica si la hilera 1
+// está en el ESTE o en el OESTE. Es una propiedad del cuartel completo, por
+// lo que se aplica a todas las hileras registradas del mismo cuartel.
+async function ipCambiarOrientacionHileras(){
+  if(!can('invplantas.editar')){ toast('Sin permiso','No tiene permiso para editar','error'); return; }
+  var s=_ipMapaReg; if(!s) return;
+  var nuevo=(s.hilera1En==='este')?'oeste':'este';
+  var delCuartel=(STATE.cache.invplantas||[]).filter(function(x){ return x.cuartel===s.cuartel; });
+  try{
+    for(var i=0;i<delCuartel.length;i++){
+      delCuartel[i].hilera1En=nuevo;
+      delCuartel[i].sincronizado=false;
+      await dbPut('invplantas', delCuartel[i]);
+    }
+    STATE.cache.invplantas=await dbAll('invplantas');
+    _ipMapaReg=(STATE.cache.invplantas||[]).find(function(x){ return String(x.id)===String(s.id); });
+  }catch(e){ console.error(e); toast('Error','No se pudo guardar','error'); return; }
+  ipRender();
+  toast('Orientación actualizada','Hilera 1 en el '+nuevo.toUpperCase()+' ('+delCuartel.length+' hilera(s) de '+s.cuartel+')','success');
+}
+try{ window.ipCambiarOrientacionHileras=ipCambiarOrientacionHileras; }catch(e){}
+
 function ipRenderMapa(){
   var s=_ipMapaReg; if(!s) return '<div class="ip-card">Sin datos</div>';
   var plantas = s.plantas||[];
@@ -2430,15 +2452,19 @@ function ipRenderMapa(){
       (puedeEditar?'<div style="font-size:12px;color:#0854a0;background:#f0f7ff;padding:8px;border-radius:8px">✏️ Toque una planta para cambiar su estado</div>':'<div style="font-size:12px;color:#999">Solo lectura. Se requiere permiso para editar estados.</div>')+
       (STATE.user && STATE.user.role==='admin' ? '<button onclick="ipInvertirOrden()" style="margin-top:8px;padding:9px 14px;background:#fff3e0;color:#b45309;border:1px solid #fcd9a0;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">↔️ Invertir orden de la hilera</button>' : '')+
       (puedeEditar ? '<button onclick="ipCambiarOrientacion()" style="margin-top:8px;margin-left:6px;padding:9px 14px;background:#f0f7ff;color:#0854a0;border:1px solid #bcd9f5;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">🧭 Planta 1 en el '+((s.planta1En==='norte')?'NORTE':'SUR')+' (cambiar)</button>' : '')+
+      (puedeEditar ? '<button onclick="ipCambiarOrientacionHileras()" style="margin-top:8px;margin-left:6px;padding:9px 14px;background:#eefaf0;color:#1a7e3e;border:1px solid #bfe3c8;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">🧭 Hilera 1 en el '+((s.hilera1En==='este')?'ESTE':'OESTE')+' (cambiar)</button>' : '')+
     '</div>';
 
   // Mapa visual: plantas como círculos en una grilla que representa la hilera.
-  // Orientación configurable: la planta 1 se muestra a la IZQUIERDA, y el
-  // extremo cardinal donde está (sur/norte) se define con ipCambiarOrientacion.
+  // Marco cardinal FIJO: SUR siempre a la izquierda, NORTE a la derecha.
+  // Si la planta 1 está en el NORTE, la secuencia se dibuja invertida y
+  // alineada a la derecha; si está en el SUR, normal y alineada a la izquierda.
   var _p1Norte = (s.planta1En==='norte');
+  var _h1Este = (s.hilera1En==='este');
   html += '<div class="ip-card" style="overflow-x:auto">';
-  html += '<div style="display:flex;justify-content:space-between;font-size:11px;font-weight:700;color:#7a8794;margin-bottom:6px;padding:0 4px"><span>← '+(_p1Norte?'NORTE':'SUR')+' (planta 1)</span><span>'+(_p1Norte?'SUR':'NORTE')+' →</span></div>';
-  html += '<div style="display:flex;flex-wrap:wrap;flex-direction:row;gap:8px;justify-content:flex-start;padding:8px">';
+  html += '<div style="display:flex;justify-content:space-between;font-size:11px;font-weight:700;color:#7a8794;margin-bottom:2px;padding:0 4px"><span>← SUR'+(_p1Norte?'':' (planta 1)')+'</span><span>NORTE'+(_p1Norte?' (planta 1)':'')+' →</span></div>';
+  html += '<div style="text-align:center;font-size:10px;color:#aab;margin-bottom:6px">Hilera 1 en el '+(_h1Este?'ESTE':'OESTE')+' · las hileras avanzan hacia el '+(_h1Este?'OESTE':'ESTE')+'</div>';
+  html += '<div style="display:flex;flex-wrap:wrap;flex-direction:row'+(_p1Norte?'-reverse':'')+';gap:8px;justify-content:flex-start;padding:8px">';
   plantas.forEach(function(p, idx){
     var e=IP_ESTADOS[p.estado]||IP_ESTADOS.sano;
     var borde = p.tipo==='poliniz' ? '3px solid #e9730c' : '2px solid rgba(0,0,0,.15)';
