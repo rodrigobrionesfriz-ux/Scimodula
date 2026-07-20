@@ -2393,6 +2393,23 @@ async function ipInvertirOrden(){
 }
 try{ window.ipInvertirOrden=ipInvertirOrden; }catch(e){}
 
+// Cambia la orientación de la hilera: indica si la planta 1 está en el SUR
+// (por defecto) o en el NORTE. Solo afecta las etiquetas del mapa 2D.
+async function ipCambiarOrientacion(){
+  if(!can('invplantas.editar')){ toast('Sin permiso','No tiene permiso para editar','error'); return; }
+  var s=_ipMapaReg; if(!s) return;
+  s.planta1En = (s.planta1En==='norte') ? 'sur' : 'norte';
+  s.sincronizado=false;
+  try{
+    await dbPut('invplantas', s);
+    STATE.cache.invplantas=await dbAll('invplantas');
+    _ipMapaReg = (STATE.cache.invplantas||[]).find(function(x){ return String(x.id)===String(s.id); });
+  }catch(e){ console.error(e); toast('Error','No se pudo guardar','error'); return; }
+  ipRender();
+  toast('Orientación actualizada','La planta 1 está en el '+(s.planta1En==='norte'?'NORTE':'SUR'),'success');
+}
+try{ window.ipCambiarOrientacion=ipCambiarOrientacion; }catch(e){}
+
 function ipRenderMapa(){
   var s=_ipMapaReg; if(!s) return '<div class="ip-card">Sin datos</div>';
   var plantas = s.plantas||[];
@@ -2412,12 +2429,15 @@ function ipRenderMapa(){
       '<div style="margin-bottom:6px">'+leyenda+'</div>'+
       (puedeEditar?'<div style="font-size:12px;color:#0854a0;background:#f0f7ff;padding:8px;border-radius:8px">✏️ Toque una planta para cambiar su estado</div>':'<div style="font-size:12px;color:#999">Solo lectura. Se requiere permiso para editar estados.</div>')+
       (STATE.user && STATE.user.role==='admin' ? '<button onclick="ipInvertirOrden()" style="margin-top:8px;padding:9px 14px;background:#fff3e0;color:#b45309;border:1px solid #fcd9a0;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">↔️ Invertir orden de la hilera</button>' : '')+
+      (puedeEditar ? '<button onclick="ipCambiarOrientacion()" style="margin-top:8px;margin-left:6px;padding:9px 14px;background:#f0f7ff;color:#0854a0;border:1px solid #bcd9f5;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">🧭 Planta 1 en el '+((s.planta1En==='norte')?'NORTE':'SUR')+' (cambiar)</button>' : '')+
     '</div>';
 
   // Mapa visual: plantas como círculos en una grilla que representa la hilera.
-  // Orientación del huerto: la planta 1 (sur) se muestra a la IZQUIERDA.
+  // Orientación configurable: la planta 1 se muestra a la IZQUIERDA, y el
+  // extremo cardinal donde está (sur/norte) se define con ipCambiarOrientacion.
+  var _p1Norte = (s.planta1En==='norte');
   html += '<div class="ip-card" style="overflow-x:auto">';
-  html += '<div style="display:flex;justify-content:space-between;font-size:11px;font-weight:700;color:#7a8794;margin-bottom:6px;padding:0 4px"><span>← SUR (planta 1)</span><span>NORTE →</span></div>';
+  html += '<div style="display:flex;justify-content:space-between;font-size:11px;font-weight:700;color:#7a8794;margin-bottom:6px;padding:0 4px"><span>← '+(_p1Norte?'NORTE':'SUR')+' (planta 1)</span><span>'+(_p1Norte?'SUR':'NORTE')+' →</span></div>';
   html += '<div style="display:flex;flex-wrap:wrap;flex-direction:row;gap:8px;justify-content:flex-start;padding:8px">';
   plantas.forEach(function(p, idx){
     var e=IP_ESTADOS[p.estado]||IP_ESTADOS.sano;
