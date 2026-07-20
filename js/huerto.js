@@ -2020,12 +2020,12 @@ function ipMostrarMapaGeneral(preservarZoom){
   '</div>';
 
   // ── Distribución espacial real del huerto ──
-  // Foto satelital (norte arriba): C5 noroeste, C4 centro-oeste, C3 norte-
-  // centro, C2 sur-centro, C1 franja este completa. En el marco del SVG
+  // Foto satelital (norte arriba): C5 noroeste, C4 centro-oeste, C2 norte-
+  // centro, C3 sur-centro, C1 franja este completa. En el marco del SVG
   // (SUR izq · NORTE der · OESTE arriba · ESTE abajo) eso equivale a:
-  //   fila 1 (oeste):  C4 | C5      fila 2 (centro): C2 | C3
+  //   fila 1 (oeste):  C4 | C5      fila 2 (centro): C3 | C2
   //   fila 3 (este):   C1 (a lo ancho)
-  var LAYOUT_HUERTO = [[4,5],[2,3],[1]];
+  var LAYOUT_HUERTO = [[4,5],[3,2],[1]];
   function _numCuartel(cu){ var m=String(cu).match(/(\d+)/); return m?parseInt(m[1],10):null; }
   function _svgDe(cu){
     var hileras=(porCuartel[cu]||[]).slice().sort(function(a,b){
