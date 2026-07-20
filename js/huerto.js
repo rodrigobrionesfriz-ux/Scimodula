@@ -2019,13 +2019,35 @@ function ipMostrarMapaGeneral(preservarZoom){
     '<span style="color:#7a8794;font-size:12px;margin-left:auto">Toque una hilera para ver su ubicación en Google Maps</span>'+
   '</div>';
 
-  seleccionados.forEach(function(cu){
-    var hileras = (porCuartel[cu]||[]).slice().sort(function(a,b){
+  // ── Distribución espacial real del huerto ──
+  // Foto satelital (norte arriba): C5 noroeste, C4 centro-oeste, C3 norte-
+  // centro, C2 sur-centro, C1 franja este completa. En el marco del SVG
+  // (SUR izq · NORTE der · OESTE arriba · ESTE abajo) eso equivale a:
+  //   fila 1 (oeste):  C4 | C5      fila 2 (centro): C2 | C3
+  //   fila 3 (este):   C1 (a lo ancho)
+  var LAYOUT_HUERTO = [[4,5],[2,3],[1]];
+  function _numCuartel(cu){ var m=String(cu).match(/(\d+)/); return m?parseInt(m[1],10):null; }
+  function _svgDe(cu){
+    var hileras=(porCuartel[cu]||[]).slice().sort(function(a,b){
       return (parseInt(String(a.hilera).replace(/[^0-9]/g,''))||0) - (parseInt(String(b.hilera).replace(/[^0-9]/g,''))||0);
     });
-    if(!hileras.length) return;
-    body += ipRenderCuartelSVG(cu, hileras);
+    return hileras.length ? ipRenderCuartelSVG(cu, hileras) : '';
+  }
+  var porNum={}, sinLayout=[];
+  seleccionados.forEach(function(cu){
+    var n=_numCuartel(cu);
+    var enLayout = n!=null && LAYOUT_HUERTO.some(function(f){ return f.indexOf(n)>=0; });
+    if(enLayout){ porNum[n]=cu; } else { sinLayout.push(cu); }
   });
+  LAYOUT_HUERTO.forEach(function(fila){
+    var celdas = fila.filter(function(n){ return porNum[n]; });
+    if(!celdas.length) return;
+    body += '<div style="display:flex;gap:16px;align-items:flex-start">'+
+      celdas.map(function(n){ return '<div style="flex:1;min-width:0">'+_svgDe(porNum[n])+'</div>'; }).join('')+
+    '</div>';
+  });
+  // Cuarteles fuera del layout conocido: se listan a continuación como antes.
+  sinLayout.forEach(function(cu){ body += _svgDe(cu); });
   body += '</div>';
 
   modal.innerHTML = header + body;
