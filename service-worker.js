@@ -1,5 +1,5 @@
 /* SCI PWA — cache offline de los archivos de la app */
-const CACHE = 'sci-v75';
+const CACHE = 'sci-v76';
 const APP_FILES = [
   './',
   './index.html',
