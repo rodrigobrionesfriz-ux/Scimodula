@@ -2077,7 +2077,7 @@ function ipRenderCuartelSVG(cuartel, hileras){
   // (planta1En) y por cuartel (hilera1En) adaptan el dibujo a ese marco.
   var h1Este = !!(hileras[0] && hileras[0].hilera1En==='este');
   if(h1Este) hileras = hileras.slice().reverse(); // H1 queda abajo (este)
-  var maxPlantas = Math.max.apply(null, hileras.map(function(h){ return (h.plantas||[]).length; }).concat([1]));
+  var maxPlantas = Math.max.apply(null, hileras.map(function(h){ return (h.plantas||[]).length + (parseInt(h.desfase,10)||0); }).concat([1]));
   var filas = hileras.length;
   // Tamaños base del sistema de coordenadas interno (viewBox). El SVG luego se
   // escala al ancho real disponible, así que estos valores son relativos.
@@ -2115,9 +2115,12 @@ function ipRenderCuartelSVG(cuartel, hileras){
     svg += '<text x="4" y="'+(y+4)+'" fill="#1a5288" font-size="12" font-weight="700">'+escapeHtml(nombreCorto(h))+(tieneGps?' 📍':'')+'</text>';
     // Línea base de la hilera. Anclaje según orientación: si la planta 1 está
     // en el SUR, la hilera se alinea al borde IZQUIERDO; si está en el NORTE,
-    // se alinea al borde DERECHO (extremo norte del cuartel).
+    // al borde DERECHO. El DESFASE la corre desde ese extremo hacia adentro.
+    var desf = (parseInt(h.desfase,10)||0);
     var xDerMax = margenIzq + maxPlantas*anchoPlanta;   // borde norte del marco
-    var xIzq   = p1Norte ? (xDerMax - plantas.length*anchoPlanta) : margenIzq;
+    var xIzq = p1Norte
+      ? (xDerMax - (plantas.length+desf)*anchoPlanta)
+      : (margenIzq + desf*anchoPlanta);
     var xDerHilera = xIzq + plantas.length*anchoPlanta;
     svg += '<line x1="'+xIzq+'" y1="'+y+'" x2="'+xDerHilera+'" y2="'+y+'" stroke="#5b9bd5" stroke-width="2"/>';
     var ultIdx = plantas.length - 1;
@@ -2467,6 +2470,24 @@ async function ipCambiarOrientacionHileras(){
 }
 try{ window.ipCambiarOrientacionHileras=ipCambiarOrientacionHileras; }catch(e){}
 
+// Ajusta el DESFASE de la hilera: cuántas posiciones de planta se corre desde
+// su extremo de anclaje (sur o norte según planta1En). Permite alinear las
+// plantas entre hileras igual que en terreno cuando el cuartel no es rectangular.
+async function ipAjustarDesfase(delta){
+  if(!can('invplantas.editar')){ toast('Sin permiso','No tiene permiso para editar','error'); return; }
+  var s=_ipMapaReg; if(!s) return;
+  var nuevo=Math.max(0,(parseInt(s.desfase,10)||0)+delta);
+  s.desfase=nuevo;
+  s.sincronizado=false;
+  try{
+    await dbPut('invplantas', s);
+    STATE.cache.invplantas=await dbAll('invplantas');
+    _ipMapaReg=(STATE.cache.invplantas||[]).find(function(x){ return String(x.id)===String(s.id); });
+  }catch(e){ console.error(e); toast('Error','No se pudo guardar','error'); return; }
+  ipRender();
+}
+try{ window.ipAjustarDesfase=ipAjustarDesfase; }catch(e){}
+
 function ipRenderMapa(){
   var s=_ipMapaReg; if(!s) return '<div class="ip-card">Sin datos</div>';
   var plantas = s.plantas||[];
@@ -2488,6 +2509,12 @@ function ipRenderMapa(){
       (STATE.user && STATE.user.role==='admin' ? '<button onclick="ipInvertirOrden()" style="margin-top:8px;padding:9px 14px;background:#fff3e0;color:#b45309;border:1px solid #fcd9a0;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">↔️ Invertir orden de la hilera</button>' : '')+
       (puedeEditar ? '<button onclick="ipCambiarOrientacion()" style="margin-top:8px;margin-left:6px;padding:9px 14px;background:#f0f7ff;color:#0854a0;border:1px solid #bcd9f5;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">🧭 Planta 1 en el '+((s.planta1En==='norte')?'NORTE':'SUR')+' (cambiar)</button>' : '')+
       (puedeEditar ? '<button onclick="ipCambiarOrientacionHileras()" style="margin-top:8px;margin-left:6px;padding:9px 14px;background:#eefaf0;color:#1a7e3e;border:1px solid #bfe3c8;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">🧭 Hilera 1 en el '+((s.hilera1En==='este')?'ESTE':'OESTE')+' (cambiar)</button>' : '')+
+      (puedeEditar ? '<div style="margin-top:8px;display:inline-flex;align-items:center;gap:6px;background:#faf5ff;border:1px solid #e0ccf5;border-radius:8px;padding:5px 10px;font-size:13px;font-weight:700;color:#6b21a8">↔️ Desfase: '+((parseInt(s.desfase,10)||0))+' pos.'+
+        '<button onclick="ipAjustarDesfase(-1)" style="width:28px;height:28px;border:1px solid #d8b4fe;background:#fff;color:#6b21a8;border-radius:6px;font-size:15px;font-weight:800;cursor:pointer">−</button>'+
+        '<button onclick="ipAjustarDesfase(1)" style="width:28px;height:28px;border:1px solid #d8b4fe;background:#fff;color:#6b21a8;border-radius:6px;font-size:15px;font-weight:800;cursor:pointer">+</button>'+
+        '<button onclick="ipAjustarDesfase(-5)" style="height:28px;padding:0 8px;border:1px solid #d8b4fe;background:#fff;color:#6b21a8;border-radius:6px;font-size:12px;font-weight:800;cursor:pointer">−5</button>'+
+        '<button onclick="ipAjustarDesfase(5)" style="height:28px;padding:0 8px;border:1px solid #d8b4fe;background:#fff;color:#6b21a8;border-radius:6px;font-size:12px;font-weight:800;cursor:pointer">+5</button>'+
+      '</div>' : (((parseInt(s.desfase,10)||0)>0)?'<div style="margin-top:8px;font-size:12px;color:#6b21a8;font-weight:700">↔️ Desfase: '+(parseInt(s.desfase,10)||0)+' posiciones</div>':''))+
     '</div>';
 
   // Mapa visual: plantas como círculos en una grilla que representa la hilera.
