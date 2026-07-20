@@ -2132,7 +2132,9 @@ function ipRenderCuartelSVG(cuartel, hileras){
       var e = IP_ESTADOS[p.estado]||IP_ESTADOS.sano;
       var esPoliniz = (p.tipo==='poliniz');
       var varPol = esPoliniz ? (p.polinizante || h.polinizante) : '';
-      var fill = esPoliniz ? ipColorPoliniz(varPol) : e.color;
+      // Polinizante sano → color de su variedad; con otro estado (muerto,
+      // débil, etc.) → color del ESTADO, manteniendo el borde de polinizante.
+      var fill = (esPoliniz && (p.estado||'sano')==='sano') ? ipColorPoliniz(varPol) : e.color;
       var esInicio = (pi===0 && gpsIni);
       var esFin = (pi===ultIdx && gpsFin && ultIdx>0);
       var stroke = esPoliniz ? '#000' : 'rgba(0,0,0,.45)';
@@ -2141,11 +2143,15 @@ function ipRenderCuartelSVG(cuartel, hileras){
       if(esInicio){ link='onclick="ipAbrirMapaPunto('+gpsIni.lat+','+gpsIni.lng+')"'; cursor='cursor:pointer'; stroke='#1565c0'; sw=3; extraTitle=' · 🟢 INICIO (toque para Google Maps)'; }
       else if(esFin){ link='onclick="ipAbrirMapaPunto('+gpsFin.lat+','+gpsFin.lng+')"'; cursor='cursor:pointer'; stroke='#1565c0'; sw=3; extraTitle=' · 🔴 FIN (toque para Google Maps)'; }
       var r = (esInicio||esFin) ? 8.5 : 7.5;
-      // Filtro visual: si hay estados/variedades seleccionados, atenuar los no incluidos
+      // Filtro visual: si hay estados/variedades seleccionados, atenuar los no incluidos.
+      // Un polinizante coincide por su variedad (pol:VAR) O por su estado, de modo
+      // que filtrar "Muerto" también muestre los polinizantes muertos.
       var op = 1;
       if(_ipMapaGenFiltro && _ipMapaGenFiltro.length>0){
-        var clave = esPoliniz ? ('pol:'+(varPol||'').toUpperCase()) : (p.estado||'sano');
-        if(_ipMapaGenFiltro.indexOf(clave)<0) op = 0.08;
+        var _est=(p.estado||'sano');
+        var coincide = _ipMapaGenFiltro.indexOf(_est)>=0 ||
+          (esPoliniz && _ipMapaGenFiltro.indexOf('pol:'+(varPol||'').toUpperCase())>=0);
+        if(!coincide) op = 0.08;
       }
       svg += '<circle cx="'+cx+'" cy="'+y+'" r="'+r+'" fill="'+fill+'" stroke="'+stroke+'" stroke-width="'+sw+'" opacity="'+op+'" '+link+' style="'+cursor+'"><title>'+escapeHtml(ipCodigoPlanta(h,p))+(esPoliniz?' · 🐝 '+escapeHtml(varPol||'Polinizante'):'')+' · '+(IP_ESTADOS[p.estado]?IP_ESTADOS[p.estado].label:'')+extraTitle+'</title></circle>';
       if(esInicio){ svg += '<text x="'+cx+'" y="'+(y-11)+'" fill="#1565c0" font-size="8" font-weight="700" text-anchor="middle">▶</text>'; }
