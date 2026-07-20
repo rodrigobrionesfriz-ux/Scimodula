@@ -2091,14 +2091,17 @@ function ipRenderCuartelSVG(cuartel, hileras){
     var tieneGps = gpsIni || gpsFin;
     // Etiqueta de hilera resumida (solo el último campo, ej: H1)
     svg += '<text x="4" y="'+(y+4)+'" fill="#1a5288" font-size="12" font-weight="700">'+escapeHtml(nombreCorto(h))+(tieneGps?' 📍':'')+'</text>';
-    // Línea base de la hilera — anclada al borde IZQUIERDO (extremo SUR fijo).
-    var xIzq = margenIzq;                               // extremo sur (izquierda)
-    var xDerHilera = xIzq + plantas.length*anchoPlanta; // extremo norte (derecha)
+    // Línea base de la hilera. Anclaje según orientación: si la planta 1 está
+    // en el SUR, la hilera se alinea al borde IZQUIERDO; si está en el NORTE,
+    // se alinea al borde DERECHO (extremo norte del cuartel).
+    var xDerMax = margenIzq + maxPlantas*anchoPlanta;   // borde norte del marco
+    var xIzq   = p1Norte ? (xDerMax - plantas.length*anchoPlanta) : margenIzq;
+    var xDerHilera = xIzq + plantas.length*anchoPlanta;
     svg += '<line x1="'+xIzq+'" y1="'+y+'" x2="'+xDerHilera+'" y2="'+y+'" stroke="#5b9bd5" stroke-width="2"/>';
     var ultIdx = plantas.length - 1;
     plantas.forEach(function(p, pi){
-      // Marco fijo: SUR a la izquierda. Si la planta 1 está en el NORTE, la
-      // secuencia se dibuja espejada (planta 1 en el extremo derecho).
+      // Si la planta 1 está en el NORTE, la secuencia corre de derecha a
+      // izquierda (planta 1 pegada al borde derecho); si no, de izq. a der.
       var pos = p1Norte ? (ultIdx - pi) : pi;
       var cx = xIzq + (pos*anchoPlanta + anchoPlanta/2);
       var e = IP_ESTADOS[p.estado]||IP_ESTADOS.sano;
@@ -2141,7 +2144,7 @@ function ipRenderCuartelSVG(cuartel, hileras){
     '<div style="background:#fff;border:1px solid #e3e8ee;border-radius:10px;padding:12px;overflow:auto">'+
       '<div style="display:flex;justify-content:space-between;font-size:11px;font-weight:700;color:#7a8794;margin-bottom:4px;padding:0 4px"><span>← SUR (planta 1)</span><span>NORTE →</span></div>'+
       '<div class="ip-map-svg-wrap" style="width:'+(_ipMapZoom||100)+'%;margin:0 auto">'+svg+'</div>'+
-      '<div style="font-size:11px;color:#7a8794;margin-top:8px">▶ Inicio de hilera · ■ Fin de hilera — toque esos puntos para abrir Google Maps · La planta 1 (sur) se muestra a la izquierda.</div>'+
+      '<div style="font-size:11px;color:#7a8794;margin-top:8px">▶ Inicio de hilera · ■ Fin de hilera — toque esos puntos para abrir Google Maps · SUR a la izquierda, NORTE a la derecha; cada hilera se alinea al extremo donde está su planta 1.</div>'+
     '</div>'+
   '</div>';
 }
