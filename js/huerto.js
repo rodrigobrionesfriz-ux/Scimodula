@@ -2050,13 +2050,18 @@ function ipMapZoom(delta){
 // El SVG usa viewBox + width:100% para AJUSTARSE al ancho del contenedor, de
 // modo que el cuartel completo se ve sin scroll, tanto en PC como en móvil.
 function ipRenderCuartelSVG(cuartel, hileras){
+  // Marco cardinal FIJO del cuartel: SUR izquierda · NORTE derecha ·
+  // OESTE arriba · ESTE abajo. Las orientaciones guardadas por hilera
+  // (planta1En) y por cuartel (hilera1En) adaptan el dibujo a ese marco.
+  var h1Este = !!(hileras[0] && hileras[0].hilera1En==='este');
+  if(h1Este) hileras = hileras.slice().reverse(); // H1 queda abajo (este)
   var maxPlantas = Math.max.apply(null, hileras.map(function(h){ return (h.plantas||[]).length; }).concat([1]));
   var filas = hileras.length;
   // Tamaños base del sistema de coordenadas interno (viewBox). El SVG luego se
   // escala al ancho real disponible, así que estos valores son relativos.
-  var anchoPlanta = 22, altoFila = 30, margenIzq = 56, margenSup = 8, margenDer = 24;
+  var anchoPlanta = 22, altoFila = 30, margenIzq = 56, margenSup = 22, margenDer = 24;
   var ancho = margenIzq + maxPlantas*anchoPlanta + margenDer;
-  var alto = margenSup*2 + filas*altoFila + 16;
+  var alto = margenSup + 8 + filas*altoFila + 28;
 
   // Resume el nombre de la hilera a su último campo: el "H+número" final.
   // Los códigos vienen concatenados sin separador (ej: "C1REGH1"), así que
@@ -2072,25 +2077,30 @@ function ipRenderCuartelSVG(cuartel, hileras){
 
   var svg = '<svg viewBox="0 0 '+ancho+' '+alto+'" preserveAspectRatio="xMidYMid meet" '+
             'style="display:block;width:100%;height:auto" xmlns="http://www.w3.org/2000/svg">';
+  // Etiquetas cardinales del marco fijo
+  svg += '<text x="'+margenIzq+'" y="13" fill="#9aa7b4" font-size="10" font-weight="700">← SUR</text>';
+  svg += '<text x="'+(ancho-margenDer)+'" y="13" fill="#9aa7b4" font-size="10" font-weight="700" text-anchor="end">NORTE →</text>';
+  svg += '<text x="4" y="13" fill="#9aa7b4" font-size="9" font-weight="700">OESTE ↑</text>';
+  svg += '<text x="4" y="'+(alto-4)+'" fill="#9aa7b4" font-size="9" font-weight="700">ESTE ↓</text>';
   hileras.forEach(function(h, fi){
-    var y = margenSup + fi*altoFila + altoFila/2;
+    var y = margenSup + 8 + fi*altoFila + altoFila/2;
     var plantas = h.plantas||[];
+    var p1Norte = (h.planta1En==='norte');
     var gpsIni = h.gpsInicio || (plantas[0] && plantas[0].lat!=null ? {lat:plantas[0].lat,lng:plantas[0].lng} : null);
     var gpsFin = h.gpsFin || (plantas.length && plantas[plantas.length-1].lat!=null ? {lat:plantas[plantas.length-1].lat,lng:plantas[plantas.length-1].lng} : null);
     var tieneGps = gpsIni || gpsFin;
     // Etiqueta de hilera resumida (solo el último campo, ej: H1)
     svg += '<text x="4" y="'+(y+4)+'" fill="#1a5288" font-size="12" font-weight="700">'+escapeHtml(nombreCorto(h))+(tieneGps?' 📍':'')+'</text>';
-    // Línea base de la hilera — anclada al borde IZQUIERDO (la planta 1/sur queda
-    // a la izquierda y las hileras de distinto largo se alinean por ese extremo).
-    var xIzq = margenIzq;                               // extremo izquierdo útil
-    var xDerHilera = xIzq + plantas.length*anchoPlanta; // donde termina (norte)
+    // Línea base de la hilera — anclada al borde IZQUIERDO (extremo SUR fijo).
+    var xIzq = margenIzq;                               // extremo sur (izquierda)
+    var xDerHilera = xIzq + plantas.length*anchoPlanta; // extremo norte (derecha)
     svg += '<line x1="'+xIzq+'" y1="'+y+'" x2="'+xDerHilera+'" y2="'+y+'" stroke="#5b9bd5" stroke-width="2"/>';
     var ultIdx = plantas.length - 1;
     plantas.forEach(function(p, pi){
-      // Orientación del huerto: la planta 1 es el extremo SUR y debe mostrarse a
-      // la IZQUIERDA, alineada al borde izquierdo. pi=0 (planta 1) → posición más
-      // a la izquierda; las siguientes hacia la derecha. (Eje vertical: H1 arriba.)
-      var cx = xIzq + (pi*anchoPlanta + anchoPlanta/2);
+      // Marco fijo: SUR a la izquierda. Si la planta 1 está en el NORTE, la
+      // secuencia se dibuja espejada (planta 1 en el extremo derecho).
+      var pos = p1Norte ? (ultIdx - pi) : pi;
+      var cx = xIzq + (pos*anchoPlanta + anchoPlanta/2);
       var e = IP_ESTADOS[p.estado]||IP_ESTADOS.sano;
       var esPoliniz = (p.tipo==='poliniz');
       var varPol = esPoliniz ? (p.polinizante || h.polinizante) : '';
