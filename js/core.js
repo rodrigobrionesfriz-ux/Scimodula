@@ -829,6 +829,9 @@ async function reloadCache(){
   STATE.cache.conteos=await dbAll('conteos');
   STATE.cache.invplantas=await dbAll('invplantas');
   STATE.cache.aihprop=await dbAll('aihprop');
+  // 'stock' es derivado y desde v82 ya NO se sincroniza: la única vía que lo
+  // cargaba en memoria era applyRemote. Debe leerse aquí explícitamente.
+  STATE.cache.stock=await dbAll('stock');
   STATE.cache.lots=await dbAll('lots');
   STATE.cache.users=await dbAll('users');
   const cfgs=await dbAll('config');
