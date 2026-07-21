@@ -256,7 +256,7 @@ async function recalcularStock(){
       const _guard=setTimeout(()=>{ try{ hideLoading(); }catch(e){} }, 60000);
       try{
         const resultado=await _ejecutarRecalculoStock();
-        toast('Stock recalculado',`${resultado.movProcesados} movimientos procesados, ${resultado.stockEntries} saldos actualizados`);
+        toast('Stock recalculado',`${resultado.movProcesados} movimientos procesados, ${resultado.stockEntries} saldos actualizados${resultado.stockHuerfanos?`, ${resultado.stockHuerfanos} saldo(s) huérfano(s) eliminado(s)`:''}`);
         await audit('mantenimiento.recalcularStock',`Recálculo manual: ${resultado.movProcesados} movimientos vigentes`,STATE.user.id);
         if(STATE.page==='config')renderConfig(document.getElementById('mainContent'));
       }catch(e){
@@ -368,6 +368,20 @@ async function _ejecutarRecalculoStock(){
   }
 
   // 4. Persistir resultados
+  // 4a. Purgar saldos HUÉRFANOS: claves que existen en el store pero que los
+  // movimientos vigentes ya no justifican. Sin esto, un registro corrupto
+  // (ej. snapshot vacío/erróneo sincronizado desde otro dispositivo) sobrevive
+  // al recálculo y la detección de inconsistencias nunca deja de alertar.
+  let stockHuerfanos=0;
+  try{
+    const actuales=await dbAll('stock');
+    for(const s of (actuales||[])){
+      if(!Object.prototype.hasOwnProperty.call(stockMap, s.key)){
+        await dbDel('stock', s.key);
+        stockHuerfanos++;
+      }
+    }
+  }catch(e){ console.error('Purga de stock huérfano:', e); }
   let stockEntries=0;
   for(const k of Object.keys(stockMap)){
     const st=stockMap[k];
@@ -406,7 +420,7 @@ async function _ejecutarRecalculoStock(){
   }catch(e){ console.error('Error al sepultar lotes huérfanos en recálculo:',e); }
 
   await reloadCache();
-  return {movProcesados:procesados,stockEntries,lotEntries,lotesSepultados};
+  return {movProcesados:procesados,stockEntries,lotEntries,lotesSepultados,stockHuerfanos};
 }
 
 /* ═══════════════ DETECCIÓN DE INCONSISTENCIAS DE STOCK ═══════════════
