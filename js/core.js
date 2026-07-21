@@ -9,7 +9,7 @@
 
 /* ═══════════════ DB LAYER (IndexedDB) ═══════════════ */
 const DB_NAME='SCI_DB';
-const DB_VERSION=11;
+const DB_VERSION=12;
 const STORES=[
   ['users','id'],
   ['products','codigoInterno'],
@@ -30,7 +30,9 @@ const STORES=[
   ['lots','id'],
   ['audit','id'],
   ['combustible','id'],
-  ['config','key']
+  ['config','key'],
+  ['aihprop','id'],
+  ['aihver','id']
 ];
 let DB=null;
 
@@ -65,7 +67,7 @@ function dbPut(store,obj){
     // el mismo registro. No se aplica al aplicar un cambio remoto (para no
     // re-sellar lo que ya viene de la nube).
     try{
-      var ACUM = {'invplantas':1,'conteos':1,'estimaciones':1,'movements':1,'mantenciones':1,'inventoryCounts':1,'lots':1};
+      var ACUM = {'invplantas':1,'conteos':1,'estimaciones':1,'movements':1,'mantenciones':1,'inventoryCounts':1,'lots':1,'aihprop':1};
       if(ACUM[store] && obj && typeof obj==='object' && !(typeof SCIFB!=='undefined' && SCIFB.applyingRemote)){
         obj._mod = Date.now();
       }
@@ -189,7 +191,7 @@ var SCIFB = {
   applyingRemote: false,
   saveTimer: null,
   // Tablas que se sincronizan (todas las del SCI)
-  stores: ['users','products','warehouses','groups','productTypes','providers','customers','costCenters','inventoryCounts','movements','ordenescompra','stock','lots','config','mantenciones','conteos','estimaciones','invplantas','combustible']
+  stores: ['users','products','warehouses','groups','productTypes','providers','customers','costCenters','inventoryCounts','movements','ordenescompra','stock','lots','config','mantenciones','conteos','estimaciones','invplantas','combustible','aihprop']
 };
 
 function sciFbDocRef(){
@@ -395,7 +397,7 @@ function _sciEstaEliminado(store, rec, key){
    Compartido por la recepción (applyRemote) y la subida (push) para que ningún
    dispositivo borre datos que otro creó. */
 var SCI_STORES_ACUMULATIVOS = {
-  'invplantas':1,'conteos':1,'estimaciones':1,'movements':1,'combustible':1,
+  'invplantas':1,'conteos':1,'estimaciones':1,'movements':1,'combustible':1,'aihprop':1,
   'mantenciones':1,'inventoryCounts':1,'audit':1,'lots':1,'ordenescompra':1
 };
 function _sciStoreKey(store){
@@ -533,7 +535,7 @@ async function sha256(text){
 const STATE={
   user:null,
   page:'dashboard',
-  cache:{products:[],warehouses:[],groups:[],productTypes:[],providers:[],customers:[],costCenters:[],inventoryCounts:[],movements:[],ordenescompra:[],stock:[],lots:[],users:[],config:{},mantenciones:[],conteos:[],estimaciones:[],invplantas:[],combustible:[]}
+  cache:{products:[],warehouses:[],groups:[],productTypes:[],providers:[],customers:[],costCenters:[],inventoryCounts:[],movements:[],ordenescompra:[],stock:[],lots:[],users:[],config:{},mantenciones:[],conteos:[],estimaciones:[],invplantas:[],combustible:[],aihprop:[]}
 };
 
 // ── Advertencia al cerrar / recargar / volver atrás (evita salir por error) ──
@@ -685,17 +687,20 @@ const PERMISSIONS=[
   ['invplantas.ver','Acceder al Inventario de Huerto (conteo de plantas)'],
   ['invplantas.revisar','Revisar inventario de plantas: exportar y ver mapa'],
   ['invplantas.editar','Editar estado de árboles en el mapa de plantas'],
+  ['aih.ver','Acceder a Actualización Inventario Huerto'],
+  ['aih.proponer','Proponer cambios de estado de plantas (terreno)'],
+  ['aih.aprobar','Aprobar/rechazar propuestas y restaurar versiones del inventario'],
 ];
 const ROLE_PERMS={
   'admin':PERMISSIONS.map(p=>p[0]),
   // Gerente: ve todo (solo lectura en general, pero acceso completo de visualización)
   'gerente':['productos.ver','bodegas.ver','proveedores.ver','clientes.ver','centrosCosto.ver','tomas.ver','movimientos.ver','stock.ver','usuarios.ver','config.ver','cuaderno.ver','mantenciones.ver','presupuesto.ver'],
   // Admin. Agrónomo: gestiona todo el Cuaderno de Campo + ve el inventario
-  'agronomo':['productos.ver','bodegas.ver','stock.ver','movimientos.ver','config.ver','cuaderno.ver','cuaderno.editar','cuaderno.confirmar','cuaderno.panos','conteos.ver','conteos.revisar','invplantas.ver','invplantas.revisar','presupuesto.ver'],
+  'agronomo':['productos.ver','bodegas.ver','stock.ver','movimientos.ver','config.ver','cuaderno.ver','cuaderno.editar','cuaderno.confirmar','cuaderno.panos','conteos.ver','conteos.revisar','invplantas.ver','invplantas.revisar','presupuesto.ver','aih.ver','aih.proponer'],
   'operador':['productos.ver','productos.crear','bodegas.ver','proveedores.ver','proveedores.crear','clientes.ver','clientes.crear','centrosCosto.ver','centrosCosto.crear','movimientos.ver','movimientos.crear','combustible.registrar','stock.ver','tomas.ver','tomas.crear','config.ver'],
   'consulta':['productos.ver','bodegas.ver','proveedores.ver','clientes.ver','centrosCosto.ver','movimientos.ver','stock.ver','tomas.ver','config.ver'],
   // OP. CONTEOS: solo el módulo de conteos en terreno
-  'opconteos':['conteos.ver','invplantas.ver'],
+  'opconteos':['conteos.ver','invplantas.ver','aih.ver','aih.proponer'],
   // OP. COMBUSTIBLE: solo el formulario de salida de combustible
   'opcombustible':['combustible.registrar']
 };
@@ -823,7 +828,7 @@ async function reloadCache(){
   STATE.cache.mantenciones=await dbAll('mantenciones');
   STATE.cache.conteos=await dbAll('conteos');
   STATE.cache.invplantas=await dbAll('invplantas');
-  STATE.cache.stock=await dbAll('stock');
+  STATE.cache.aihprop=await dbAll('aihprop');
   STATE.cache.lots=await dbAll('lots');
   STATE.cache.users=await dbAll('users');
   const cfgs=await dbAll('config');
@@ -1080,6 +1085,7 @@ const PAGES=[
   {section:'TERRENO',items:[
     {id:'conteos',label:'Conteos en terreno',icon:'🌸',perm:'conteos.ver'},
     {id:'invplantas',label:'Inventario de Huerto',icon:'🌳',perm:'invplantas.ver'},
+    {id:'aih',label:'Actualización Inventario',icon:'🔄',perm:'aih.ver'},
   ]},
   {section:'CONTROL DE PRESUPUESTO',items:[
     {id:'presupuesto',label:'Control de Presupuesto',icon:'📊',perm:'presupuesto.ver'},
@@ -1358,6 +1364,7 @@ function navigate(page, fromHistory){
     mantenciones:'Servicio y Mantención',
     conteos:'Conteos en terreno',
     invplantas:'Inventario de Huerto · Conteo de Plantas',
+    aih:'Actualización Inventario Huerto',
     presupuesto:'Control de Presupuesto — Huerto Cerezos 2018'
   };
   document.getElementById('topTitle').textContent=titles[page]||'';
@@ -1388,6 +1395,7 @@ function navigate(page, fromHistory){
     case 'mantenciones':renderMantenciones(main);break;
     case 'conteos':renderConteos(main);break;
     case 'invplantas':renderInvPlantas(main);break;
+    case 'aih':renderAIH(main);break;
     case 'presupuesto':renderPresupuesto(main);break;
   }
 }
