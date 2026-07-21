@@ -191,7 +191,7 @@ var SCIFB = {
   applyingRemote: false,
   saveTimer: null,
   // Tablas que se sincronizan (todas las del SCI)
-  stores: ['users','products','warehouses','groups','productTypes','providers','customers','costCenters','inventoryCounts','movements','ordenescompra','stock','lots','config','mantenciones','conteos','estimaciones','invplantas','combustible','aihprop']
+  stores: ['users','products','warehouses','groups','productTypes','providers','customers','costCenters','inventoryCounts','movements','ordenescompra','lots','config','mantenciones','conteos','estimaciones','invplantas','combustible','aihprop']
 };
 
 function sciFbDocRef(){
@@ -954,12 +954,24 @@ async function doLogin(){
         const check=await detectarInconsistenciaStock();
         if(!check.ok&&check.diferencias.length>0){
           const total=check.diferencias.length;
-          const d0=check.diferencias[0];
-          let nom='';
-          try{ const cod=String(d0.key).split('|')[0]; const p=getProduct(cod); nom=p?(p.descripcion||cod):cod; }catch(e){}
-          const detalle=nom?` Ej: ${nom} (actual ${d0.cantActual}, esperado ${d0.cantEsperada}).`:'';
-          toast('⚠ Inconsistencia detectada en stock',`${total} producto(s) con saldo distinto al esperado.${detalle} Ve a Configuración → Recalcular stock.`,'warning');
-          console.warn('Inconsistencias de stock:',check.diferencias);
+          // El stock es DERIVADO de los movimientos (no se sincroniza desde v81).
+          // Si diverge, se reconstruye solo, sin intervención del usuario.
+          if(typeof _ejecutarRecalculoStock==='function'){
+            try{
+              console.warn('Inconsistencias de stock detectadas:',check.diferencias);
+              const res=await _ejecutarRecalculoStock();
+              const check2=await detectarInconsistenciaStock();
+              if(check2.ok){
+                toast('Stock reconstruido',`Se detectaron ${total} saldo(s) desactualizado(s) y se recalcularon automáticamente desde los movimientos.`,'success');
+              }else{
+                const d0=check2.diferencias[0];
+                let nom='';
+                try{ const cod=String(d0.key).split('|')[0]; const p=getProduct(cod); nom=p?(p.descripcion||cod):cod; }catch(e){}
+                toast('⚠ Inconsistencia en stock',`${check2.diferencias.length} producto(s) siguen con saldo distinto tras recalcular.${nom?` Ej: ${nom} (actual ${d0.cantActual}, esperado ${d0.cantEsperada}).`:''}`,'warning');
+                console.warn('Inconsistencias persistentes:',check2.diferencias);
+              }
+            }catch(e){ console.error('Auto-recálculo de stock falló:',e); }
+          }
         }
       }catch(e){console.error('Error verificando consistencia:',e)}
     })();
