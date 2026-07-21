@@ -12,6 +12,7 @@ var _aihTab = 'terreno';
 var _aihCuartel = null;
 var _aihRegId = null;
 var _aihDraft = {};       // idx → nuevo estado (borrador en pantalla)
+var _aihInvertido = false; // solo orden VISUAL del listado (no altera datos)
 var _aihPropAbierta = null;
 
 function _aihEstados(){ return (typeof IP_ESTADOS!=='undefined') ? IP_ESTADOS : {
@@ -93,9 +94,16 @@ function _aihRenderTerreno(){
     '<button onclick="aihSelHilera(null)" style="padding:7px 12px;border:1px solid #d5dde5;background:#fff;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer">← Hileras</button>'+
     '<span style="font-weight:800;color:#1a3a5c">'+escapeHtml(reg.cuartel||'')+' · '+escapeHtml(reg.hilera||'')+'</span>'+
     '<span style="font-size:12px;color:#7a8794">'+plantas.length+' plantas</span>'+
+    '<button onclick="aihInvertirVista()" style="margin-left:auto;padding:8px 14px;border:1px solid #f0c36d;background:#fff8e6;color:#8a6d1a;border-radius:8px;font-size:12px;font-weight:800;cursor:pointer">🔄 '+(_aihInvertido?'Ver desde planta 1':'Ver desde la última')+'</button>'+
   '</div>';
+  html+='<div style="font-size:11px;color:#7a8794;margin-bottom:8px">Recorrido: '+(_aihInvertido?('#'+plantas.length+' → #1 (desde el final de la hilera)'):('#1 → #'+plantas.length+' (desde el inicio de la hilera)'))+'. Solo cambia el orden en pantalla; la numeración de cada planta se mantiene.</div>';
   html+='<div style="display:flex;flex-direction:column;gap:6px">';
-  plantas.forEach(function(p,i){
+  // Orden VISUAL: se recorre invertido si corresponde, pero cada fila conserva
+  // su índice real (i) para el borrador, la propuesta y la aplicación.
+  var _orden=plantas.map(function(_,k){ return k; });
+  if(_aihInvertido) _orden.reverse();
+  _orden.forEach(function(i){
+    var p=plantas[i];
     var estActual=p.estado||'sano';
     var borr=_aihDraft[i];
     var e=EST[estActual]||EST.sano;
@@ -130,6 +138,9 @@ function aihSetEstado(i,k){
   _aihRefresh();
 }
 function aihLimpiarDraft(){ _aihDraft={}; _aihRefresh(); }
+// Invierte SOLO el orden de lectura en pantalla, para recorrer la hilera en el
+// sentido en que se camina en terreno. No altera datos ni la numeración.
+function aihInvertirVista(){ _aihInvertido=!_aihInvertido; _aihRefresh(); }
 
 async function aihEnviarPropuesta(){
   var reg=_aihReg(_aihRegId); if(!reg) return;
@@ -292,6 +303,7 @@ try{
   window.renderAIH=renderAIH; window.aihTab=aihTab;
   window.aihSelCuartel=aihSelCuartel; window.aihSelHilera=aihSelHilera;
   window.aihSetEstado=aihSetEstado; window.aihLimpiarDraft=aihLimpiarDraft;
+  window.aihInvertirVista=aihInvertirVista;
   window.aihEnviarPropuesta=aihEnviarPropuesta; window.aihToggleProp=aihToggleProp;
   window.aihAprobar=aihAprobar; window.aihRechazar=aihRechazar;
   window.aihRestaurar=aihRestaurar;
