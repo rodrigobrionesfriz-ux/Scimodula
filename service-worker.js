@@ -1,5 +1,5 @@
 /* SCI PWA — cache offline de los archivos de la app */
-const CACHE = 'sci-v79';
+const CACHE = 'sci-v80';
 const APP_FILES = [
   './',
   './index.html',
@@ -9,6 +9,7 @@ const APP_FILES = [
   './js/inventario.js',
   './js/ordencompra.js',
   './js/huerto.js',
+  './js/actualizacion.js',
   './js/cuaderno.js',
   './js/presupuesto.js',
   './manifest.json',
