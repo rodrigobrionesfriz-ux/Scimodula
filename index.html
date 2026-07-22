@@ -73,7 +73,7 @@ var FBCOUNT = (function(){
   });
 })();
 </script>
-<link rel="stylesheet" href="css/styles.css?v=86">
+<link rel="stylesheet" href="css/styles.css?v=87">
 </head>
 <body>
 <!-- Hoja de estilo dinámica para el tema forestal (se llena vía JS) -->
@@ -703,7 +703,7 @@ var FBCOUNT = (function(){
 
 <script>
 </script>
-<script src="js/core.js?v=86"></script>
+<script src="js/core.js?v=87"></script>
 <script>
 /* ═══════════════ MÓDULO: CONTROL DE PRESUPUESTO ═══════════════ */
 /* Integra el dashboard de Control de Presupuesto (Huerto Cerezos 2018) como
@@ -1437,7 +1437,7 @@ function renderPresupuesto(main){
   <!-- Dashboard title -->
   <div class="logo-area" style="flex:1; padding: 0 16px;">
     <div>
-      <h1>Dashboard Gerencial – Control Presupuesto</h1>
+      <h1 id="pz-dash-title">Dashboard Gerencial – Control Presupuesto</h1>
       <p>Huerto Cerezos 2018 · <span id="subtitle-temporada">Temporada actual</span> · <span id="subtitle-moneda">Valores en Pesos ($)</span></p>
     </div>
   </div>
@@ -1473,6 +1473,7 @@ function renderPresupuesto(main){
 <!-- ── Pestañas del módulo de presupuesto ── -->
 <div id="pz-tabs-bar" style="display:flex;gap:0;border-bottom:2px solid #e3e8ee;margin:0 16px 0;padding-top:2px">
   <button class="pz-tab-btn pz-tab-active" onclick="pzCambiarTab('dashboard')" data-pztab="dashboard" style="padding:10px 20px;font-size:13px;font-weight:700;border:none;border-bottom:3px solid #1565c0;background:transparent;cursor:pointer;color:#1565c0">📊 Dashboard</button>
+  <button class="pz-tab-btn" onclick="pzCambiarTab('gtt')" data-pztab="gtt" style="padding:10px 20px;font-size:13px;font-weight:700;border:none;border-bottom:3px solid transparent;background:transparent;cursor:pointer;color:#888">🌱 Formato GTT</button>
   <button class="pz-tab-btn" onclick="pzCambiarTab('criterios')" data-pztab="criterios" style="padding:10px 20px;font-size:13px;font-weight:700;border:none;border-bottom:3px solid transparent;background:transparent;cursor:pointer;color:#888">📋 Criterios</button>
 </div>
 <!-- Pane: Criterios (oculto por defecto) -->
@@ -1870,10 +1871,10 @@ function renderPresupuesto(main){
 }
 
 </script>
-<script src="js/inventario.js?v=86"></script>
-<script src="js/ordencompra.js?v=86"></script>
-<script src="js/huerto.js?v=86"></script>
-<script src="js/actualizacion.js?v=86"></script>
+<script src="js/inventario.js?v=87"></script>
+<script src="js/ordencompra.js?v=87"></script>
+<script src="js/huerto.js?v=87"></script>
+<script src="js/actualizacion.js?v=87"></script>
 <script>
 
 /* ═══════════════ MÓDULO: MANTENCIONES ═══════════════ */
@@ -2632,7 +2633,7 @@ var S = { panos:[], registros:[], productos:[], ordenes:[], oCounter:1, confirma
 };
 
 </script>
-<script src="js/cuaderno.js?v=86"></script>
+<script src="js/cuaderno.js?v=87"></script>
 <script>
 
 /* ═══════════════ INTEGRACIÓN CUADERNO DE CAMPO ═══════════════ */
@@ -2689,8 +2690,8 @@ function renderCuaderno(main){
 </script>
 
 
-<script src="data/presupuesto-data.js?v=86"></script>
-<script src="js/presupuesto.js?v=86"></script>
+<script src="data/presupuesto-data.js?v=87"></script>
+<script src="js/presupuesto.js?v=87"></script>
 <script>
 /* ── Normalización global a MAYÚSCULAS en la entrada de datos ──
    Aplica a inputs de texto y textareas de todo el sistema.
