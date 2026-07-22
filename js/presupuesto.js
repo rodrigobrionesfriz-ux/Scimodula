@@ -361,19 +361,28 @@ function processExcel(file) {
     try {
       const wb = XLSX.read(e.target.result, { type: 'array' });
 
-      // Find 'Base' sheet (visible or hidden)
-      const sheetName = wb.SheetNames.find(n => n.trim().toLowerCase() === 'base');
-      if (!sheetName) {
-        setStatus('❌ No se encontró la hoja "Base" en el archivo.', 'error');
+      // FUENTE DE DATOS: hoja "Detalle Gastos" (tiene TEMPORADA por fila y es
+      // la única con reales correctos por temporada; en "Base" los reales de
+      // la temporada nueva vienen copiados de la anterior por Base Act).
+      const sheetDet = wb.SheetNames.find(n => {
+        var s = n.trim().toLowerCase();
+        return s.indexOf('detalle') >= 0 && s.indexOf('gasto') >= 0;
+      });
+      if (!sheetDet) {
+        setStatus('❌ No se encontró la hoja "Detalle Gastos" en el archivo.', 'error');
         return;
       }
 
-      const ws = wb.Sheets[sheetName];
+      // Hoja "Base": ya NO es fuente de montos. Se usa solo para las celdas de
+      // kilos (W1/U1) y para derivar el mapa DESCRIPCION → SUB-GRUPO (columna
+      // que no existe en Detalle Gastos). Es opcional.
+      const sheetName = wb.SheetNames.find(n => n.trim().toLowerCase() === 'base');
+      const ws = sheetName ? wb.Sheets[sheetName] : null;
 
       // ── Read Kilos Cosechados from cell W1 of Base sheet ──
       // Acepta 0 como valor válido (antes lo ignoraba). Solo se omite si la
       // celda está vacía o no es numérica.
-      const w1Cell = ws['W1'];
+      const w1Cell = ws ? ws['W1'] : null;
       if (w1Cell != null && w1Cell.v != null && w1Cell.v !== '') {
         const w1Val = parseFloat(w1Cell.v);
         if (!isNaN(w1Val)) {
@@ -384,7 +393,7 @@ function processExcel(file) {
         }
       }
       // ── Read Kilos Estimados from cell U1 of Base sheet ──
-      const u1Cell = ws['U1'];
+      const u1Cell = ws ? ws['U1'] : null;
       if (u1Cell != null && u1Cell.v != null && u1Cell.v !== '') {
         const u1Val = parseFloat(u1Cell.v);
         if (!isNaN(u1Val)) {
@@ -395,40 +404,76 @@ function processExcel(file) {
         }
       }
 
-      // Read headers from first row explicitly — avoids missing cols due to nulls in row 1
-      const rawMatrix = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
+      // ── Mapa DESCRIPCION → SUB-GRUPO desde la hoja Base (si existe) ──
+      const subGrupoMap = {};
+      if (ws) {
+        try {
+          const baseMatrix = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
+          const bh = (baseMatrix[0] || []).map(h => (h != null ? String(h).trim() : ''));
+          const iDesc = bh.indexOf('DESCRIPCION'), iSub = bh.indexOf('SUB-GRUPO');
+          if (iDesc >= 0 && iSub >= 0) {
+            for (let i = 1; i < baseMatrix.length; i++) {
+              const br = baseMatrix[i];
+              if (br && br[iDesc] != null && br[iSub] != null) {
+                subGrupoMap[String(br[iDesc]).trim()] = String(br[iSub]).trim();
+              }
+            }
+          }
+        } catch (e) {}
+      }
+
+      // ── Leer la hoja Detalle Gastos ──
+      const wsDet = wb.Sheets[sheetDet];
+      const rawMatrix = XLSX.utils.sheet_to_json(wsDet, { header: 1, defval: null });
       if (!rawMatrix.length || !rawMatrix[0]) {
-        setStatus('❌ La hoja "Base" está vacía.', 'error');
+        setStatus('❌ La hoja "Detalle Gastos" está vacía.', 'error');
         return;
       }
 
       // Build normalized header map (trim whitespace)
       const headers = rawMatrix[0].map(h => (h != null ? String(h).trim() : ''));
 
-      // Convert matrix rows → objects using explicit headers
+      // Validate required columns against the explicit headers
+      const required = ['FECHA','AÑO1','FAMILIA','TIPO2','PROYECCION','TOTAL','PPTO $','TEMPORADA'];
+      const missing = required.filter(r => !headers.includes(r));
+      if (missing.length) {
+        setStatus(`❌ Columnas faltantes en Detalle Gastos: ${missing.join(', ')}`, 'error');
+        return;
+      }
+
+      // Convertir cada fila de Detalle Gastos al formato interno que usaba la
+      // hoja Base: TIPO / MES / AÑO / SUB-GRUPO / TIPO DE COSTO / DESCRIPCION /
+      // MONTO PPTO / MONTO REAL / Ppto USD / Real USD / TC / TEMPORADA.
+      const hIdx = {}; headers.forEach((h, i) => { if (h) hIdx[h] = i; });
+      const gv = (row, col) => (hIdx[col] != null ? row[hIdx[col]] : null);
       const rows = [];
       for (let i = 1; i < rawMatrix.length; i++) {
         const row = rawMatrix[i];
         if (!row || row.every(v => v == null || v === '')) continue;
-        const obj = {};
-        headers.forEach((h, idx) => { if (h) obj[h] = row[idx] ?? null; });
-        rows.push(obj);
+        const tipo = String(gv(row,'PROYECCION') || '').trim().toUpperCase();
+        if (tipo !== 'PRESUPUESTO' && tipo !== 'REAL') continue;
+        const fam = String(gv(row,'FAMILIA') || '').trim();
+        if (!fam) continue;
+        rows.push({
+          'TIPO': tipo,
+          'MES': String(gv(row,'FECHA') || '').trim().toUpperCase(),
+          'AÑO': gv(row,'AÑO1'),
+          'SUB-GRUPO': subGrupoMap[fam] || 'OTROS',
+          'TIPO DE COSTO': String(gv(row,'TIPO2') || '').trim(),
+          'DESCRIPCION': fam,
+          'TEMPORADA': String(gv(row,'TEMPORADA') || '').trim(),
+          'MONTO PPTO': parseFloat(gv(row,'PPTO $')) || 0,
+          'MONTO REAL': parseFloat(gv(row,'TOTAL')) || 0,
+          'Ppto USD': parseFloat(gv(row,'PPTO US$')) || 0,
+          'Real USD': parseFloat(gv(row,'Neto USD')) || 0,
+          'TC': parseFloat(gv(row,'T/C')) || 0
+        });
       }
 
       if (!rows.length) {
-        setStatus('❌ La hoja "Base" está vacía.', 'error');
+        setStatus('❌ La hoja "Detalle Gastos" no tiene filas PRESUPUESTO/REAL válidas.', 'error');
         return;
       }
-
-      // Validate required columns against the explicit headers
-      const required = ['TIPO','MES','AÑO','SUB-GRUPO','TIPO DE COSTO','DESCRIPCION','MONTO REAL'];
-      const missing = required.filter(r => !headers.includes(r));
-      if (missing.length) {
-        setStatus(`❌ Columnas faltantes: ${missing.join(', ')}`, 'error');
-        return;
-      }
-      // Detect budget column: prefer PPTO AJUSTADO KG, fallback to MONTO PPTO
-      const pptoCol = headers.includes('PPTO AJUSTADO KG') ? 'PPTO AJUSTADO KG' : 'MONTO PPTO';
 
       // Process: split PRESUPUESTO / REAL and merge
       const ppto = rows.filter(r => r.TIPO === 'PRESUPUESTO');
