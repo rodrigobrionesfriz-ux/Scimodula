@@ -1001,6 +1001,29 @@ function renderWithData(data, allData) {
   // Count months with real (from filtered data)
   const mesesReal = [...new Set(data.filter(d => d["MONTO REAL"] > 0).map(d => d.MES))];
 
+  // ── "Estado de Meses": chips según la TEMPORADA seleccionada ──
+  // Se calcula sobre toda la temporada (sin aplicar el filtro de mes), para
+  // que refleje qué meses ya tienen gasto real cargado. Ej.: 2025-2026 los 12
+  // meses; 2026-2027 solo mayo y junio.
+  try{
+    var _tempSel = (document.getElementById('f-temporada') || {}).value || '';
+    var _mesesRealTemp = [...new Set(
+      pzDataset()
+        .filter(function(d){ return d['MONTO REAL'] > 0 && (!_tempSel || _getTemporada(d) === _tempSel); })
+        .map(function(d){ return d.MES; })
+    )];
+    var _chips = document.getElementById('month-chips');
+    if(_chips){
+      _chips.innerHTML = '';
+      MONTH_ORDER.forEach(function(m){
+        var c = document.createElement('div');
+        c.className = 'month-chip ' + (_mesesRealTemp.indexOf(m) >= 0 ? 'chip-real' : 'chip-pending');
+        c.textContent = m.slice(0,3);
+        _chips.appendChild(c);
+      });
+    }
+  }catch(e){}
+
   // KPIs — full integer pesos with thousands separator, no decimals
   const fmtInt = v => Math.round(v).toLocaleString('es-CL');
   document.getElementById('kpi-ppto').textContent = fmtVal(ppto);
