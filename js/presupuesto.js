@@ -104,6 +104,22 @@ function _toSeasonDetalle(obj){
    las temporadas. Tolera el formato plano antiguo. */
 function _getDetalleFamilia(familia, temporada){
   const src = (window.DETALLE_GASTOS_LIVE || DETALLE_GASTOS);
+  // Vista GTT: "familia" es una FAMILIAGTT. Los items se guardan por familia
+  // estándar, así que se recorren todas y se filtra por el campo famGtt.
+  if(typeof PZ_VISTA!=='undefined' && PZ_VISTA==='GTT'){
+    const seg = _toSeasonDetalle(src);
+    let acc = [];
+    const temps = temporada ? [temporada] : Object.keys(seg);
+    temps.forEach(t => {
+      const fams = seg[t] || {};
+      Object.keys(fams).forEach(f => {
+        (fams[f] || []).forEach(it => {
+          if(it && String(it.famGtt || '').trim() === familia) acc.push(it);
+        });
+      });
+    });
+    return acc;
+  }
   if(!_isSeasonDetalle(src)){
     // Formato plano: sin segmentación, devolver la familia tal cual.
     return src[familia] || [];
@@ -141,7 +157,7 @@ function openDetalleModal(descripcion) {
   // coinciden, respetando el filtro de mes). Se usa en el pie del modal para
   // mostrar gasto vs presupuesto y el % de desviación.
   try{
-    var fuenteFilas = (typeof ACTIVE_DATA!=='undefined' && ACTIVE_DATA && ACTIVE_DATA.length) ? ACTIVE_DATA : RAW;
+    var fuenteFilas = pzDataset() || [];
     var filasDesc = fuenteFilas.filter(function(d){
       if(d.DESCRIPCION !== descripcion) return false;
       // Respetar la TEMPORADA seleccionada (igual que filterData/gráficos);
@@ -257,7 +273,7 @@ function imprimirPDF() {
 
 // ===================== RESUMEN COSECHA BANNER =====================
 function updateBanner() {
-  var base = ACTIVE_DATA || RAW;
+  var base = pzDataset();
   // Respetar los filtros de temporada y mes (las tarjetas reflejan la
   // temporada seleccionada, no el total del archivo).
   var tempSel = (document.getElementById('f-temporada') || {}).value || '';
@@ -310,6 +326,17 @@ function updateBanner() {
 
 
 let ACTIVE_DATA = null; // will hold current working dataset
+// ── Vista GTT Nahuelbuta ──
+// Dataset paralelo clasificado según el formato GTT (Tipo GTT → TIPO DE COSTO,
+// CUENTAGTT → SUB-GRUPO, FAMILIAGTT → DESCRIPCION). La pestaña "Formato GTT"
+// cambia PZ_VISTA y todo el pipeline (filtros, KPIs, gráficos, modal) usa
+// pzDataset() como fuente.
+let ACTIVE_DATA_GTT = null;
+let PZ_VISTA = 'STD'; // 'STD' | 'GTT'
+function pzDataset(){
+  if(PZ_VISTA==='GTT' && ACTIVE_DATA_GTT && ACTIVE_DATA_GTT.length) return ACTIVE_DATA_GTT;
+  return ACTIVE_DATA || RAW;
+}
 
 function openUploadModal() {
   document.getElementById('upload-modal').classList.add('active');
@@ -466,7 +493,11 @@ function processExcel(file) {
           'MONTO REAL': parseFloat(gv(row,'TOTAL')) || 0,
           'Ppto USD': parseFloat(gv(row,'PPTO US$')) || 0,
           'Real USD': parseFloat(gv(row,'Neto USD')) || 0,
-          'TC': parseFloat(gv(row,'T/C')) || 0
+          'TC': parseFloat(gv(row,'T/C')) || 0,
+          // Clasificación GTT Nahuelbuta (columnas opcionales)
+          'TIPO_GTT': String(gv(row,'Tipo GTT') || '').trim(),
+          'CUENTA_GTT': String(gv(row,'CUENTAGTT') || '').trim(),
+          'FAM_GTT': String(gv(row,'FAMILIAGTT') || '').trim()
         });
       }
 
@@ -564,8 +595,47 @@ function processExcel(file) {
         }catch(e){}
       }
 
+      // ── Dataset paralelo con la clasificación GTT Nahuelbuta ──
+      // Mismo merge, pero con dims GTT: Tipo GTT / CUENTAGTT / FAMILIAGTT.
+      let mergedGtt = [];
+      if (rows.some(r => r['FAM_GTT'])) {
+        const gP = {}, gR = {}, gPU = {}, gRU = {};
+        rows.forEach(r => {
+          if (!r['FAM_GTT']) return;
+          const k = [r.MES, r['AÑO'], r['CUENTA_GTT'], r['TIPO_GTT'], r['FAM_GTT']].join('|');
+          const tc = Math.max(parseFloat(r['TC']) || 1, 1);
+          if (r.TIPO === 'PRESUPUESTO') {
+            gP[k] = (gP[k] || 0) + (parseFloat(r['MONTO PPTO']) || 0);
+            gPU[k] = (gPU[k] || 0) + ((parseFloat(r['Ppto USD']) > 0) ? parseFloat(r['Ppto USD']) : (parseFloat(r['MONTO PPTO']) || 0) / tc);
+          } else {
+            gR[k] = (gR[k] || 0) + (parseFloat(r['MONTO REAL']) || 0);
+            gRU[k] = (gRU[k] || 0) + ((parseFloat(r['Real USD']) > 0) ? parseFloat(r['Real USD']) : (parseFloat(r['MONTO REAL']) || 0) / tc);
+          }
+        });
+        new Set([...Object.keys(gP), ...Object.keys(gR)]).forEach(k => {
+          const [MES, AÑO, SUB, TIPO, DESC] = k.split('|');
+          var tempG = '';
+          try { if (typeof temporadaDeMesAnio === 'function') tempG = temporadaDeMesAnio(MES, AÑO) || ''; } catch(e){}
+          mergedGtt.push({
+            'MES': MES, 'AÑO': parseInt(AÑO),
+            'SUB-GRUPO': SUB, 'TIPO DE COSTO': TIPO,
+            'DESCRIPCION': DESC,
+            'TEMPORADA': tempG,
+            'PPTO_CLP': gP[k] || 0,
+            'REAL_CLP': gR[k] || 0,
+            'PPTO_USD': gPU[k] || 0,
+            'REAL_USD': gRU[k] || 0,
+            'MONTO PPTO': gP[k] || 0,
+            'MONTO REAL': gR[k] || 0,
+            'MES_ORDER': monthIdx(MES)
+          });
+        });
+        mergedGtt.sort((a,b) => a.MES_ORDER - b.MES_ORDER);
+      }
+
       // Update global data
       ACTIVE_DATA = merged;
+      ACTIVE_DATA_GTT = mergedGtt.length ? mergedGtt : null;
       window.MONTHS_WITH_REAL = mesesConReal;
       // ── Persistencia en la nube (Parte 2): si el usuario puede editar,
       // subir TODO el dataset a presupuesto/main (reemplazo total). ──
@@ -637,6 +707,7 @@ function processExcel(file) {
                 anio:      anioDet,
                 temporada: tempDet,
                 cuenta:    (r['CUENTA'] || '—').toString().trim(),
+                famGtt:    (r['FAMILIAGTT'] || '').toString().trim(),
               });
             });
             // Ordenar cada familia por orden de mes, dentro de cada temporada.
@@ -667,9 +738,9 @@ function processExcel(file) {
       const nMeses = mesesConReal.length;
       setStatus(`✅ Archivo cargado correctamente. ${nRows} registros, ${nMeses} meses con datos reales.`, 'ok');
 
-      // Rebuild filters and re-render
-      rebuildFilters(merged);
-      renderAll(merged);
+      // Rebuild filters and re-render (respetando la vista activa STD/GTT)
+      rebuildFilters(pzDataset());
+      renderAll(pzDataset());
       updateBanner();
 
       setTimeout(closeUploadModal, 2200);
@@ -761,7 +832,7 @@ function rebuildFilters(data) {
 function renderAll(data) {
   // Re-run filterData so currency mapping (getPpto/getReal) is always applied
   const filtered = filterData();
-  renderWithData(filtered, data || ACTIVE_DATA || RAW);
+  renderWithData(filtered, data || pzDataset());
 }
 
 // Populate filters
@@ -769,7 +840,7 @@ function populateFilters() {
   // Generar las opciones desde los datos vigentes (los de la nube si existen,
   // si no la semilla). Antes se usaba solo RAW, lo que dejaba los filtros
   // desfasados respecto a los datos reales.
-  const datos = (typeof ACTIVE_DATA !== 'undefined' && ACTIVE_DATA && ACTIVE_DATA.length) ? ACTIVE_DATA : RAW;
+  const datos = pzDataset();
   const mesesReales = (typeof MONTHS_WITH_REAL !== 'undefined' ? (window.MONTHS_WITH_REAL || MONTHS_WITH_REAL) : []) || [];
 
   const meses = [...new Set(datos.map(d => d.MES))].sort((a,b) => MONTH_ORDER.indexOf(a) - MONTH_ORDER.indexOf(b));
@@ -846,7 +917,7 @@ function getFilters() {
 }
 
 function filterData() {
-  const source = ACTIVE_DATA || RAW;
+  const source = pzDataset();
   const f = getFilters();
   // Map to MONTO PPTO / MONTO REAL based on currency
   return source
@@ -882,7 +953,7 @@ function fmtPct(r, p) { if (!p) return '—'; return ((r-p)/p*100).toFixed(1)+'%
 // ====== RENDER ======
 // ── Actualiza la etiqueta "Última actualización" desde la fuente activa ──
 function refreshLastUpdate() {
-  var source = (typeof ACTIVE_DATA !== 'undefined' && ACTIVE_DATA) ? ACTIVE_DATA : RAW;
+  var source = pzDataset();
   // Respetar la temporada seleccionada en el filtro global
   var tempSel = (document.getElementById('f-temporada') || {}).value || '';
   // Meses con datos reales, dentro de la temporada seleccionada (o todas si no hay selección)
@@ -912,7 +983,7 @@ function render() {
   actualizarSubtituloTemporada();
   updateBanner();
   const data = filterData();
-  renderWithData(data, ACTIVE_DATA || RAW);
+  renderWithData(data, pzDataset());
 }
 
 function renderWithData(data, allData) {
@@ -1686,6 +1757,7 @@ function pzSerializeDataset(){
     var n=parseFloat(v); return isNaN(n)?null:n; }
   return {
     rows: (ACTIVE_DATA || RAW) || [],
+    rowsGtt: ACTIVE_DATA_GTT || [],
     detalle: _toSeasonDetalle(window.DETALLE_GASTOS_LIVE || DETALLE_GASTOS) || {},
     monthsWithReal: (window.MONTHS_WITH_REAL || MONTHS_WITH_REAL) || [],
     kpis: { kg: num('rb-kg'), tc: num('rb-tc'), ha: num('rb-ha'), kgEst: num('rb-kg-est') }
@@ -1702,6 +1774,7 @@ function pzLoadDataset(obj){
   try{
     PZFB.applyingRemote = true;
     if(Array.isArray(obj.rows) && obj.rows.length){ ACTIVE_DATA = obj.rows; }
+    if(Array.isArray(obj.rowsGtt) && obj.rowsGtt.length){ ACTIVE_DATA_GTT = obj.rowsGtt; }
     if(obj.detalle && typeof obj.detalle==='object'){ window.DETALLE_GASTOS_LIVE = _toSeasonDetalle(obj.detalle); }
     if(Array.isArray(obj.monthsWithReal)){ window.MONTHS_WITH_REAL = obj.monthsWithReal; }
     // KPIs editables
@@ -1713,7 +1786,7 @@ function pzLoadDataset(obj){
       var kgEst=document.getElementById('rb-kg-est'); if(kgEst && k.kgEst!=null) kgEst.value = Math.round(k.kgEst).toLocaleString('es-CL');
     }
     // Reconstruir filtros y re-render con los datos nuevos
-    try{ rebuildFilters(ACTIVE_DATA || RAW); }catch(e){}
+    try{ rebuildFilters(pzDataset()); }catch(e){}
     try{ populateFilters(); }catch(e){}
     try{ render(); }catch(e){}
     try{ updateBanner(); }catch(e){}
@@ -1893,8 +1966,25 @@ window.pzCambiarTab = function(tab){
     b.style.color=(t===tab)?'#1565c0':'#888';
     b.classList.toggle('pz-tab-active', t===tab);
   });
-  if(pDash) pDash.style.display=(tab==='dashboard')?'':'none';
+  // "Formato GTT" reutiliza el pane del dashboard con el dataset GTT.
+  if(pDash) pDash.style.display=(tab==='dashboard'||tab==='gtt')?'':'none';
   if(pCrit) pCrit.style.display=(tab==='criterios')?'':'none';
+  if(tab==='dashboard' || tab==='gtt'){
+    var vistaNueva = (tab==='gtt') ? 'GTT' : 'STD';
+    if(vistaNueva !== PZ_VISTA){
+      PZ_VISTA = vistaNueva;
+      if(PZ_VISTA==='GTT' && (!ACTIVE_DATA_GTT || !ACTIVE_DATA_GTT.length)){
+        try{ toast('Sin datos GTT: carga el Excel con "Actualizar datos" para generar la vista.'); }catch(e){}
+      }
+      try{ rebuildFilters(pzDataset()); }catch(e){}
+      try{ render(); }catch(e){}
+      try{ updateBanner(); }catch(e){}
+    }
+    var h1=document.getElementById('pz-dash-title');
+    if(h1) h1.textContent = (PZ_VISTA==='GTT')
+      ? 'Dashboard Gerencial – Formato GTT Nahuelbuta'
+      : 'Dashboard Gerencial – Control Presupuesto';
+  }
   if(tab==='criterios'){
     pzPopularSelectoresCriterios();
     pzRenderCriterios();
