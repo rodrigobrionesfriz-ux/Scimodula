@@ -2003,6 +2003,9 @@ window.pzCambiarTab = function(tab){
     // Aviso visible cuando se pide GTT pero no hay datos GTT cargados.
     var warn=document.getElementById('pz-gtt-warn');
     if(warn) warn.style.display = faltanGtt ? 'block' : 'none';
+    // Toolbar GTT (botón de resumen por hectárea): solo en la vista GTT.
+    var tools=document.getElementById('pz-gtt-tools');
+    if(tools) tools.style.display = (vistaNueva==='GTT') ? 'block' : 'none';
     if(vistaNueva !== PZ_VISTA){
       PZ_VISTA = vistaNueva;
       try{ rebuildFilters(pzDataset()); }catch(e){}
@@ -2155,6 +2158,119 @@ window.pzEliminarCriterio = function(id){
       if(typeof toast==='function') toast('Criterio eliminado','','success');
     }, 'Eliminar', true);
   }
+};
+
+/* pzExportarResumenHa(): genera el "Estado Resultado Operación por Hectárea"
+   (formato GTT / CEAgro) con SOLO los gastos, tomados del dataset GTT de la
+   temporada seleccionada, agrupados Tipo GTT → Cuenta GTT → Familia GTT.
+   Las columnas de producción, precios y utilidades quedan en blanco para
+   completarse a mano. Se descarga como .xlsx usando SheetJS (ya cargado). */
+window.pzExportarResumenHa = function(){
+  if(typeof XLSX==='undefined'){ try{toast('Librería Excel no disponible.');}catch(e){} return; }
+  var G = (typeof ACTIVE_DATA_GTT!=='undefined' && ACTIVE_DATA_GTT) ? ACTIVE_DATA_GTT : [];
+  if(!G.length){ try{toast('Sin datos GTT: recarga el Excel con "Actualizar datos".');}catch(e){} return; }
+  function num(id){ var el=document.getElementById(id); if(!el) return null;
+    var v=(el.value||'').toString().replace(/\./g,'').replace(',','.').replace(/[^0-9.\-]/g,'');
+    var n=parseFloat(v); return isNaN(n)?null:n; }
+  var tempSel = (document.getElementById('f-temporada')||{}).value || '';
+  var S  = num('rb-ha') || 0;      // superficie (ha)
+  var TC = num('rb-tc');           // tipo de cambio
+  var kgEst = num('rb-kg-est');
+  var kgCos = num('rb-kg');
+
+  // Filtrar por temporada y agrupar Tipo → Cuenta → Familia (real).
+  var rows = G.filter(function(d){ return !tempSel || _getTemporada(d)===tempSel; });
+  var ORD = ['COSTOS DIRECTOS','COSTOS DIRECTOS COSECHA','COSTOS INDIRECTOS','GASTOS FINANCIEROS','IMPREVISTOS'];
+  var tree = {}, totalReal = 0;
+  rows.forEach(function(d){
+    var tipo=(d['TIPO DE COSTO']||'—').trim(), cuenta=(d['SUB-GRUPO']||'—').trim(), fam=(d['DESCRIPCION']||'—').trim();
+    var r=parseFloat(d['MONTO REAL'])||0;
+    tree[tipo]=tree[tipo]||{__t:0,c:{}};
+    tree[tipo].c[cuenta]=tree[tipo].c[cuenta]||{__t:0,f:{}};
+    tree[tipo].c[cuenta].f[fam]=(tree[tipo].c[cuenta].f[fam]||0)+r;
+    tree[tipo].c[cuenta].__t+=r; tree[tipo].__t+=r; totalReal+=r;
+  });
+  var perHa=function(v){ return S>0 ? Math.round(v/S) : ''; };
+  var pct  =function(v){ return totalReal>0 ? +(v/totalReal*100).toFixed(1) : ''; };
+
+  // Nombre del cuartel/variedad desde el banner si están.
+  var A = []; // array of arrays
+  A.push(['Agrícola La Cabaña','','','','','','']);
+  A.push(['CEREZOS · ESTADO RESULTADO OPERACIÓN POR HECTÁREA','','','','','','']);
+  A.push(['Temporada '+(tempSel||'(todas)'),'','','','','','']);
+  A.push([]);
+  A.push(['PRODUCCIÓN HUERTO — completar manualmente','','','','','','']);
+  A.push(['Mercado','kg/ha','$/kg','US$/kg','$ por ha','$ total','%']);
+  A.push(['Exportación','','','','','','']);
+  A.push(['Categoría 2 (bajo calibre)','','','','','','']);
+  A.push(['Descarte','','','','','','']);
+  A.push(['TOTAL kg/ha','','','','','','']);
+  A.push([]);
+
+  function seccion(titulo, tipo){
+    A.push([titulo,'','','','','','']);
+    A.push(['Ítem','kg/ha','$/kg','US$/kg','$ por ha','$ total','% costos']);
+    var node = tree[tipo]; if(!node) { A.push(['(sin datos)','','','','','','']); return 0; }
+    Object.keys(node.c).sort().forEach(function(cuenta){
+      var cn=node.c[cuenta];
+      A.push([cuenta,'','','', perHa(cn.__t), Math.round(cn.__t), pct(cn.__t)]);
+      // sub-líneas por Familia GTT (solo si hay más de una o difiere del nombre)
+      var fams=Object.keys(cn.f).sort();
+      if(!(fams.length===1 && fams[0]===cuenta)){
+        fams.forEach(function(fam){
+          A.push(['   '+fam,'','','', perHa(cn.f[fam]), Math.round(cn.f[fam]), pct(cn.f[fam])]);
+        });
+      }
+    });
+    A.push(['Sub-Total '+titulo,'','','', perHa(node.__t), Math.round(node.__t), pct(node.__t)]);
+    return node.__t;
+  }
+
+  var directos = seccion('COSTOS DIRECTOS','COSTOS DIRECTOS');
+  // Directos cosecha (si existe como tipo aparte)
+  if(tree['COSTOS DIRECTOS COSECHA']){ A.push([]); directos += seccion('COSTOS DIRECTOS COSECHA','COSTOS DIRECTOS COSECHA'); }
+  A.push([]);
+  A.push(['UTILIDAD OPERACIONAL / ha — completar manualmente','','','','','','']);
+  A.push([]);
+  var indirectos = seccion('COSTOS INDIRECTOS','COSTOS INDIRECTOS');
+  // Otros tipos GTT no estándar (financieros, imprevistos) si aparecen.
+  Object.keys(tree).forEach(function(t){
+    if(ORD.indexOf(t)<0 && t!=='COSTOS DIRECTOS' && t!=='COSTOS DIRECTOS COSECHA' && t!=='COSTOS INDIRECTOS'){
+      A.push([]); seccion(t, t);
+    }
+  });
+  A.push([]);
+  A.push(['TOTAL COSTOS / ha','','','', perHa(totalReal), Math.round(totalReal), 100]);
+  A.push([]);
+  A.push(['UTILIDAD TOTAL / ha — completar manualmente','','','','','','']);
+  A.push([]);
+  A.push(['DATOS','','','','','','']);
+  A.push(['Superficie Cuartel/Huerto (ha)', S||'', '','','','','']);
+  A.push(['Kilos Estimados', kgEst||'', '','','','','']);
+  A.push(['Kilos Cosechados', kgCos||'', '','','','','']);
+  A.push(['Tipo de Cambio (USD)', TC||'', '','','','','']);
+  A.push(['Variedad Cuartel/Huerto', '', '','','','','']);
+  A.push(['Nombre Cuartel/Huerto', '', '','','','','']);
+  A.push(['Año Plantación', '', '','','','','']);
+  A.push(['Precio Venta Promedio Export (USD)', '', '','','','','']);
+  A.push([]);
+  A.push(['Fuente: Control de Presupuesto SCI · Formato GTT Nahuelbuta (CEAgro) · solo gastos reales','','','','','','']);
+
+  var ws = XLSX.utils.aoa_to_sheet(A);
+  ws['!cols'] = [{wch:42},{wch:10},{wch:10},{wch:10},{wch:14},{wch:15},{wch:10}];
+  // Combinar celdas de títulos de sección (columna A a G).
+  ws['!merges'] = ws['!merges'] || [];
+  A.forEach(function(r,i){
+    var t=(r[0]||'').toString();
+    if(r.length && (r[1]===''||r[1]==null) && (t===t.toUpperCase()) && t.length>3 && !/^\s/.test(t) && !r.slice(1).some(function(x){return x!==''&&x!=null;})){
+      ws['!merges'].push({s:{r:i,c:0},e:{r:i,c:6}});
+    }
+  });
+  var wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Resumen x Ha');
+  var fn = 'Resumen_Hectarea_'+(tempSel||'todas').replace(/[^0-9A-Za-z\-]/g,'')+'.xlsx';
+  XLSX.writeFile(wb, fn);
+  try{ toast('Resumen por hectárea generado ('+fn+').'); }catch(e){}
 };
 
 window.PZ = {
