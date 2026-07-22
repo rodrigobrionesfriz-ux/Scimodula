@@ -73,7 +73,7 @@ var FBCOUNT = (function(){
   });
 })();
 </script>
-<link rel="stylesheet" href="css/styles.css?v=89">
+<link rel="stylesheet" href="css/styles.css?v=90">
 </head>
 <body>
 <!-- Hoja de estilo dinámica para el tema forestal (se llena vía JS) -->
@@ -703,7 +703,7 @@ var FBCOUNT = (function(){
 
 <script>
 </script>
-<script src="js/core.js?v=89"></script>
+<script src="js/core.js?v=90"></script>
 <script>
 /* ═══════════════ MÓDULO: CONTROL DE PRESUPUESTO ═══════════════ */
 /* Integra el dashboard de Control de Presupuesto (Huerto Cerezos 2018) como
@@ -1513,6 +1513,9 @@ function renderPresupuesto(main){
 </div>
 <!-- Pane: Dashboard (visible por defecto) -->
 <div id="pz-pane-dashboard" style="display:flex;flex-direction:column">
+<div id="pz-gtt-tools" style="display:none;order:0;margin:10px 16px 0;text-align:right">
+  <button onclick="pzExportarResumenHa()" title="Genera el Estado Resultado por Hectárea (solo gastos) en Excel para completar a mano" style="padding:8px 16px;border:none;border-radius:8px;background:#2e7d32;color:#fff;font-size:12.5px;font-weight:700;cursor:pointer">📄 Resumen por Hectárea (Excel)</button>
+</div>
 <div id="pz-gtt-warn" style="display:none;order:1;margin:10px 16px 0;padding:12px 16px;background:#fff8e1;border:1px solid #ffe082;border-radius:9px;color:#8a6d00;font-size:13px;line-height:1.5">
   ⚠️ El <strong>Formato GTT</strong> necesita releer el Excel (las columnas GTT no están en los datos guardados en la nube).
   Haz clic en <strong>"Actualizar datos"</strong> y vuelve a seleccionar el archivo .xlsx.
@@ -1876,10 +1879,10 @@ function renderPresupuesto(main){
 }
 
 </script>
-<script src="js/inventario.js?v=89"></script>
-<script src="js/ordencompra.js?v=89"></script>
-<script src="js/huerto.js?v=89"></script>
-<script src="js/actualizacion.js?v=89"></script>
+<script src="js/inventario.js?v=90"></script>
+<script src="js/ordencompra.js?v=90"></script>
+<script src="js/huerto.js?v=90"></script>
+<script src="js/actualizacion.js?v=90"></script>
 <script>
 
 /* ═══════════════ MÓDULO: MANTENCIONES ═══════════════ */
@@ -2638,7 +2641,7 @@ var S = { panos:[], registros:[], productos:[], ordenes:[], oCounter:1, confirma
 };
 
 </script>
-<script src="js/cuaderno.js?v=89"></script>
+<script src="js/cuaderno.js?v=90"></script>
 <script>
 
 /* ═══════════════ INTEGRACIÓN CUADERNO DE CAMPO ═══════════════ */
@@ -2695,8 +2698,8 @@ function renderCuaderno(main){
 </script>
 
 
-<script src="data/presupuesto-data.js?v=89"></script>
-<script src="js/presupuesto.js?v=89"></script>
+<script src="data/presupuesto-data.js?v=90"></script>
+<script src="js/presupuesto.js?v=90"></script>
 <script>
 /* ── Normalización global a MAYÚSCULAS en la entrada de datos ──
    Aplica a inputs de texto y textareas de todo el sistema.

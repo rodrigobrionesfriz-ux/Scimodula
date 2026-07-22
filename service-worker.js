@@ -1,33 +1,33 @@
 /* SCI - Service Worker
-   Reconstruido en v89 (el archivo anterior fue sobrescrito con el contenido
+   Reconstruido en v90 (el archivo anterior fue sobrescrito con el contenido
    de index.html y el SW no registraba). Estrategia: cache-first con
    precache versionado; la red actualiza el cache en segundo plano. */
- 
-const CACHE = 'sci-v89';
- 
+
+const CACHE = 'sci-v90';
+
 const ASSETS = [
   './',
   './index.html',
   './manifest.json',
-  './css/styles.css?v=89',
-  './js/core.js?v=89',
-  './js/inventario.js?v=89',
-  './js/cuaderno.js?v=89',
-  './js/huerto.js?v=89',
-  './js/presupuesto.js?v=89',
-  './js/ordencompra.js?v=89',
-  './js/actualizacion.js?v=89',
-  './data/presupuesto-data.js?v=89',
+  './css/styles.css?v=90',
+  './js/core.js?v=90',
+  './js/inventario.js?v=90',
+  './js/cuaderno.js?v=90',
+  './js/huerto.js?v=90',
+  './js/presupuesto.js?v=90',
+  './js/ordencompra.js?v=90',
+  './js/actualizacion.js?v=90',
+  './data/presupuesto-data.js?v=90',
   './icons/icon-192.png',
   './icons/icon-512.png'
 ];
- 
+
 self.addEventListener('install', e => {
   e.waitUntil(
     caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting())
   );
 });
- 
+
 self.addEventListener('activate', e => {
   e.waitUntil(
     caches.keys()
@@ -35,13 +35,13 @@ self.addEventListener('activate', e => {
       .then(() => self.clients.claim())
   );
 });
- 
+
 self.addEventListener('fetch', e => {
   // Solo GET y mismo origen; Firebase/CDNs van directo a la red.
   if (e.request.method !== 'GET') return;
   const url = new URL(e.request.url);
   if (url.origin !== self.location.origin) return;
- 
+
   e.respondWith(
     caches.match(e.request).then(cached => {
       const fetched = fetch(e.request).then(resp => {
@@ -55,4 +55,3 @@ self.addEventListener('fetch', e => {
     })
   );
 });
- 
