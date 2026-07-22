@@ -144,6 +144,9 @@ function openDetalleModal(descripcion) {
     var fuenteFilas = (typeof ACTIVE_DATA!=='undefined' && ACTIVE_DATA && ACTIVE_DATA.length) ? ACTIVE_DATA : RAW;
     var filasDesc = fuenteFilas.filter(function(d){
       if(d.DESCRIPCION !== descripcion) return false;
+      // Respetar la TEMPORADA seleccionada (igual que filterData/gráficos);
+      // sin esto, con un Excel multi-temporada el ppto del pie suma todas.
+      if(tempSel && _getTemporada(d) !== tempSel) return false;
       if(mesesSel.length && mesesSel.indexOf(d.MES) < 0) return false;
       return true;
     });
