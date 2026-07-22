@@ -4395,7 +4395,7 @@ function renderSelectorSalida(c){
   c.innerHTML=`
     <div class="page-header"><div><div class="page-title">Nueva Salida</div>
       <div class="page-subtitle">Elija el tipo de salida</div></div></div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;max-width:640px">
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;max-width:960px">
       <button class="card" onclick="renderMovimientoForm(document.getElementById('mainContent'),'SAL')"
         style="cursor:pointer;text-align:left;padding:22px;border:2px solid var(--bo);border-radius:12px">
         <div style="font-size:30px;margin-bottom:8px">📦</div>
@@ -4408,9 +4408,341 @@ function renderSelectorSalida(c){
         <div style="font-weight:800;font-size:16px">Salida de combustible</div>
         <div class="stat-sub">Gasolina / Diesel con equipo y horómetro</div>
       </button>
+      <button class="card" onclick="renderCargaMasivaConsumos(document.getElementById('mainContent'))"
+        style="cursor:pointer;text-align:left;padding:22px;border:2px solid #1565c0;border-radius:12px;background:#f1f6fc">
+        <div style="font-size:30px;margin-bottom:8px">📥</div>
+        <div style="font-weight:800;font-size:16px">Carga masiva (Excel)</div>
+        <div class="stat-sub">Consumos y combustible desde una plantilla</div>
+      </button>
     </div>`;
 }
 try{ window.renderSelectorSalida=renderSelectorSalida; }catch(e){}
+
+/* ═══════════════ CARGA MASIVA DE SALIDAS (Excel) ═══════════════ */
+/* Dos hojas: "Consumos" (salida CONSUMO CC) y "Combustible" (salida con
+   equipo/horómetro). La foliación reutiliza nextCounter() — el MISMO
+   correlativo que el flujo manual — por lo que nunca se repiten folios.
+   Identificación por código: producto (codigoInterno), bodega (id),
+   centro de costo (código). */
+const CM_HEAD_CONS=['Fecha','CodigoProducto','Cantidad','BodegaId','CentroCosto','Observaciones'];
+const CM_HEAD_COMB=['Fecha','CodigoProducto','Cantidad','BodegaId','CentroCosto','Equipo','KmHorometro','Operador','Observaciones'];
+
+function renderCargaMasivaConsumos(c){
+  if(!can('movimientos.crear') && !can('combustible.registrar')){
+    c.innerHTML='<div class="empty-state"><div class="empty-state-icon">🔒</div><div class="empty-state-title">Sin permiso</div><div class="empty-state-text">No tiene permiso para registrar salidas.</div></div>';
+    return;
+  }
+  c.innerHTML=`
+    <div class="page-header"><div><div class="page-title">📥 Carga masiva de salidas</div>
+      <div class="page-subtitle">Consumos y combustible desde una plantilla Excel</div></div>
+      <button class="btn btn-secondary" onclick="navigate('salidas')">← Volver</button></div>
+    <div style="max-width:720px">
+      <div class="alert" style="background:#f1f6fc;border:1px solid #d6e4f5;border-radius:10px;padding:16px;margin-bottom:16px;font-size:13px;line-height:1.6;color:#334155">
+        <strong>Cómo funciona</strong><br>
+        1. Descargue la plantilla y complete la hoja <strong>Consumos</strong> y/o <strong>Combustible</strong>.<br>
+        2. Use los <strong>códigos</strong> de las hojas "Listas" (producto, bodega, centro de costo).<br>
+        3. Vuelva aquí e importe el archivo: verá una <strong>vista previa</strong> con validaciones antes de confirmar.<br>
+        4. Los folios se asignan automáticamente siguiendo el correlativo vigente (CCC para consumos, SAL para combustible). No se repiten registros.
+      </div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap">
+        <button class="btn btn-secondary" onclick="downloadPlantillaConsumos()">📥 Descargar plantilla</button>
+        <label class="btn btn-primary" style="cursor:pointer"><span>📤 Importar Excel</span><input type="file" accept=".xlsx,.xls" style="display:none" onchange="if(this.files[0]){previewImportConsumos(this.files[0]);this.value=''}"></label>
+      </div>
+    </div>`;
+}
+try{ window.renderCargaMasivaConsumos=renderCargaMasivaConsumos; }catch(e){}
+
+function downloadPlantillaConsumos(){
+  const ahora=new Date().toLocaleDateString('es-CL');
+  const hoy=new Date().toISOString().slice(0,10);
+  const prods=(STATE.cache.products||[]).filter(p=>p.activo!==false && p.inventariable!==false);
+  const combs=prods.filter(p=>{const t=((p.descripcion||'')+' '+(p.grupo||'')+' '+(p.subGrupo||'')).toLowerCase();return /gasolina|diesel|di[eé]sel|petr[oó]leo|bencina/.test(t);});
+  const bods=STATE.cache.warehouses||[];
+  const ccs=(STATE.cache.costCenters||[]).filter(x=>x.activo!==false);
+  const codProd=(prods[0]&&prods[0].codigoInterno)||'P000001';
+  const codComb=(combs[0]&&combs[0].codigoInterno)||codProd;
+  const codBod=(bods[0]&&bods[0].id)||'BOD1';
+  const codCC=(ccs[0]&&ccs[0].codigo)||'CC1';
+
+  // Hoja Consumos (ejemplo)
+  const ejCons=[{Fecha:hoy,CodigoProducto:codProd,Cantidad:1,BodegaId:codBod,CentroCosto:codCC,Observaciones:'EJEMPLO — borre esta fila'}];
+  const wsC=XLSX.utils.json_to_sheet(ejCons,{header:CM_HEAD_CONS});
+  wsC['!cols']=[{wch:12},{wch:16},{wch:10},{wch:14},{wch:14},{wch:36}];
+  // Hoja Combustible (ejemplo)
+  const ejComb=[{Fecha:hoy,CodigoProducto:codComb,Cantidad:40,BodegaId:codBod,CentroCosto:codCC,Equipo:'TRACTOR 1',KmHorometro:1250,Operador:'JUAN PÉREZ',Observaciones:'EJEMPLO — borre esta fila'}];
+  const wsB=XLSX.utils.json_to_sheet(ejComb,{header:CM_HEAD_COMB});
+  wsB['!cols']=[{wch:12},{wch:16},{wch:10},{wch:14},{wch:14},{wch:18},{wch:14},{wch:22},{wch:30}];
+
+  // Instrucciones
+  const inst=[
+    ['SISTEMA DE CONTROL DE INVENTARIO — Carga masiva de salidas'],
+    ['Generada: '+ahora],
+    [],
+    ['INSTRUCCIONES'],
+    ['1. Complete la hoja "Consumos" (salidas normales) y/o "Combustible". Cada fila = una salida.'],
+    ['2. NO cambie los encabezados (primera fila).'],
+    ['3. Borre las filas de ejemplo antes de importar.'],
+    ['4. Use los CÓDIGOS de la hoja "Listas" para Producto, Bodega y Centro de costo.'],
+    ['5. Fecha en formato AAAA-MM-DD (ej: '+hoy+').'],
+    ['6. El folio se asigna automáticamente al importar (no lo escriba). Consumos → CCC, Combustible → SAL.'],
+    ['7. Al importar verá una vista previa con errores/avisos antes de confirmar.'],
+    [],
+    ['HOJA "Consumos" (CONSUMO de centro de costo)'],
+    ['Campo','Obligatorio','Descripción'],
+    ['Fecha','SÍ','Fecha del consumo (AAAA-MM-DD).'],
+    ['CodigoProducto','SÍ','Código interno del producto (ver Listas).'],
+    ['Cantidad','SÍ','Número > 0. No puede superar el stock disponible en la bodega.'],
+    ['BodegaId','SÍ','Id de la bodega de origen (ver Listas).'],
+    ['CentroCosto','SÍ','Código del centro de costo (ver Listas). Debe estar activo.'],
+    ['Observaciones','No','Texto libre.'],
+    [],
+    ['HOJA "Combustible"'],
+    ['Campo','Obligatorio','Descripción'],
+    ['Fecha','SÍ','Fecha de la carga (AAAA-MM-DD).'],
+    ['CodigoProducto','SÍ','Código interno del combustible (ver Listas).'],
+    ['Cantidad','SÍ','Litros > 0. No puede superar el stock disponible.'],
+    ['BodegaId','SÍ','Id de la bodega de origen.'],
+    ['CentroCosto','SÍ','Código del centro de costo activo.'],
+    ['Equipo','SÍ','Nombre del equipo/máquina.'],
+    ['KmHorometro','No','Km u horómetro. Si se informa, no puede ser menor al último registrado del equipo.'],
+    ['Operador','SÍ','Nombre del operador.'],
+    ['Observaciones','No','Texto libre.'],
+  ];
+  const wsI=XLSX.utils.aoa_to_sheet(inst); wsI['!cols']=[{wch:16},{wch:12},{wch:70}];
+
+  // Listas de códigos
+  const L=[];
+  L.push(['PRODUCTOS (código → descripción)']);
+  L.push(['CodigoProducto','Descripción','UM','¿Combustible?']);
+  prods.forEach(p=>{const t=((p.descripcion||'')+' '+(p.grupo||'')+' '+(p.subGrupo||'')).toLowerCase();L.push([p.codigoInterno,p.descripcion||'',p.unidadMedida||'',/gasolina|diesel|di[eé]sel|petr[oó]leo|bencina/.test(t)?'SÍ':'']);});
+  L.push([]);
+  L.push(['BODEGAS (id → nombre)']);
+  L.push(['BodegaId','Nombre']);
+  bods.forEach(b=>L.push([b.id,b.nombre||'']));
+  L.push([]);
+  L.push(['CENTROS DE COSTO ACTIVOS (código → descripción)']);
+  L.push(['CentroCosto','Descripción','Área']);
+  ccs.forEach(x=>L.push([x.codigo,x.descripcion||'',x.area||'']));
+  const wsL=XLSX.utils.aoa_to_sheet(L); wsL['!cols']=[{wch:18},{wch:44},{wch:14},{wch:14}];
+
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,wsC,'Consumos');
+  XLSX.utils.book_append_sheet(wb,wsB,'Combustible');
+  XLSX.utils.book_append_sheet(wb,wsI,'Instrucciones');
+  XLSX.utils.book_append_sheet(wb,wsL,'Listas');
+  XLSX.writeFile(wb,`Plantilla_Consumos_${hoy}.xlsx`);
+  toast('Plantilla descargada','Complete Consumos y/o Combustible y vuelva a importarla');
+}
+try{ window.downloadPlantillaConsumos=downloadPlantillaConsumos; }catch(e){}
+
+/* Normaliza una fecha de Excel (string AAAA-MM-DD, dd-mm-aaaa o Date) → 'AAAA-MM-DD' o null */
+function _cmParseFecha(v){
+  if(v==null||v==='') return null;
+  if(v instanceof Date && !isNaN(v)) return v.toISOString().slice(0,10);
+  var s=String(v).trim();
+  var m=s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/); if(m) return m[1]+'-'+String(m[2]).padStart(2,'0')+'-'+String(m[3]).padStart(2,'0');
+  m=s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/); if(m) return m[3]+'-'+String(m[2]).padStart(2,'0')+'-'+String(m[1]).padStart(2,'0');
+  var d=new Date(s); if(!isNaN(d)) return d.toISOString().slice(0,10);
+  return null;
+}
+
+async function previewImportConsumos(file){
+  if(!can('movimientos.crear') && !can('combustible.registrar')){toast('Sin permiso','No puede registrar salidas','error');return;}
+  showLoading();
+  try{
+    const buf=await file.arrayBuffer();
+    const wb=XLSX.read(buf,{type:'array'});
+    const shC=wb.SheetNames.find(n=>n.trim().toLowerCase()==='consumos');
+    const shB=wb.SheetNames.find(n=>n.trim().toLowerCase()==='combustible');
+    const rowsC=shC?XLSX.utils.sheet_to_json(wb.Sheets[shC],{defval:'',raw:false}):[];
+    const rowsB=shB?XLSX.utils.sheet_to_json(wb.Sheets[shB],{defval:'',raw:false}):[];
+    hideLoading();
+    if(rowsC.length===0 && rowsB.length===0){toast('Excel vacío','No hay filas en Consumos ni Combustible','error');return;}
+    const v=_validateConsumos(rowsC,rowsB);
+    _showConsumosPreview(v,file.name);
+  }catch(e){
+    hideLoading();
+    toast('Error al leer','No se pudo procesar el archivo: '+e.message,'error');
+    console.error('previewImportConsumos:',e);
+  }
+}
+try{ window.previewImportConsumos=previewImportConsumos; }catch(e){}
+
+function _validateConsumos(rowsC,rowsB){
+  const validas=[], invalidas=[];
+  const usado={}; // key prod|bodega → cantidad ya comprometida en este archivo
+  const kmMax={}; // equipo → último km visto (historial + archivo)
+  // Precargar último km por equipo desde historial
+  (STATE.cache.combustible||[]).forEach(r=>{ if(r.equipo && (r.km||0)>0){ kmMax[r.equipo]=Math.max(kmMax[r.equipo]||0, r.km||0); } });
+
+  function chkComun(d, isComb){
+    const errs=[], warns=[];
+    const fecha=_cmParseFecha(d.Fecha);
+    if(!fecha) errs.push('Fecha inválida (use AAAA-MM-DD).');
+    const cod=String(d.CodigoProducto||'').trim();
+    const prod=cod?getProduct(cod):null;
+    if(!cod) errs.push('Falta CodigoProducto.');
+    else if(!prod) errs.push('Producto '+cod+' no existe.');
+    const cant=parseFloat(String(d.Cantidad).replace(',','.'))||0;
+    if(cant<=0) errs.push('Cantidad debe ser > 0.');
+    const bod=String(d.BodegaId||'').trim();
+    const bodObj=bod?getWarehouse(bod):null;
+    if(!bod) errs.push('Falta BodegaId.');
+    else if(!bodObj) errs.push('Bodega '+bod+' no existe.');
+    const ccCod=String(d.CentroCosto||'').trim().toUpperCase();
+    const ccObj=ccCod?(STATE.cache.costCenters||[]).find(x=>x.codigo===ccCod):null;
+    if(!ccCod) errs.push('Falta CentroCosto.');
+    else if(!ccObj) errs.push('Centro de costo '+ccCod+' no existe.');
+    else if(ccObj.activo===false) errs.push('Centro de costo '+ccCod+' está inactivo.');
+    // permiso por tipo
+    if(isComb && !can('combustible.registrar')) errs.push('Sin permiso para registrar combustible.');
+    if(!isComb && !can('movimientos.crear')) errs.push('Sin permiso para registrar consumos.');
+    // stock acumulado por prod|bodega
+    if(prod && bodObj && cant>0){
+      const k=cod+'|'+bod;
+      const disp=(getStock(cod,bod)?.cantidad)||0;
+      const ya=usado[k]||0;
+      if(ya+cant>disp) errs.push('Stock insuficiente en '+(bodObj.nombre||bod)+': disponible '+fmtNum(disp,2)+', ya comprometido '+fmtNum(ya,2)+', solicitado '+fmtNum(cant,2)+'.');
+      else usado[k]=ya+cant;
+    }
+    return {errs,warns,fecha,cod,prod,cant,bod,bodObj,ccCod,ccObj};
+  }
+
+  rowsC.forEach((d,i)=>{
+    if(Object.values(d).every(x=>x===''||x==null)) return;
+    const r=chkComun(d,false);
+    const data={tipo:'NORMAL',fecha:r.fecha,codigo:r.cod,producto:r.prod,cantidad:r.cant,bodegaId:r.bod,bodega:r.bodObj,centroCosto:r.ccCod,cc:r.ccObj,obs:String(d.Observaciones||'').trim()};
+    if(r.errs.length) invalidas.push({hoja:'Consumos',fila:i+2,data,errors:r.errs});
+    else validas.push({hoja:'Consumos',fila:i+2,data,warnings:r.warns});
+  });
+  rowsB.forEach((d,i)=>{
+    if(Object.values(d).every(x=>x===''||x==null)) return;
+    const r=chkComun(d,true);
+    const equipo=String(d.Equipo||'').trim();
+    const operador=String(d.Operador||'').trim();
+    const km=parseFloat(String(d.KmHorometro).replace(',','.'))||0;
+    if(!equipo) r.errs.push('Falta Equipo.');
+    if(!operador) r.errs.push('Falta Operador.');
+    if(r.prod){const t=((r.prod.descripcion||'')+' '+(r.prod.grupo||'')+' '+(r.prod.subGrupo||'')).toLowerCase(); if(!/gasolina|diesel|di[eé]sel|petr[oó]leo|bencina/.test(t)) r.warns.push('El producto no parece combustible.');}
+    if(km>0 && equipo){ if(km<(kmMax[equipo]||0)) r.errs.push('Km/Horómetro ('+km+') menor al último de '+equipo+' ('+kmMax[equipo]+').'); else kmMax[equipo]=km; }
+    const data={tipo:'COMBUSTIBLE',fecha:r.fecha,codigo:r.cod,producto:r.prod,cantidad:r.cant,bodegaId:r.bod,bodega:r.bodObj,centroCosto:r.ccCod,cc:r.ccObj,equipo,km,operador,obs:String(d.Observaciones||'').trim()};
+    if(r.errs.length) invalidas.push({hoja:'Combustible',fila:i+2,data,errors:r.errs});
+    else validas.push({hoja:'Combustible',fila:i+2,data,warnings:r.warns});
+  });
+  return {total:validas.length+invalidas.length, validas, invalidas};
+}
+
+function _showConsumosPreview(v,fileName){
+  const okCount=v.validas.length, errCount=v.invalidas.length;
+  const warnCount=v.validas.filter(x=>x.warnings.length>0).length;
+  let body=`<div style="margin-bottom:14px;font-size:13px;line-height:1.6">
+    <div><strong>Archivo:</strong> ${escapeHtml(fileName)}</div>
+    <div><strong>Total de filas:</strong> ${v.total}</div>
+    <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
+      <span class="badge badge-green">${okCount} válidas</span>
+      ${warnCount>0?`<span class="badge badge-amber">${warnCount} con avisos</span>`:''}
+      ${errCount>0?`<span class="badge badge-red">${errCount} con errores</span>`:''}
+    </div></div>`;
+  if(errCount>0){
+    body+=`<div class="alert alert-warning" style="margin-bottom:12px;font-size:13px">⚠ Las filas con errores NO se cargarán. Corrija el Excel y vuelva a importarlo.</div>`;
+    body+=`<h4 style="color:var(--gd);font-size:13px;margin:14px 0 8px">Filas con errores (${errCount})</h4>
+      <div style="max-height:200px;overflow:auto;border:1px solid var(--bo);border-radius:6px"><table class="detalle-table" style="margin:0">
+      <thead><tr><th>Hoja</th><th style="width:44px">Fila</th><th>Producto</th><th>Errores</th></tr></thead>
+      <tbody>${v.invalidas.slice(0,60).map(it=>`<tr>
+        <td>${it.hoja}</td><td class="mono">${it.fila}</td>
+        <td>${escapeHtml((it.data.producto&&it.data.producto.descripcion)||it.data.codigo||'(?)')}</td>
+        <td style="color:var(--red);font-size:12px">${it.errors.map(e=>escapeHtml(e)).join('<br>')}</td>
+      </tr>`).join('')}</tbody></table></div>`;
+  }
+  if(okCount>0){
+    body+=`<h4 style="color:var(--gd);font-size:13px;margin:14px 0 8px">Filas a cargar (${okCount})</h4>
+      <div style="max-height:260px;overflow:auto;border:1px solid var(--bo);border-radius:6px"><table class="detalle-table" style="margin:0">
+      <thead><tr><th>Hoja</th><th style="width:44px">Fila</th><th>Fecha</th><th>Producto</th><th>Cant.</th><th>Bodega</th><th>C.Costo</th><th>Equipo</th><th>Avisos</th></tr></thead>
+      <tbody>${v.validas.slice(0,120).map(it=>`<tr>
+        <td>${it.hoja}</td><td class="mono">${it.fila}</td>
+        <td>${escapeHtml(it.data.fecha||'')}</td>
+        <td>${escapeHtml((it.data.producto&&it.data.producto.descripcion)||it.data.codigo)}</td>
+        <td class="mono">${fmtNum(it.data.cantidad,2)}</td>
+        <td>${escapeHtml((it.data.bodega&&it.data.bodega.nombre)||it.data.bodegaId)}</td>
+        <td>${escapeHtml(it.data.centroCosto)}</td>
+        <td>${escapeHtml(it.data.equipo||'-')}</td>
+        <td style="color:var(--gm);font-size:11px">${it.warnings.map(w=>escapeHtml(w)).join('<br>')||'-'}</td>
+      </tr>`).join('')}${v.validas.length>120?`<tr><td colspan="9" style="text-align:center;color:var(--mu);font-size:12px;padding:8px">… y ${v.validas.length-120} fila(s) más</td></tr>`:''}</tbody></table></div>`;
+  }
+  STATE._bulkConsumosPending=v;
+  showModal('Vista previa · Carga masiva de salidas',body,
+    `<button class="btn btn-secondary" onclick="closeModal();STATE._bulkConsumosPending=null">Cancelar</button>
+     ${okCount>0?`<button class="btn btn-primary" id="btnConfirmConsumos">✓ Cargar ${okCount} salida(s)</button>`:''}`,
+    'xl');
+  if(okCount>0) document.getElementById('btnConfirmConsumos').onclick=()=>_executeBulkConsumos();
+}
+
+async function _executeBulkConsumos(){
+  const v=STATE._bulkConsumosPending;
+  if(!v||!v.validas.length) return;
+  closeModal();
+  showLoading('Cargando salidas...');
+  let ok=0, fail=0; const fallidos=[];
+  for(const it of v.validas){
+    const d=it.data;
+    try{
+      const prod=d.producto;
+      const costo=(getStock(d.codigo,d.bodegaId)?.costoPromedio)||prod?.costoPromedio||0;
+      const fechaISO=d.fecha+'T'+new Date().toTimeString().slice(0,8);
+      if(d.tipo==='NORMAL'){
+        const cfg=getMovCfg('SAL','CONSUMO CC');
+        const numero=await nextCounter(cfg.prefijo);
+        const m={
+          numero,tipo:'SAL',tipoMovimiento:'CONSUMO CC',
+          fecha:fechaISO,bodegaId:d.bodegaId,
+          documento:'',proveedor:'',destino:d.centroCosto,
+          centroCosto:d.centroCosto,centroCostoNombre:(d.cc&&d.cc.descripcion)||'',centroCostoArea:(d.cc&&d.cc.area)||'',
+          observaciones:d.obs||'',
+          detalles:[{codigoInterno:d.codigo,cantidad:d.cantidad,costo,costoNeto:costo,lote:null,loteId:null,fechaVenc:null}],
+          usuario:STATE.user.id,creado:new Date().toISOString(),anulado:false,cargaMasiva:true
+        };
+        await dbPut('movements',m);
+        if(!(await dbGet('movements',numero))) throw new Error('no persistió');
+        ok++;
+      }else{
+        const numero=await nextCounter('SAL');
+        const m={
+          numero,tipo:'SAL',tipoMovimiento:'CONSUMO COMBUSTIBLE',
+          fecha:fechaISO,bodegaId:d.bodegaId,centroCosto:d.centroCosto,
+          destino:d.equipo,
+          observaciones:`Equipo: ${d.equipo} · Km/Hr: ${d.km} · Operador: ${d.operador}${d.obs?(' · '+d.obs):''}`,
+          detalles:[{codigoInterno:d.codigo,descripcion:prod?.descripcion||d.codigo,cantidad:d.cantidad,costo}],
+          usuario:STATE.user.id,creado:new Date().toISOString(),cargaMasiva:true
+        };
+        await dbPut('movements',m);
+        if(!(await dbGet('movements',numero))) throw new Error('no persistió');
+        const regCb={
+          id:Date.now()+'-'+Math.random().toString(36).slice(2,7),
+          fecha:fechaISO,equipo:d.equipo,km:d.km,usuario:d.operador,
+          codigoProducto:d.codigo,producto:prod?.descripcion||d.codigo,
+          cantidad:d.cantidad,centroCosto:d.centroCosto,bodegaId:d.bodegaId,movNumero:numero,
+          observaciones:d.obs||'',registrado:new Date().toISOString(),registradoPor:STATE.user.id,cargaMasiva:true
+        };
+        await dbPut('combustible',regCb);
+        ok++;
+      }
+    }catch(e){
+      fail++; fallidos.push({hoja:it.hoja,fila:it.fila,err:e.message});
+      console.error('Carga masiva salida fila',it.fila,e);
+    }
+  }
+  // Recalcular stock una sola vez desde todos los movimientos.
+  STATE.cache.movements=await dbAll('movements');
+  await _ejecutarRecalculoStock();
+  await audit('salida.cargaMasiva',`Carga masiva: ${ok} salida(s) creada(s)`,`bulk-${ok}`);
+  await reloadCache();
+  hideLoading();
+  STATE._bulkConsumosPending=null;
+  if(fail===0) toast('Carga exitosa',`Se registraron ${ok} salida(s)`);
+  else { toast('Carga con errores',`${ok} creadas, ${fail} con error`,'warning'); console.warn('Salidas fallidas:',fallidos); }
+  navigate('movimientos');
+}
+try{ window._executeBulkConsumos=_executeBulkConsumos; }catch(e){}
 
 let cbDraft={};
 function renderCombustibleForm(c){
