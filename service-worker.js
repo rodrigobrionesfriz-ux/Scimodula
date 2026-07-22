@@ -1,23 +1,23 @@
 /* SCI - Service Worker
-   Reconstruido en v87 (el archivo anterior fue sobrescrito con el contenido
+   Reconstruido en v88 (el archivo anterior fue sobrescrito con el contenido
    de index.html y el SW no registraba). Estrategia: cache-first con
    precache versionado; la red actualiza el cache en segundo plano. */
  
-const CACHE = 'sci-v87';
+const CACHE = 'sci-v88';
  
 const ASSETS = [
   './',
   './index.html',
   './manifest.json',
-  './css/styles.css?v=87',
-  './js/core.js?v=87',
-  './js/inventario.js?v=87',
-  './js/cuaderno.js?v=87',
-  './js/huerto.js?v=87',
-  './js/presupuesto.js?v=87',
-  './js/ordencompra.js?v=87',
-  './js/actualizacion.js?v=87',
-  './data/presupuesto-data.js?v=87',
+  './css/styles.css?v=88',
+  './js/core.js?v=88',
+  './js/inventario.js?v=88',
+  './js/cuaderno.js?v=88',
+  './js/huerto.js?v=88',
+  './js/presupuesto.js?v=88',
+  './js/ordencompra.js?v=88',
+  './js/actualizacion.js?v=88',
+  './data/presupuesto-data.js?v=88',
   './icons/icon-192.png',
   './icons/icon-512.png'
 ];
