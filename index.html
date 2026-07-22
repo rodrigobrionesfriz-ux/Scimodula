@@ -73,7 +73,7 @@ var FBCOUNT = (function(){
   });
 })();
 </script>
-<link rel="stylesheet" href="css/styles.css?v=87">
+<link rel="stylesheet" href="css/styles.css?v=88">
 </head>
 <body>
 <!-- Hoja de estilo dinámica para el tema forestal (se llena vía JS) -->
@@ -703,7 +703,7 @@ var FBCOUNT = (function(){
 
 <script>
 </script>
-<script src="js/core.js?v=87"></script>
+<script src="js/core.js?v=88"></script>
 <script>
 /* ═══════════════ MÓDULO: CONTROL DE PRESUPUESTO ═══════════════ */
 /* Integra el dashboard de Control de Presupuesto (Huerto Cerezos 2018) como
@@ -1513,6 +1513,11 @@ function renderPresupuesto(main){
 </div>
 <!-- Pane: Dashboard (visible por defecto) -->
 <div id="pz-pane-dashboard" style="display:flex;flex-direction:column">
+<div id="pz-gtt-warn" style="display:none;order:1;margin:10px 16px 0;padding:12px 16px;background:#fff8e1;border:1px solid #ffe082;border-radius:9px;color:#8a6d00;font-size:13px;line-height:1.5">
+  ⚠️ El <strong>Formato GTT</strong> necesita releer el Excel (las columnas GTT no están en los datos guardados en la nube).
+  Haz clic en <strong>"Actualizar datos"</strong> y vuelve a seleccionar el archivo .xlsx.
+  <button onclick="document.getElementById('file-input').click()" style="margin-left:8px;padding:6px 14px;border:none;border-radius:7px;background:#1565c0;color:#fff;font-size:12px;font-weight:700;cursor:pointer">⬆ Cargar Excel</button>
+</div>
 <div class="resumen-banner" id="resumen-banner" style="order:2">
 
   <div class="rb-item">
@@ -1871,10 +1876,10 @@ function renderPresupuesto(main){
 }
 
 </script>
-<script src="js/inventario.js?v=87"></script>
-<script src="js/ordencompra.js?v=87"></script>
-<script src="js/huerto.js?v=87"></script>
-<script src="js/actualizacion.js?v=87"></script>
+<script src="js/inventario.js?v=88"></script>
+<script src="js/ordencompra.js?v=88"></script>
+<script src="js/huerto.js?v=88"></script>
+<script src="js/actualizacion.js?v=88"></script>
 <script>
 
 /* ═══════════════ MÓDULO: MANTENCIONES ═══════════════ */
@@ -2633,7 +2638,7 @@ var S = { panos:[], registros:[], productos:[], ordenes:[], oCounter:1, confirma
 };
 
 </script>
-<script src="js/cuaderno.js?v=87"></script>
+<script src="js/cuaderno.js?v=88"></script>
 <script>
 
 /* ═══════════════ INTEGRACIÓN CUADERNO DE CAMPO ═══════════════ */
@@ -2690,8 +2695,8 @@ function renderCuaderno(main){
 </script>
 
 
-<script src="data/presupuesto-data.js?v=87"></script>
-<script src="js/presupuesto.js?v=87"></script>
+<script src="data/presupuesto-data.js?v=88"></script>
+<script src="js/presupuesto.js?v=88"></script>
 <script>
 /* ── Normalización global a MAYÚSCULAS en la entrada de datos ──
    Aplica a inputs de texto y textareas de todo el sistema.
