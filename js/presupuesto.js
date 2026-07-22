@@ -741,6 +741,11 @@ function processExcel(file) {
       // Rebuild filters and re-render (respetando la vista activa STD/GTT)
       rebuildFilters(pzDataset());
       renderAll(pzDataset());
+      // Si ya hay datos GTT, ocultar el aviso de "recargar Excel".
+      try{
+        var _w=document.getElementById('pz-gtt-warn');
+        if(_w && ACTIVE_DATA_GTT && ACTIVE_DATA_GTT.length) _w.style.display='none';
+      }catch(e){}
       updateBanner();
 
       setTimeout(closeUploadModal, 2200);
@@ -1971,11 +1976,12 @@ window.pzCambiarTab = function(tab){
   if(pCrit) pCrit.style.display=(tab==='criterios')?'':'none';
   if(tab==='dashboard' || tab==='gtt'){
     var vistaNueva = (tab==='gtt') ? 'GTT' : 'STD';
+    var faltanGtt = (vistaNueva==='GTT' && (!ACTIVE_DATA_GTT || !ACTIVE_DATA_GTT.length));
+    // Aviso visible cuando se pide GTT pero no hay datos GTT cargados.
+    var warn=document.getElementById('pz-gtt-warn');
+    if(warn) warn.style.display = faltanGtt ? 'block' : 'none';
     if(vistaNueva !== PZ_VISTA){
       PZ_VISTA = vistaNueva;
-      if(PZ_VISTA==='GTT' && (!ACTIVE_DATA_GTT || !ACTIVE_DATA_GTT.length)){
-        try{ toast('Sin datos GTT: carga el Excel con "Actualizar datos" para generar la vista.'); }catch(e){}
-      }
       try{ rebuildFilters(pzDataset()); }catch(e){}
       try{ render(); }catch(e){}
       try{ updateBanner(); }catch(e){}
