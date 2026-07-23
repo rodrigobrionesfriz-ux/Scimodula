@@ -1171,7 +1171,7 @@ function toggleNavSection(seccion){
 /* ── Puente: superficie total (ha) de cerezos Plantación 2018 del Cuaderno ──
    El módulo de presupuesto está encapsulado y no ve S.panos directamente; esta
    función global le permite obtener la suma de hectáreas de los paños 2018. */
-function pzSumaHa2018(){
+function pzSumaHaPlantacion(anio){
   try{
     // Asegurar que el estado del Cuaderno (S.panos) esté cargado: el Cuaderno
     // lee sus datos de localStorage vía load(); si aún no se ha entrado al
@@ -1181,11 +1181,15 @@ function pzSumaHa2018(){
       try{ load(); panos = (typeof S!=='undefined' && S && Array.isArray(S.panos)) ? S.panos : panos; }catch(e){}
     }
     if(!panos || !panos.length) return null;
-    var suma = panos.filter(function(p){ return String(p.anio)==='2018'; })
+    var target = String(anio);
+    var suma = panos.filter(function(p){ return String(p.anio)===target; })
                     .reduce(function(s,p){ return s + (parseFloat(p.hectareas)||0); }, 0);
     return (suma>0) ? suma : null;
   }catch(e){ return null; }
 }
+window.pzSumaHaPlantacion = pzSumaHaPlantacion;
+// Compatibilidad: la variante 2018 sigue disponible.
+function pzSumaHa2018(){ return pzSumaHaPlantacion('2018'); }
 window.pzSumaHa2018 = pzSumaHa2018;
 
 /* ── OP. CONTEOS: mostrar la barra lateral con las 2 opciones para elegir ── */
