@@ -73,7 +73,7 @@ var FBCOUNT = (function(){
   });
 })();
 </script>
-<link rel="stylesheet" href="css/styles.css?v=91">
+<link rel="stylesheet" href="css/styles.css?v=92">
 </head>
 <body>
 <!-- Hoja de estilo dinámica para el tema forestal (se llena vía JS) -->
@@ -703,7 +703,7 @@ var FBCOUNT = (function(){
 
 <script>
 </script>
-<script src="js/core.js?v=91"></script>
+<script src="js/core.js?v=92"></script>
 <script>
 /* ═══════════════ MÓDULO: CONTROL DE PRESUPUESTO ═══════════════ */
 /* Integra el dashboard de Control de Presupuesto (Huerto Cerezos 2018) como
@@ -819,13 +819,13 @@ function pzEnsureAssets(){
     margin-left: auto;
   }
 #pz-root .btn-reset:hover { border-color: var(--accent); color: var(--accent); }
-#pz-root .main { padding: 12px 16px; display: flex; flex-direction: column; gap: 10px; }
-#pz-root .kpi-row { display: grid; grid-template-columns: repeat(6, 1fr); gap: 7px; }
+#pz-root .main { padding: 10px 16px; display: flex; flex-direction: column; gap: 8px; }
+#pz-root .kpi-row { display: grid; grid-template-columns: repeat(6, minmax(0,1fr)); gap: 8px; }
 #pz-root .kpi-card {
     background: var(--panel);
     border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 9px 11px;
+    border-radius: 10px;
+    padding: 8px 10px;
     position: relative; overflow: hidden;
     transition: transform 0.2s;
   }
@@ -843,10 +843,10 @@ function pzEnsureAssets(){
 #pz-root .kpi-label { font-size: 9px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; }
 #pz-root .kpi-value {
     font-family: 'Roboto', sans-serif;
-    font-size: 13px; font-weight: 700;
-    margin-top: 3px; color: #fff;
+    font-size: 14px; font-weight: 700;
+    margin-top: 2px; color: #fff;
     letter-spacing: -0.3px;
-    word-break: break-all;
+    white-space: nowrap;
   }
 #pz-root .kpi-sub { font-size: 9.5px; color: var(--muted); margin-top: 2px; }
 #pz-root .kpi-badge {
@@ -1202,17 +1202,21 @@ function pzEnsureAssets(){
 #pz-root .resumen-banner {
     background: linear-gradient(135deg, #0d1b2e 0%, #0f2744 100%);
     border-bottom: 1px solid var(--border);
-    padding: 12px 32px;
+    padding: 8px 16px;
     display: grid;
-    grid-template-columns: repeat(8, 1fr);
-    gap: 0;
+    grid-template-columns: repeat(5, minmax(0,1fr));
+    gap: 8px;
   }
+@media (min-width: 1680px) {
+#pz-root .resumen-banner { grid-template-columns: repeat(9, minmax(0,1fr)); }
+}
 #pz-root .rb-item {
-    padding: 8px 14px;
-    border-right: 1px solid rgba(30,45,69,0.8);
-    display: flex; flex-direction: column; gap: 3px;
+    padding: 7px 12px;
+    background: rgba(255,255,255,0.02);
+    border: 1px solid rgba(30,45,69,0.8);
+    border-radius: 10px;
+    display: flex; flex-direction: column; gap: 2px;
   }
-#pz-root .rb-item:last-child { border-right: none; }
 #pz-root .rb-label {
     font-size: 9.5px; font-weight: 600; color: var(--muted);
     text-transform: uppercase; letter-spacing: 0.5px;
@@ -1220,8 +1224,9 @@ function pzEnsureAssets(){
   }
 #pz-root .rb-value {
     font-family: 'Roboto', sans-serif;
-    font-size: 16px; font-weight: 700; color: #fff;
+    font-size: 15px; font-weight: 700; color: #fff;
     letter-spacing: -0.3px;
+    white-space: nowrap;
   }
 #pz-root .rb-value.accent { color: var(--accent); }
 #pz-root .rb-value.blue { color: #60a5fa; }
@@ -1236,7 +1241,7 @@ function pzEnsureAssets(){
     border: none; border-bottom: 1px solid rgba(100,116,139,0.4);
     color: #fbbf24;
     font-family: 'Roboto', sans-serif;
-    font-size: 16px; font-weight: 700;
+    font-size: 15px; font-weight: 700;
     width: 100%; padding: 0; outline: none;
     letter-spacing: -0.3px;
   }
@@ -1244,18 +1249,16 @@ function pzEnsureAssets(){
 #pz-root .rb-item.saldo-negativo .rb-value { color: var(--danger); }
 #pz-root .rb-item.saldo-positivo .rb-value { color: var(--accent); }
 @media (max-width: 1024px) {
-#pz-root .resumen-banner { grid-template-columns: repeat(4, 1fr); padding: 10px 18px; }
-#pz-root .rb-item { border-right: none; border-bottom: 1px solid rgba(30,45,69,0.5); padding: 8px 10px; }
-#pz-root .rb-item:nth-child(odd) { border-right: 1px solid rgba(30,45,69,0.5); }
+#pz-root .resumen-banner { grid-template-columns: repeat(3, 1fr); padding: 8px 12px; }
 }
 @media (max-width: 640px) {
-#pz-root .resumen-banner { grid-template-columns: repeat(2, 1fr); padding: 8px 14px; gap: 0; }
+#pz-root .resumen-banner { grid-template-columns: repeat(2, 1fr); padding: 8px 12px; gap: 6px; }
 #pz-root .rb-value { font-size: 14px; }
 #pz-root .rb-label { font-size: 9px; }
 }
 @media print {
 #pz-root .resumen-banner {
-      grid-template-columns: repeat(8, 1fr) !important;
+      grid-template-columns: repeat(9, 1fr) !important;
       padding: 6px 14px !important;
       background: #0d1b2e !important;
       -webkit-print-color-adjust: exact;
@@ -1879,10 +1882,10 @@ function renderPresupuesto(main){
 }
 
 </script>
-<script src="js/inventario.js?v=91"></script>
-<script src="js/ordencompra.js?v=91"></script>
-<script src="js/huerto.js?v=91"></script>
-<script src="js/actualizacion.js?v=91"></script>
+<script src="js/inventario.js?v=92"></script>
+<script src="js/ordencompra.js?v=92"></script>
+<script src="js/huerto.js?v=92"></script>
+<script src="js/actualizacion.js?v=92"></script>
 <script>
 
 /* ═══════════════ MÓDULO: MANTENCIONES ═══════════════ */
@@ -2641,7 +2644,7 @@ var S = { panos:[], registros:[], productos:[], ordenes:[], oCounter:1, confirma
 };
 
 </script>
-<script src="js/cuaderno.js?v=91"></script>
+<script src="js/cuaderno.js?v=92"></script>
 <script>
 
 /* ═══════════════ INTEGRACIÓN CUADERNO DE CAMPO ═══════════════ */
@@ -2698,8 +2701,8 @@ function renderCuaderno(main){
 </script>
 
 
-<script src="data/presupuesto-data.js?v=91"></script>
-<script src="js/presupuesto.js?v=91"></script>
+<script src="data/presupuesto-data.js?v=92"></script>
+<script src="js/presupuesto.js?v=92"></script>
 <script>
 /* ── Normalización global a MAYÚSCULAS en la entrada de datos ──
    Aplica a inputs de texto y textareas de todo el sistema.
