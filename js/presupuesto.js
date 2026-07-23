@@ -1998,21 +1998,9 @@ function pzInit(){
         }
       }
     }catch(e){}
-    // Superficie CZ 2018: tomar la suma de hectáreas de los paños 2018 del
-    // Cuaderno de Campo. Si existe, se rellena y se marca como derivada.
-    try{
-      if(typeof window.pzSumaHa2018==='function'){
-        var ha2018 = window.pzSumaHa2018();
-        var haInput = document.getElementById('rb-ha');
-        if(haInput && ha2018!=null && ha2018>0){
-          haInput.value = (Math.round(ha2018*100)/100).toLocaleString('es-CL',{minimumFractionDigits:2,maximumFractionDigits:2});
-          haInput.readOnly = true;
-          haInput.title = 'Calculado: suma de hectáreas de paños Plantación 2018 (Cuaderno de Campo)';
-          var sub = haInput.closest('.rb-item') ? haInput.closest('.rb-item').querySelector('.rb-sub') : null;
-          if(sub) sub.textContent = 'Ha · suma paños 2018 (Cuaderno)';
-        }
-      }
-    }catch(e){}
+    // Superficie del huerto activo: suma de hectáreas de los paños de esa
+    // Plantación (Cuaderno de Campo). Si no hay, queda editable manualmente.
+    try{ pzAplicarSuperficieHuerto(); }catch(e){}
   }catch(e){ console.error('PZ init error:', e); }
 }
 function pzReset(){ _pzReady = false; }
@@ -2046,9 +2034,30 @@ async function _pzSaveCriterios(items){
 function pzAplicarEtiquetasHuerto(){
   var supLbl=document.getElementById('rb-sup-label');
   if(supLbl) supLbl.textContent = 'Superficie CZ ' + PZ_HUERTO;
-  var pptoSub=document.getElementById('rb-ppto-sub');
   var sub=document.getElementById('subtitle-huerto');
   if(sub) sub.textContent = 'Huerto Cerezos ' + PZ_HUERTO;
+}
+// Ajusta el campo Superficie según la Plantación del huerto activo. Si el
+// Cuaderno tiene paños de ese año, lo calcula y bloquea; si no, queda editable
+// conservando el valor guardado del huerto.
+function pzAplicarSuperficieHuerto(){
+  try{
+    var haInput=document.getElementById('rb-ha'); if(!haInput) return;
+    var sub = haInput.closest('.rb-item') ? haInput.closest('.rb-item').querySelector('.rb-sub') : null;
+    var suma=null;
+    if(typeof window.pzSumaHaPlantacion==='function') suma=window.pzSumaHaPlantacion(PZ_HUERTO);
+    else if(PZ_HUERTO==='2018' && typeof window.pzSumaHa2018==='function') suma=window.pzSumaHa2018();
+    if(suma!=null && suma>0){
+      haInput.value=(Math.round(suma*100)/100).toLocaleString('es-CL',{minimumFractionDigits:2,maximumFractionDigits:2});
+      haInput.readOnly=true;
+      haInput.title='Calculado: suma de hectareas de panos Plantacion '+PZ_HUERTO+' (Cuaderno de Campo)';
+      if(sub) sub.textContent='Ha \u00b7 suma panos '+PZ_HUERTO+' (Cuaderno)';
+    } else {
+      haInput.readOnly=false;
+      haInput.title='Editable \u00b7 Superficie en hectareas';
+      if(sub) sub.textContent='Ha \u00b7 ingresa la superficie';
+    }
+  }catch(e){}
 }
 // Cambia el huerto activo: snapshot del actual, restaura el destino y re-render.
 function pzSetHuerto(huerto){
@@ -2057,6 +2066,7 @@ function pzSetHuerto(huerto){
   PZ_HUERTO = huerto;
   try{ pzRestaurarHuerto(huerto); }catch(e){}
   pzAplicarEtiquetasHuerto();
+  try{ pzAplicarSuperficieHuerto(); }catch(e){}
 }
 // Cambiar pestaña Dashboard 2018 / Dashboard 2024 / Formato GTT / Criterios
 window.pzCambiarTab = function(tab){
