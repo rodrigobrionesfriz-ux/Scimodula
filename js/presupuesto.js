@@ -333,9 +333,62 @@ let ACTIVE_DATA = null; // will hold current working dataset
 // pzDataset() como fuente.
 let ACTIVE_DATA_GTT = null;
 let PZ_VISTA = 'STD'; // 'STD' | 'GTT'
+
+// ── Multi-huerto (centro de costo) ──────────────────────────────────
+// El mismo dashboard sirve a varios huertos. PZ_HUERTO indica cuál está
+// activo; PZ_STORE guarda el estado completo de cada uno (filas, GTT,
+// detalle, meses con real y KPIs editables). Al cambiar de pestaña de
+// huerto se hace snapshot del activo y se restaura el destino, sin tocar
+// la logica de render (que sigue leyendo ACTIVE_DATA via pzDataset()).
+let PZ_HUERTO = '2018'; // '2018' | '2024'
+var PZ_STORE = {
+  '2018': { rows:null, rowsGtt:null, detalle:null, monthsWithReal:null, kpis:null },
+  '2024': { rows:null, rowsGtt:null, detalle:null, monthsWithReal:null, kpis:null }
+};
+function pzHuertoDocId(h){ return (h==='2024') ? 'huerto2024' : 'main'; }
+function pzLeerKpis(){
+  function num(id){ var el=document.getElementById(id); if(!el) return null;
+    var v=(el.value||'').toString().replace(/\./g,'').replace(',', '.').replace(/[^0-9.\-]/g,'');
+    var n=parseFloat(v); return isNaN(n)?null:n; }
+  return { kg:num('rb-kg'), tc:num('rb-tc'), ha:num('rb-ha'), kgEst:num('rb-kg-est') };
+}
+function pzEscribirKpis(k){
+  k = k || {};
+  var kg=document.getElementById('rb-kg');    if(kg)    kg.value = (k.kg!=null)    ? Math.round(k.kg).toLocaleString('es-CL') : '\u2014';
+  var tc=document.getElementById('rb-tc');    if(tc)    tc.value = (k.tc!=null)    ? k.tc.toLocaleString('es-CL',{minimumFractionDigits:2,maximumFractionDigits:2}) : '\u2014';
+  var ha=document.getElementById('rb-ha');    if(ha)    ha.value = (k.ha!=null)    ? k.ha.toLocaleString('es-CL',{minimumFractionDigits:2,maximumFractionDigits:2}) : '';
+  var ke=document.getElementById('rb-kg-est');if(ke)    ke.value = (k.kgEst!=null) ? Math.round(k.kgEst).toLocaleString('es-CL') : '\u2014';
+}
+function pzSnapshotHuerto(){
+  var s = PZ_STORE[PZ_HUERTO]; if(!s) return;
+  s.rows          = ACTIVE_DATA;
+  s.rowsGtt       = ACTIVE_DATA_GTT;
+  s.detalle       = window.DETALLE_GASTOS_LIVE || null;
+  s.monthsWithReal= window.MONTHS_WITH_REAL || null;
+  s.kpis          = pzLeerKpis();
+}
+function pzRestaurarHuerto(h){
+  var s = PZ_STORE[h]; if(!s) return;
+  ACTIVE_DATA                = s.rows || null;
+  ACTIVE_DATA_GTT            = s.rowsGtt || null;
+  window.DETALLE_GASTOS_LIVE = s.detalle || null;
+  window.MONTHS_WITH_REAL    = s.monthsWithReal || [];
+  pzEscribirKpis(s.kpis);
+}
+function pzStorePayload(h, obj){
+  var s = PZ_STORE[h]; if(!s || !obj) return;
+  if(Array.isArray(obj.rows))          s.rows = obj.rows;
+  if(Array.isArray(obj.rowsGtt))       s.rowsGtt = obj.rowsGtt.length ? obj.rowsGtt : null;
+  if(obj.detalle && typeof obj.detalle==='object') s.detalle = _toSeasonDetalle(obj.detalle);
+  if(Array.isArray(obj.monthsWithReal))s.monthsWithReal = obj.monthsWithReal;
+  if(obj.kpis)                         s.kpis = obj.kpis;
+}
+
 function pzDataset(){
   if(PZ_VISTA==='GTT' && ACTIVE_DATA_GTT && ACTIVE_DATA_GTT.length) return ACTIVE_DATA_GTT;
-  return ACTIVE_DATA || RAW;
+  if(ACTIVE_DATA) return ACTIVE_DATA;
+  // Solo el huerto 2018 tiene datos semilla (RAW); el 2024 arranca vacio.
+  return (PZ_HUERTO==='2018') ? RAW : [];
 }
 
 function openUploadModal() {
@@ -1771,11 +1824,12 @@ function downloadDashboard() {
 var PZFB = {
   ready:false, online:false, applyingRemote:false, _localEditing:false,
   clientId: 'p_' + Math.random().toString(36).slice(2) + Date.now().toString(36),
-  lastVersion: 0, unsubscribe: null, listenerStarted:false
+  lastVersion: 0, unsubs: {}, listenerStarted:false
 };
-function pzFbDocRef(){
+function pzFbDocRef(huerto){
   if(typeof firebase==='undefined' || !firebase.apps || !firebase.apps.length) return null;
-  try{ return firebase.firestore().collection('presupuesto').doc('main'); }catch(e){ return null; }
+  var h = huerto || PZ_HUERTO;
+  try{ return firebase.firestore().collection('presupuesto').doc(pzHuertoDocId(h)); }catch(e){ return null; }
 }
 /* serializeDataset(): arma el objeto persistible con TODO el estado actual del
    dashboard (filas mensuales, detalle de gastos y los KPIs editables). */
@@ -1851,32 +1905,35 @@ function pzFbPush(){
     });
   }catch(e){ console.error('[PZ-Firebase] push error:', e); }
 }
-/* pzFbStartListener(): escucha presupuesto/main en tiempo real. */
-function pzFbStartListener(){
-  var ref = pzFbDocRef();
+/* pzFbStartListenerFor(huerto): escucha presupuesto/<doc> en tiempo real.
+   Si el snapshot corresponde al huerto ACTIVO, se aplica y re-renderiza; si
+   es de un huerto en segundo plano, solo se guarda en su store. */
+function pzFbStartListenerFor(huerto){
+  var ref = pzFbDocRef(huerto);
   if(!ref) return;
-  if(PZFB.unsubscribe){ try{ PZFB.unsubscribe(); }catch(e){} }
-  PZFB.unsubscribe = ref.onSnapshot({includeMetadataChanges:false}, function(doc){ try{FBCOUNT.read();}catch(e){}
+  if(PZFB.unsubs[huerto]){ try{ PZFB.unsubs[huerto](); }catch(e){} }
+  PZFB.unsubs[huerto] = ref.onSnapshot({includeMetadataChanges:false}, function(doc){ try{FBCOUNT.read();}catch(e){}
     PZFB.online = true;
     if(!doc.exists){
-      // La nube está vacía. Si este usuario puede editar, sembramos la semilla
-      // local actual para inicializar el documento remoto (una sola vez).
+      // Nube vacia. Solo el huerto 2018 se auto-siembra con la semilla RAW;
+      // el 2024 se inicializa cuando el admin sube su primer Excel.
       try{
-        if(typeof can==='function' && can('presupuesto.editar')){ pzFbPush(); }
+        if(huerto==='2018' && huerto===PZ_HUERTO && typeof can==='function' && can('presupuesto.editar')){ pzFbPush(); }
       }catch(e){}
       return;
     }
     var d = doc.data() || {};
-    // Ignorar el eco de nuestra propia escritura.
     if(d._clientId === PZFB.clientId && d._version === PZFB.lastVersion){ return; }
     if(!d.payload) return;
     var obj;
-    try{ obj = JSON.parse(d.payload); }catch(e){ console.error('[PZ-Firebase] payload inválido'); return; }
-    pzLoadDataset(obj);
+    try{ obj = JSON.parse(d.payload); }catch(e){ console.error('[PZ-Firebase] payload invalido'); return; }
+    if(huerto === PZ_HUERTO){ pzLoadDataset(obj); }
+    else { pzStorePayload(huerto, obj); }
   }, function(err){
-    console.error('[PZ-Firebase] onSnapshot error:', err);
+    console.error('[PZ-Firebase] onSnapshot error ('+huerto+'):', err);
   });
 }
+function pzFbStartListener(){ pzFbStartListenerFor('2018'); pzFbStartListenerFor('2024'); }
 /* pzFbInit(): inicializa la sincronización del presupuesto. Reusa la app de
    Firebase ya inicializada por el SCI/Cuaderno. */
 function pzFbInit(){
@@ -1911,7 +1968,8 @@ function pzInit(){
     }
     render();
     updateBanner();
-    // Botón 'Actualizar datos': solo visible para quien puede editar (admin).
+    try{ pzAplicarEtiquetasHuerto(); }catch(e){}
+    // Boton 'Actualizar datos': solo visible para quien puede editar (admin).
     try{
       var _btn = document.getElementById('pz-btn-upload');
       if(_btn){ _btn.style.display = (typeof can==='function' && can('presupuesto.editar')) ? '' : 'none'; }
@@ -1984,7 +2042,23 @@ async function _pzSaveCriterios(items){
   STATE.cache.config[_PZ_CRIT_KEY] = obj;
   await dbPut('config', obj);
 }
-// Cambiar pestaña Dashboard / Criterios
+// Actualiza etiquetas dependientes del huerto activo (banner + subtitulo).
+function pzAplicarEtiquetasHuerto(){
+  var supLbl=document.getElementById('rb-sup-label');
+  if(supLbl) supLbl.textContent = 'Superficie CZ ' + PZ_HUERTO;
+  var pptoSub=document.getElementById('rb-ppto-sub');
+  var sub=document.getElementById('subtitle-huerto');
+  if(sub) sub.textContent = 'Huerto Cerezos ' + PZ_HUERTO;
+}
+// Cambia el huerto activo: snapshot del actual, restaura el destino y re-render.
+function pzSetHuerto(huerto){
+  if(huerto===PZ_HUERTO){ return; }
+  try{ pzSnapshotHuerto(); }catch(e){}
+  PZ_HUERTO = huerto;
+  try{ pzRestaurarHuerto(huerto); }catch(e){}
+  pzAplicarEtiquetasHuerto();
+}
+// Cambiar pestaña Dashboard 2018 / Dashboard 2024 / Formato GTT / Criterios
 window.pzCambiarTab = function(tab){
   var pDash=document.getElementById('pz-pane-dashboard');
   var pCrit=document.getElementById('pz-pane-criterios');
@@ -1994,28 +2068,33 @@ window.pzCambiarTab = function(tab){
     b.style.color=(t===tab)?'#1565c0':'#888';
     b.classList.toggle('pz-tab-active', t===tab);
   });
-  // "Formato GTT" reutiliza el pane del dashboard con el dataset GTT.
-  if(pDash) pDash.style.display=(tab==='dashboard'||tab==='gtt')?'':'none';
-  if(pCrit) pCrit.style.display=(tab==='criterios')?'':'none';
-  if(tab==='dashboard' || tab==='gtt'){
+  var esDash = (tab==='dashboard' || tab==='dashboard2024' || tab==='gtt');
+  // "Formato GTT" y ambos dashboards reutilizan el pane del dashboard.
+  if(pDash) pDash.style.display = esDash ? '' : 'none';
+  if(pCrit) pCrit.style.display = (tab==='criterios') ? '' : 'none';
+  if(esDash){
+    // Los dashboards fijan el huerto; GTT conserva el huerto activo.
+    if(tab==='dashboard')      pzSetHuerto('2018');
+    else if(tab==='dashboard2024') pzSetHuerto('2024');
     var vistaNueva = (tab==='gtt') ? 'GTT' : 'STD';
     var faltanGtt = (vistaNueva==='GTT' && (!ACTIVE_DATA_GTT || !ACTIVE_DATA_GTT.length));
-    // Aviso visible cuando se pide GTT pero no hay datos GTT cargados.
     var warn=document.getElementById('pz-gtt-warn');
     if(warn) warn.style.display = faltanGtt ? 'block' : 'none';
-    // Toolbar GTT (botón de resumen por hectárea): solo en la vista GTT.
     var tools=document.getElementById('pz-gtt-tools');
     if(tools) tools.style.display = (vistaNueva==='GTT') ? 'block' : 'none';
-    if(vistaNueva !== PZ_VISTA){
-      PZ_VISTA = vistaNueva;
-      try{ rebuildFilters(pzDataset()); }catch(e){}
-      try{ render(); }catch(e){}
-      try{ updateBanner(); }catch(e){}
-    }
+    // Re-render siempre (cambio de huerto o de vista lo requiere).
+    PZ_VISTA = vistaNueva;
+    pzAplicarEtiquetasHuerto();
+    try{ rebuildFilters(pzDataset()); }catch(e){}
+    try{ populateFilters(); }catch(e){}
+    try{ render(); }catch(e){}
+    try{ updateBanner(); }catch(e){}
     var h1=document.getElementById('pz-dash-title');
-    if(h1) h1.textContent = (PZ_VISTA==='GTT')
-      ? 'Dashboard Gerencial – Formato GTT Nahuelbuta'
-      : 'Dashboard Gerencial – Control Presupuesto';
+    if(h1){
+      h1.textContent = (PZ_VISTA==='GTT')
+        ? 'Dashboard Gerencial \u2013 Formato GTT Nahuelbuta \u00b7 CZ ' + PZ_HUERTO
+        : 'Dashboard Gerencial \u2013 Control Presupuesto \u00b7 CZ ' + PZ_HUERTO;
+    }
   }
   if(tab==='criterios'){
     pzPopularSelectoresCriterios();
@@ -2070,12 +2149,13 @@ window.pzGuardarCriterio = async function(){
   var editId=document.getElementById('pz-crit-edit-id');
   if(editId && editId.value){
     var ex=items.find(function(c){ return c.id===editId.value; });
-    if(ex){ ex.temporada=temp; ex.tipo=tipo; ex.detalle=detalle.trim(); ex.modificado=new Date().toISOString(); ex.usuario=(STATE.user?(STATE.user.nombre||STATE.user.id):''); }
+    if(ex){ ex.huerto=ex.huerto||PZ_HUERTO; ex.temporada=temp; ex.tipo=tipo; ex.detalle=detalle.trim(); ex.modificado=new Date().toISOString(); ex.usuario=(STATE.user?(STATE.user.nombre||STATE.user.id):''); }
     editId.value='';
     document.querySelector('#pz-criterio-form .pz-crit-cancel-btn')?.remove();
   } else {
     items.push({
       id:'cr_'+Date.now()+'_'+Math.random().toString(36).slice(2,6),
+      huerto:PZ_HUERTO,
       temporada:temp, tipo:tipo, detalle:detalle.trim(),
       fecha:new Date().toISOString(),
       usuario:(STATE.user?(STATE.user.nombre||STATE.user.id):'')
@@ -2091,6 +2171,8 @@ window.pzGuardarCriterio = async function(){
 window.pzRenderCriterios = function(){
   var el=document.getElementById('pz-criterios-list'); if(!el) return;
   var items=_pzGetCriterios();
+  // Criterios del huerto activo (los antiguos sin huerto se asumen 2018).
+  items=items.filter(function(c){ return (c.huerto||'2018')===PZ_HUERTO; });
   // La temporada se controla con el filtro global del Dashboard (f-temporada)
   var filtro=(document.getElementById('f-temporada')||{}).value||'';
   var lbl=document.getElementById('pz-crit-temp-activa'); if(lbl) lbl.textContent = filtro || 'Todas';
