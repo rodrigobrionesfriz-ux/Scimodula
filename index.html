@@ -73,7 +73,7 @@ var FBCOUNT = (function(){
   });
 })();
 </script>
-<link rel="stylesheet" href="css/styles.css?v=92">
+<link rel="stylesheet" href="css/styles.css?v=93">
 </head>
 <body>
 <!-- Hoja de estilo dinámica para el tema forestal (se llena vía JS) -->
@@ -703,7 +703,60 @@ var FBCOUNT = (function(){
 
 <script>
 </script>
-<script src="js/core.js?v=92"></script>
+<script>
+/* ── Filtro MES con casillas (dropdown sobre el select oculto #f-mes) ── */
+window.pzMesToggle = function(ev){
+  ev.stopPropagation();
+  var dd = document.getElementById('mes-dd'); if(!dd) return;
+  var abrir = !dd.classList.contains('open');
+  if(abrir) window.pzMesRefresh();
+  dd.classList.toggle('open', abrir);
+};
+window.pzMesRefresh = function(){
+  var sel = document.getElementById('f-mes'), list = document.getElementById('mes-dd-list');
+  if(!sel || !list) return;
+  list.innerHTML = '';
+  Array.prototype.forEach.call(sel.options, function(o, i){
+    var lab = document.createElement('label');
+    var cb = document.createElement('input');
+    cb.type = 'checkbox'; cb.value = o.value; cb.checked = o.selected;
+    cb.setAttribute('data-nouppercase','1');
+    cb.addEventListener('change', function(){
+      sel.options[i].selected = cb.checked;
+      var alguno = Array.prototype.some.call(sel.options, function(x){ return x.selected; });
+      var all = document.getElementById('mes-dd-all'); if(all) all.checked = !alguno;
+      window.pzMesLabel();
+      sel.dispatchEvent(new Event('change', {bubbles:true}));
+    });
+    lab.appendChild(cb);
+    lab.appendChild(document.createTextNode(' ' + o.value));
+    list.appendChild(lab);
+  });
+  var all = document.getElementById('mes-dd-all');
+  if(all) all.checked = !Array.prototype.some.call(sel.options, function(o){ return o.selected; });
+  window.pzMesLabel();
+};
+window.pzMesLabel = function(){
+  var sel = document.getElementById('f-mes'), span = document.getElementById('mes-dd-label');
+  if(!sel || !span) return;
+  var s = Array.prototype.filter.call(sel.options, function(o){ return o.selected; })
+            .map(function(o){ return o.value; });
+  span.textContent = !s.length ? 'Todos'
+    : (s.length <= 2 ? s.map(function(m){ return m.slice(0,3); }).join(', ') : s.length + ' meses');
+};
+window.pzMesAll = function(cb){
+  var sel = document.getElementById('f-mes'); if(!sel) return;
+  Array.prototype.forEach.call(sel.options, function(o){ o.selected = false; });
+  cb.checked = true;
+  window.pzMesRefresh();
+  sel.dispatchEvent(new Event('change', {bubbles:true}));
+};
+document.addEventListener('click', function(e){
+  var dd = document.getElementById('mes-dd');
+  if(dd && dd.classList.contains('open') && !dd.contains(e.target)) dd.classList.remove('open');
+});
+</script>
+<script src="js/core.js?v=93"></script>
 <script>
 /* ═══════════════ MÓDULO: CONTROL DE PRESUPUESTO ═══════════════ */
 /* Integra el dashboard de Control de Presupuesto (Huerto Cerezos 2018) como
@@ -819,6 +872,31 @@ function pzEnsureAssets(){
     margin-left: auto;
   }
 #pz-root .btn-reset:hover { border-color: var(--accent); color: var(--accent); }
+#pz-root .mes-dd { position: relative; }
+#pz-root .mes-dd-btn {
+    background: var(--panel2); border: 1px solid var(--border); color: var(--text);
+    padding: 4px 7px; border-radius: 5px; font-size: 10.5px; font-family: inherit;
+    cursor: pointer; min-width: 130px;
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  }
+#pz-root .mes-dd-btn:focus { outline: none; border-color: var(--accent); }
+#pz-root .mes-dd-panel {
+    display: none; position: absolute; top: calc(100% + 4px); left: 0; z-index: 80;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px; width: 240px; box-shadow: 0 10px 28px rgba(0,0,0,0.25);
+  }
+#pz-root .mes-dd.open .mes-dd-panel { display: block; }
+#pz-root .mes-dd.open .mes-dd-btn { border-color: var(--accent); }
+#pz-root .mes-dd-list { display: grid; grid-template-columns: 1fr 1fr; gap: 1px 10px; margin-top: 6px; }
+#pz-root .mes-dd-panel label {
+    display: flex; align-items: center; gap: 7px;
+    font-size: 10.5px; font-weight: 500; color: var(--text);
+    text-transform: none; letter-spacing: 0;
+    padding: 3px 5px; border-radius: 5px; cursor: pointer;
+  }
+#pz-root .mes-dd-panel label:hover { background: rgba(100,116,139,0.14); }
+#pz-root .mes-dd-panel input[type=checkbox] { accent-color: var(--accent); cursor: pointer; margin: 0; }
+#pz-root .mes-dd-all { border-bottom: 1px solid var(--border); padding-bottom: 7px; margin-bottom: 2px; font-weight: 600; }
 #pz-root .main { padding: 10px 16px; display: flex; flex-direction: column; gap: 8px; }
 #pz-root .kpi-row { display: grid; grid-template-columns: repeat(6, minmax(0,1fr)); gap: 8px; }
 #pz-root .kpi-card {
@@ -1387,6 +1465,10 @@ function pzEnsureAssets(){
 #pz-root .filters select{
   background:var(--panel); color:var(--text); border:1px solid var(--border);
 }
+#pz-root .mes-dd-btn{ background:var(--panel); color:var(--text); border:1px solid var(--border); }
+#pz-root .mes-dd-panel{ background:var(--panel); border:1px solid var(--border); box-shadow:0 10px 28px rgba(15,23,42,0.16); }
+#pz-root .mes-dd-panel label{ color:var(--text); }
+#pz-root .mes-dd-panel label:hover{ background:#eef4fb; }
 #pz-root .kpi-label, #pz-root .rb-label{ color:var(--muted); }
 #pz-root .kpi-value, #pz-root .rb-value{ color:var(--text); }
 #pz-root .kpi-sub, #pz-root .rb-sub{ color:var(--muted); }
@@ -1596,8 +1678,15 @@ function renderPresupuesto(main){
     <select id="f-temporada"><option value="">Todas</option></select>
   </div>
   <div class="filter-group">
-    <label>MES <span style="font-weight:400;font-size:10px;color:#888">(Ctrl/toque para varios)</span></label>
-    <select id="f-mes" multiple size="4" style="min-height:90px"><option value="MAYO">MAYO</option><option value="JUNIO">JUNIO</option><option value="JULIO">JULIO</option><option value="AGOSTO">AGOSTO</option><option value="SEPTIEMBRE">SEPTIEMBRE</option><option value="OCTUBRE">OCTUBRE</option><option value="NOVIEMBRE">NOVIEMBRE</option><option value="DICIEMBRE">DICIEMBRE</option><option value="ENERO">ENERO</option><option value="FEBRERO">FEBRERO</option><option value="MARZO">MARZO</option><option value="ABRIL">ABRIL</option></select>
+    <label>MES</label>
+    <div class="mes-dd" id="mes-dd">
+    <select id="f-mes" multiple style="display:none"><option value="MAYO">MAYO</option><option value="JUNIO">JUNIO</option><option value="JULIO">JULIO</option><option value="AGOSTO">AGOSTO</option><option value="SEPTIEMBRE">SEPTIEMBRE</option><option value="OCTUBRE">OCTUBRE</option><option value="NOVIEMBRE">NOVIEMBRE</option><option value="DICIEMBRE">DICIEMBRE</option><option value="ENERO">ENERO</option><option value="FEBRERO">FEBRERO</option><option value="MARZO">MARZO</option><option value="ABRIL">ABRIL</option></select>
+    <button type="button" class="mes-dd-btn" id="mes-dd-btn" onclick="pzMesToggle(event)"><span id="mes-dd-label">Todos</span><span style="font-size:9px;opacity:.7">▼</span></button>
+    <div class="mes-dd-panel" id="mes-dd-panel" onclick="event.stopPropagation()">
+      <label class="mes-dd-all"><input type="checkbox" id="mes-dd-all" checked onchange="pzMesAll(this)"> Todos los meses</label>
+      <div class="mes-dd-list" id="mes-dd-list"></div>
+    </div>
+    </div>
   </div>
   <div class="filter-group">
     <label>TIPO DE COSTO</label>
@@ -1611,7 +1700,7 @@ function renderPresupuesto(main){
     <label>DESCRIPCIÓN</label>
     <select id="f-desc"><option value="">Todos</option><option value="ANÁLISIS Y ASESORIAS FRUTALES">ANÁLISIS Y ASESORIAS FRUTALES</option><option value="ARRIENDO MAQUINARIA Y EQUIPOS">ARRIENDO MAQUINARIA Y EQUIPOS</option><option value="ARRIENDO PREDIO FRUTALES">ARRIENDO PREDIO FRUTALES</option><option value="ASESORÍAS, CERTIFICACIÓN Y CAPACITACIONES">ASESORÍAS, CERTIFICACIÓN Y CAPACITACIONES</option><option value="BANCARIOS, LEGALES, FINANCIEROS  Y SEGUROS">BANCARIOS, LEGALES, FINANCIEROS  Y SEGUROS</option><option value="BIOESTIMULANTES">BIOESTIMULANTES</option><option value="COMBUSTIBLES Y LUBRICANTES">COMBUSTIBLES Y LUBRICANTES</option><option value="CONTRATISTA COSECHA">CONTRATISTA COSECHA</option><option value="CONTRIBUCIONES (BIENES RAÍCES &amp; RIEGO)">CONTRIBUCIONES (BIENES RAÍCES &amp; RIEGO)</option><option value="CONTROL DE PLAGAS">CONTROL DE PLAGAS</option><option value="ELECTRICIDAD BODEGAS, GALPÓN Y CASA">ELECTRICIDAD BODEGAS, GALPÓN Y CASA</option><option value="ELECTRICIDAD CEREZOS">ELECTRICIDAD CEREZOS</option><option value="FERTILIZANTES">FERTILIZANTES</option><option value="FLETES Y TRASLADOS">FLETES Y TRASLADOS</option><option value="GASTOS GENERALES">GASTOS GENERALES</option><option value="HONORARIOS PRESTACIÓN DE SERVICIOS">HONORARIOS PRESTACIÓN DE SERVICIOS</option><option value="IMPREVISTOS">IMPREVISTOS</option><option value="INSUMOS FITOSANITARIOS">INSUMOS FITOSANITARIOS</option><option value="LEASING FINANCIEROS">LEASING FINANCIEROS</option><option value="MANO DE OBRA ADMINISTRACIÓN &amp; GERENCIA">MANO DE OBRA ADMINISTRACIÓN &amp; GERENCIA</option><option value="MANO DE OBRA DIRECTA">MANO DE OBRA DIRECTA</option><option value="MANO DE OBRA DIRECTA Y LOGISTICA">MANO DE OBRA DIRECTA Y LOGISTICA</option><option value="MANO DE OBRA INDIRECTA (CONTRATISTAS)">MANO DE OBRA INDIRECTA (CONTRATISTAS)</option><option value="MANT. MAQUINARÍA, VEHICULOS Y EQUIPOS">MANT. MAQUINARÍA, VEHICULOS Y EQUIPOS</option><option value="MANTENCIÓN VARIAS RIEGO">MANTENCIÓN VARIAS RIEGO</option><option value="MANTENCIÓN Y REPARACIÓN INSTALACIONES">MANTENCIÓN Y REPARACIÓN INSTALACIONES</option><option value="MATERIALES, EPP Y CONSUMOS VARIOS">MATERIALES, EPP Y CONSUMOS VARIOS</option><option value="OTROS COSTOS DE INSUMOS Y ARRIENDOS">OTROS COSTOS DE INSUMOS Y ARRIENDOS</option><option value="OTROS GASTOS GENERALES">OTROS GASTOS GENERALES</option><option value="PLANTAS &amp; ROYALTY">PLANTAS &amp; ROYALTY</option><option value="POLINIZACIÓN">POLINIZACIÓN</option></select>
   </div>
-  <button class="btn-reset" onclick="PZ.resetFilters()">↺ Limpiar filtros</button>
+  <button class="btn-reset" onclick="PZ.resetFilters();pzMesRefresh()">↺ Limpiar filtros</button>
 </div>
 
 <div class="main" style="order:3">
@@ -1882,10 +1971,10 @@ function renderPresupuesto(main){
 }
 
 </script>
-<script src="js/inventario.js?v=92"></script>
-<script src="js/ordencompra.js?v=92"></script>
-<script src="js/huerto.js?v=92"></script>
-<script src="js/actualizacion.js?v=92"></script>
+<script src="js/inventario.js?v=93"></script>
+<script src="js/ordencompra.js?v=93"></script>
+<script src="js/huerto.js?v=93"></script>
+<script src="js/actualizacion.js?v=93"></script>
 <script>
 
 /* ═══════════════ MÓDULO: MANTENCIONES ═══════════════ */
@@ -2644,7 +2733,7 @@ var S = { panos:[], registros:[], productos:[], ordenes:[], oCounter:1, confirma
 };
 
 </script>
-<script src="js/cuaderno.js?v=92"></script>
+<script src="js/cuaderno.js?v=93"></script>
 <script>
 
 /* ═══════════════ INTEGRACIÓN CUADERNO DE CAMPO ═══════════════ */
@@ -2701,8 +2790,8 @@ function renderCuaderno(main){
 </script>
 
 
-<script src="data/presupuesto-data.js?v=92"></script>
-<script src="js/presupuesto.js?v=92"></script>
+<script src="data/presupuesto-data.js?v=93"></script>
+<script src="js/presupuesto.js?v=93"></script>
 <script>
 /* ── Normalización global a MAYÚSCULAS en la entrada de datos ──
    Aplica a inputs de texto y textareas de todo el sistema.
