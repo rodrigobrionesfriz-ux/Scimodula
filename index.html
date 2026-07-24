@@ -73,7 +73,7 @@ var FBCOUNT = (function(){
   });
 })();
 </script>
-<link rel="stylesheet" href="css/styles.css?v=97">
+<link rel="stylesheet" href="css/styles.css?v=98">
 </head>
 <body>
 <!-- Hoja de estilo dinámica para el tema forestal (se llena vía JS) -->
@@ -756,7 +756,7 @@ document.addEventListener('click', function(e){
   if(dd && dd.classList.contains('open') && !dd.contains(e.target)) dd.classList.remove('open');
 });
 </script>
-<script src="js/core.js?v=97"></script>
+<script src="js/core.js?v=98"></script>
 <script>
 /* ═══════════════ MÓDULO: CONTROL DE PRESUPUESTO ═══════════════ */
 /* Integra el dashboard de Control de Presupuesto (Huerto Cerezos 2018) como
@@ -1637,6 +1637,12 @@ function renderPresupuesto(main){
       <div style="display:flex;flex-direction:column;gap:4px"><label style="font-size:11px;font-weight:700;color:#475569">Precio Venta Prom. Export (USD)</label>
         <input id="eer-precio-usd" type="text" oninput="pzRenderEERHa()" data-nouppercase="1" style="padding:8px 10px;border:1px solid #cdd5df;border-radius:7px;font-size:13px"></div>
     </div>
+    <div style="font-size:13px;font-weight:800;color:#1565c0;margin:14px 0 10px">Ajuste manual · Gastos financieros</div>
+    <div style="display:flex;flex-direction:column;gap:4px;max-width:340px">
+      <label style="font-size:11px;font-weight:700;color:#475569">Gastos financieros del grupo — $ total del ejercicio</label>
+      <input id="eer-gfin" type="text" oninput="pzRenderEERHa()" data-nouppercase="1" placeholder="Ej: 12.000.000" style="padding:8px 10px;border:1px solid #cdd5df;border-radius:7px;font-size:13px">
+    </div>
+    <p style="font-size:11px;color:#94a3b8;margin-top:6px">Intereses por financiamiento a nivel de grupo de empresas, entregados por separado al cierre del ejercicio. Se dividen por la superficie y se suman a los costos indirectos.</p>
     <p style="font-size:11px;color:#94a3b8;margin-top:10px">Superficie (ha) y tipo de cambio se toman del banner del huerto activo. Los datos se guardan por huerto y temporada.</p>
   </div>
   <div id="eerha-report"></div>
@@ -2016,10 +2022,10 @@ function renderPresupuesto(main){
 }
 
 </script>
-<script src="js/inventario.js?v=97"></script>
-<script src="js/ordencompra.js?v=97"></script>
-<script src="js/huerto.js?v=97"></script>
-<script src="js/actualizacion.js?v=97"></script>
+<script src="js/inventario.js?v=98"></script>
+<script src="js/ordencompra.js?v=98"></script>
+<script src="js/huerto.js?v=98"></script>
+<script src="js/actualizacion.js?v=98"></script>
 <script>
 
 /* ═══════════════ MÓDULO: MANTENCIONES ═══════════════ */
@@ -2778,7 +2784,7 @@ var S = { panos:[], registros:[], productos:[], ordenes:[], oCounter:1, confirma
 };
 
 </script>
-<script src="js/cuaderno.js?v=97"></script>
+<script src="js/cuaderno.js?v=98"></script>
 <script>
 
 /* ═══════════════ INTEGRACIÓN CUADERNO DE CAMPO ═══════════════ */
@@ -2835,8 +2841,8 @@ function renderCuaderno(main){
 </script>
 
 
-<script src="data/presupuesto-data.js?v=97"></script>
-<script src="js/presupuesto.js?v=97"></script>
+<script src="data/presupuesto-data.js?v=98"></script>
+<script src="js/presupuesto.js?v=98"></script>
 <script>
 /* ── Normalización global a MAYÚSCULAS en la entrada de datos ──
    Aplica a inputs de texto y textareas de todo el sistema.
