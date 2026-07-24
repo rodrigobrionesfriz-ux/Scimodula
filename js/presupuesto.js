@@ -2082,6 +2082,8 @@ window.pzCambiarTab = function(tab){
   // "Formato GTT" y ambos dashboards reutilizan el pane del dashboard.
   if(pDash) pDash.style.display = esDash ? '' : 'none';
   if(pCrit) pCrit.style.display = (tab==='criterios') ? '' : 'none';
+  var pEer=document.getElementById('pz-pane-eerha');
+  if(pEer) pEer.style.display = (tab==='eerha') ? '' : 'none';
   if(esDash){
     // Los dashboards fijan el huerto; GTT conserva el huerto activo.
     if(tab==='dashboard')      pzSetHuerto('2018');
@@ -2109,6 +2111,10 @@ window.pzCambiarTab = function(tab){
   if(tab==='criterios'){
     pzPopularSelectoresCriterios();
     pzRenderCriterios();
+  }
+  if(tab==='eerha'){
+    try{ pzCargarEERInputs(); }catch(e){}
+    try{ pzRenderEERHa(); }catch(e){}
   }
 };
 // Popular los selectores de temporada y tipo de gasto
@@ -2364,6 +2370,195 @@ window.pzExportarResumenHa = function(){
   XLSX.writeFile(wb, fn);
   try{ toast('Resumen por hectárea generado ('+fn+').'); }catch(e){}
 };
+
+/* ============ ESTADO DE RESULTADO POR HECTAREA (formato CEAgro) ============
+   Los costos se toman del presupuesto real (dataset del huerto/temporada
+   activos); produccion, precios y parametros se ingresan y se guardan por
+   huerto+temporada en config ('pz_eerha'). */
+var _PZ_EER_KEY = 'pz_eerha';
+function _pzEERMap(){
+  try{ var c=(STATE.cache.config && STATE.cache.config[_PZ_EER_KEY])||null;
+    return (c && c.data && typeof c.data==='object') ? c.data : {}; }catch(e){ return {}; }
+}
+function _pzEERSlot(){
+  var t=(document.getElementById('f-temporada')||{}).value||'todas';
+  return PZ_HUERTO+'|'+t;
+}
+function _pzSaveEERMap(map){
+  var obj={ key:_PZ_EER_KEY, data:map, _updatedAt:new Date().toISOString() };
+  STATE.cache.config=STATE.cache.config||{}; STATE.cache.config[_PZ_EER_KEY]=obj;
+  try{ dbPut('config', obj); }catch(e){}
+}
+var _EER_FIELDS=['eer-exp-kg','eer-exp-precio','eer-cat2-kg','eer-cat2-precio','eer-desc-kg','eer-desc-precio','eer-variedad','eer-cuartel','eer-anio','eer-precio-usd'];
+function pzCargarEERInputs(){
+  var map=_pzEERMap(); var slot=map[_pzEERSlot()]||{};
+  _EER_FIELDS.forEach(function(id){ var el=document.getElementById(id); if(el) el.value=(slot[id]!=null?slot[id]:''); });
+}
+function pzGuardarEERInputs(){
+  var map=_pzEERMap(); var slot={};
+  _EER_FIELDS.forEach(function(id){ var el=document.getElementById(id); if(el) slot[id]=el.value||''; });
+  map[_pzEERSlot()]=slot; _pzSaveEERMap(map);
+}
+function _eerNum(id){ var el=document.getElementById(id); if(!el) return 0;
+  var v=(el.value||'').toString().replace(/\./g,'').replace(',','.').replace(/[^0-9.\-]/g,'');
+  var n=parseFloat(v); return isNaN(n)?0:n; }
+function _eerTxt(id){ var el=document.getElementById(id); return el?(el.value||'').trim():''; }
+
+// Arbol de costos reales por TIPO -> SUB-GRUPO -> DESCRIPCION (temporada activa).
+function pzEERCostTree(){
+  var base=ACTIVE_DATA || (PZ_HUERTO==='2018'?RAW:[]);
+  var tempSel=(document.getElementById('f-temporada')||{}).value||'';
+  var rows=base.filter(function(d){ return !tempSel || _getTemporada(d)===tempSel; });
+  var tree={}, total=0;
+  rows.forEach(function(d){
+    var tipo=((d['TIPO DE COSTO']||'OTROS')+'').trim().toUpperCase();
+    var sub=((d['SUB-GRUPO']||'—')+'').trim();
+    var desc=((d['DESCRIPCION']||'—')+'').trim();
+    var r=parseFloat(d['MONTO REAL'])||0;
+    if(!r) return;
+    tree[tipo]=tree[tipo]||{t:0,sub:{}};
+    tree[tipo].sub[sub]=tree[tipo].sub[sub]||{t:0,desc:{}};
+    tree[tipo].sub[sub].desc[desc]=(tree[tipo].sub[sub].desc[desc]||0)+r;
+    tree[tipo].sub[sub].t+=r; tree[tipo].t+=r; total+=r;
+  });
+  return {tree:tree, total:total, tempSel:tempSel};
+}
+
+function pzBuildEERHaHTML(){
+  pzGuardarEERInputs();
+  var ha=_eerNum('rb-ha'); var tc=_eerNum('rb-tc');
+  var prod=[
+    {n:'Exportación', kg:_eerNum('eer-exp-kg'), pr:_eerNum('eer-exp-precio')},
+    {n:'Categoría 2 (bajo calibre)', kg:_eerNum('eer-cat2-kg'), pr:_eerNum('eer-cat2-precio')},
+    {n:'Descarte', kg:_eerNum('eer-desc-kg'), pr:_eerNum('eer-desc-precio')}
+  ];
+  var totKg=0, totProd=0;
+  prod.forEach(function(m){ m.ha=m.kg*m.pr; totKg+=m.kg; totProd+=m.ha; });
+  var precioProm = totKg>0 ? totProd/totKg : 0;
+
+  var CT=pzEERCostTree();
+  var tree=CT.tree, totalCostTot=CT.total;
+  var perHa=function(v){ return ha>0 ? v/ha : 0; };
+  var totalCostHa=perHa(totalCostTot);
+  var directosTot=(tree['COSTOS DIRECTOS']?tree['COSTOS DIRECTOS'].t:0)+(tree['COSTOS DIRECTOS COSECHA']?tree['COSTOS DIRECTOS COSECHA'].t:0);
+  var directosHa=perHa(directosTot);
+  var margenOpHa=totProd-directosHa;
+  var utilTotalHa=totProd-totalCostHa;
+  var rentab = totalCostHa!==0 ? (utilTotalHa/Math.abs(totalCostHa)*100) : null;
+
+  // Formatters
+  function f0(n){ if(n===''||n==null||isNaN(n)) return '—'; var s=(n<0?'-':'')+'$'+Math.round(Math.abs(n)).toLocaleString('es-CL'); return s; }
+  function fkg(n){ if(n===''||n==null||isNaN(n)) return '—'; return Math.round(n).toLocaleString('es-CL'); }
+  function fu(n){ if(n===''||n==null||isNaN(n)) return '—'; return 'US$ '+n.toLocaleString('es-CL',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+  function fp(n){ if(n===''||n==null||isNaN(n)) return '—'; return n.toLocaleString('es-CL',{minimumFractionDigits:0,maximumFractionDigits:1})+'%'; }
+  function neg(n){ return (typeof n==='number'&&n<0)?'color:#c0392b':''; }
+
+  var HEAD='background:#1565c0;color:#fff;font-weight:700';
+  var SUBT='background:#eef4fb;font-weight:800';
+  var YEL='background:#fff7cc';
+  var TD='padding:5px 9px;border-bottom:1px solid #e6ecf3;font-size:12.5px';
+  var TDr='padding:5px 9px;border-bottom:1px solid #e6ecf3;font-size:12.5px;text-align:right;font-variant-numeric:tabular-nums';
+
+  function bandRow(txt){ return '<tr><td colspan="6" style="'+TD+';'+HEAD+';border-bottom:1px solid #0f4c9a">'+txt+'</td></tr>'; }
+  function colHdr(first){ return '<tr style="color:#64748b;background:#f1f6fc">'+
+    '<th style="'+TD+';text-align:left">'+first+'</th>'+
+    '<th style="'+TDr+'">kg/ha</th><th style="'+TDr+'">$/kg</th><th style="'+TDr+'">US$/kg</th><th style="'+TDr+'">$ por ha</th><th style="'+TDr+'">%</th></tr>'; }
+  function dataRow(name, kgha, dkg, ukg, porha, pctv, style){
+    style=style||'';
+    return '<tr style="'+style+'">'+
+      '<td style="'+TD+'">'+name+'</td>'+
+      '<td style="'+TDr+'">'+fkg(kgha)+'</td>'+
+      '<td style="'+TDr+'">'+f0(dkg)+'</td>'+
+      '<td style="'+TDr+'">'+fu(ukg)+'</td>'+
+      '<td style="'+TDr+';'+YEL+';'+neg(porha)+'">'+f0(porha)+'</td>'+
+      '<td style="'+TDr+'">'+fp(pctv)+'</td></tr>';
+  }
+
+  var H='';
+  H+='<table style="width:100%;border-collapse:collapse;border:1px solid #cbd8e6;border-radius:8px;overflow:hidden">';
+  // Produccion
+  H+=bandRow('PRODUCCIÓN HUERTO');
+  H+=colHdr('Mercado');
+  prod.forEach(function(m){
+    H+=dataRow(m.n, m.kg, m.pr, (tc?m.pr/tc:null), m.ha, (totKg>0?m.kg/totKg*100:null));
+  });
+  H+=dataRow('TOTAL kg / ha', totKg, precioProm, (tc?precioProm/tc:null), totProd, 100, SUBT);
+
+  // Costos directos
+  function costSection(title, tipo){
+    var node=tree[tipo]; if(!node) return 0;
+    H+=bandRow(title);
+    H+=colHdr('Ítem');
+    Object.keys(node.sub).sort().forEach(function(sub){
+      var sn=node.sub[sub], v=perHa(sn.t);
+      H+=dataRow(sub, (precioProm>0?v/precioProm:null), (totKg>0?v/totKg:null), (totKg>0&&tc?(v/totKg)/tc:null), v, (totalCostHa>0?v/totalCostHa*100:null), 'font-weight:600');
+      var fams=Object.keys(sn.desc).sort();
+      if(!(fams.length===1 && fams[0]===sub)){
+        fams.forEach(function(fm){ var fv=perHa(sn.desc[fm]);
+          H+=dataRow('&nbsp;&nbsp;&nbsp;'+fm, (precioProm>0?fv/precioProm:null), (totKg>0?fv/totKg:null), (totKg>0&&tc?(fv/totKg)/tc:null), fv, (totalCostHa>0?fv/totalCostHa*100:null), 'color:#64748b');
+        });
+      }
+    });
+    var tv=perHa(node.t);
+    H+=dataRow('Sub-Total '+title, (precioProm>0?tv/precioProm:null), (totKg>0?tv/totKg:null), (totKg>0&&tc?(tv/totKg)/tc:null), tv, (totalCostHa>0?tv/totalCostHa*100:null), SUBT);
+    return node.t;
+  }
+  costSection('COSTOS DIRECTOS','COSTOS DIRECTOS');
+  if(tree['COSTOS DIRECTOS COSECHA']) costSection('COSTOS DIRECTOS COSECHA','COSTOS DIRECTOS COSECHA');
+
+  // Margen operacional
+  H+=bandRow('UTILIDAD / MARGEN OPERACIONAL');
+  H+=dataRow('Margen Operacional / ha', null, null, (tc?margenOpHa/tc:null), margenOpHa, null, 'font-weight:800');
+
+  // Indirectos y otros
+  costSection('COSTOS INDIRECTOS','COSTOS INDIRECTOS');
+  Object.keys(tree).forEach(function(t){
+    if(['COSTOS DIRECTOS','COSTOS DIRECTOS COSECHA','COSTOS INDIRECTOS'].indexOf(t)<0) costSection(t, t);
+  });
+
+  // Totales
+  H+=bandRow('RESULTADO');
+  H+=dataRow('TOTAL COSTOS / ha', (precioProm>0?totalCostHa/precioProm:null), (totKg>0?totalCostHa/totKg:null), (totKg>0&&tc?(totalCostHa/totKg)/tc:null), totalCostHa, 100, SUBT);
+  H+=dataRow('UTILIDAD TOTAL / ha', null, null, (tc?utilTotalHa/tc:null), utilTotalHa, null, 'font-weight:800;'+SUBT);
+  H+='<tr style="'+SUBT+'"><td style="'+TD+'">Rentabilidad Sobre Costos</td><td colspan="4" style="'+TD+'"></td><td style="'+TDr+';'+neg(rentab)+'">'+fp(rentab)+'</td></tr>';
+  H+='</table>';
+
+  // Parametros
+  var boxItem=function(l,v){ return '<div style="border:1px solid #e3e8ee;border-radius:8px;padding:8px 12px"><div style="font-size:10px;color:#94a3b8;font-weight:700;text-transform:uppercase">'+l+'</div><div style="font-size:14px;font-weight:700;color:#23303d">'+(v||'—')+'</div></div>'; };
+  var params='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:14px">'+
+    boxItem('Variedad', _eerTxt('eer-variedad'))+
+    boxItem('Nombre Cuartel/Huerto', _eerTxt('eer-cuartel'))+
+    boxItem('Superficie (ha)', ha? ha.toLocaleString('es-CL'):'')+
+    boxItem('Año Plantación', _eerTxt('eer-anio'))+
+    boxItem('Precio Venta Prom. Export', _eerTxt('eer-precio-usd')? ('US$ '+_eerTxt('eer-precio-usd')):'')+
+    boxItem('Tipo de Cambio (USD)', tc? tc.toLocaleString('es-CL'):'')+
+    '</div>';
+
+  var titulo='<div style="text-align:center;margin-bottom:12px">'+
+    '<div style="font-size:16px;font-weight:800;color:#23303d;letter-spacing:.5px">CEREZOS · ESTADO DE RESULTADO OPERACIÓN POR HECTÁREA</div>'+
+    '<div style="font-size:12.5px;color:#64748b">Huerto Cerezos '+PZ_HUERTO+' · Temporada '+(CT.tempSel||'(todas)')+'</div></div>';
+
+  return titulo+H+params+
+    '<div style="font-size:10.5px;color:#94a3b8;margin-top:10px">Fuente: Control de Presupuesto SCI · costos reales del huerto/temporada; producción y precios ingresados manualmente.</div>';
+}
+
+window.pzRenderEERHa=function(){
+  var box=document.getElementById('eerha-report'); if(!box) return;
+  try{ box.innerHTML=pzBuildEERHaHTML(); }catch(e){ console.error('EERHa render:',e); box.innerHTML='<div style="color:#c0392b;padding:16px">Error al generar el reporte.</div>'; }
+};
+
+window.pzImprimirEERHa=function(){
+  var inner;
+  try{ inner=pzBuildEERHaHTML(); }catch(e){ inner='<p>Error al generar.</p>'; }
+  var w=window.open('','_blank'); if(!w){ try{toast('Permite ventanas emergentes para imprimir.');}catch(e){} return; }
+  w.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>Estado de Resultado por Hectárea</title>'+
+    '<style>@page{size:letter portrait;margin:12mm}body{font-family:Arial,Helvetica,sans-serif;color:#23303d;padding:6px}'+
+    'table{width:100%!important}th,td{-webkit-print-color-adjust:exact;print-color-adjust:exact}'+
+    '*{-webkit-print-color-adjust:exact;print-color-adjust:exact}</style></head><body>'+inner+'</body></html>');
+  w.document.close();
+  setTimeout(function(){ try{ w.focus(); w.print(); }catch(e){} }, 350);
+};
+
 
 window.PZ = {
   init: function(){ pzWireFilters(); pzInit(); },
