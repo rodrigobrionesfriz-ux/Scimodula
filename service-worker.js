@@ -3,21 +3,21 @@
    de index.html y el SW no registraba). Estrategia: cache-first con
    precache versionado; la red actualiza el cache en segundo plano. */
 
-const CACHE = 'sci-v95';
+const CACHE = 'sci-v96';
 
 const ASSETS = [
   './',
   './index.html',
   './manifest.json',
-  './css/styles.css?v=95',
-  './js/core.js?v=95',
-  './js/inventario.js?v=95',
-  './js/cuaderno.js?v=95',
-  './js/huerto.js?v=95',
-  './js/presupuesto.js?v=95',
-  './js/ordencompra.js?v=95',
-  './js/actualizacion.js?v=95',
-  './data/presupuesto-data.js?v=95',
+  './css/styles.css?v=96',
+  './js/core.js?v=96',
+  './js/inventario.js?v=96',
+  './js/cuaderno.js?v=96',
+  './js/huerto.js?v=96',
+  './js/presupuesto.js?v=96',
+  './js/ordencompra.js?v=96',
+  './js/actualizacion.js?v=96',
+  './data/presupuesto-data.js?v=96',
   './icons/icon-192.png',
   './icons/icon-512.png'
 ];
