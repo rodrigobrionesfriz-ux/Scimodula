@@ -73,7 +73,7 @@ var FBCOUNT = (function(){
   });
 })();
 </script>
-<link rel="stylesheet" href="css/styles.css?v=95">
+<link rel="stylesheet" href="css/styles.css?v=96">
 </head>
 <body>
 <!-- Hoja de estilo dinámica para el tema forestal (se llena vía JS) -->
@@ -756,7 +756,7 @@ document.addEventListener('click', function(e){
   if(dd && dd.classList.contains('open') && !dd.contains(e.target)) dd.classList.remove('open');
 });
 </script>
-<script src="js/core.js?v=95"></script>
+<script src="js/core.js?v=96"></script>
 <script>
 /* ═══════════════ MÓDULO: CONTROL DE PRESUPUESTO ═══════════════ */
 /* Integra el dashboard de Control de Presupuesto (Huerto Cerezos 2018) como
@@ -1561,6 +1561,7 @@ function renderPresupuesto(main){
   <button class="pz-tab-btn" onclick="pzCambiarTab('dashboard2024')" data-pztab="dashboard2024" style="padding:10px 20px;font-size:13px;font-weight:700;border:none;border-bottom:3px solid transparent;background:transparent;cursor:pointer;color:#888">📊 Dashboard CZ 2024</button>
   <button class="pz-tab-btn" onclick="pzCambiarTab('gtt')" data-pztab="gtt" style="padding:10px 20px;font-size:13px;font-weight:700;border:none;border-bottom:3px solid transparent;background:transparent;cursor:pointer;color:#888">🌱 Formato GTT</button>
   <button class="pz-tab-btn" onclick="pzCambiarTab('criterios')" data-pztab="criterios" style="padding:10px 20px;font-size:13px;font-weight:700;border:none;border-bottom:3px solid transparent;background:transparent;cursor:pointer;color:#888">📋 Criterios</button>
+  <button class="pz-tab-btn" onclick="pzCambiarTab('eerha')" data-pztab="eerha" style="padding:10px 20px;font-size:13px;font-weight:700;border:none;border-bottom:3px solid transparent;background:transparent;cursor:pointer;color:#888">📄 Resultado x Ha</button>
 </div>
 <!-- Pane: Criterios (oculto por defecto) -->
 <div id="pz-pane-criterios" style="display:none;padding:18px">
@@ -1596,6 +1597,49 @@ function renderPresupuesto(main){
     <span style="font-size:11px;color:#94a3b8">· se controla con el filtro de temporada del Dashboard</span>
   </div>
   <div id="pz-criterios-list"></div>
+</div>
+<!-- Pane: Estado Resultado por Hectarea (oculto) -->
+<div id="pz-pane-eerha" style="display:none;padding:18px">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:14px">
+    <div>
+      <h2 style="font-size:18px;font-weight:800;color:#23303d;margin-bottom:4px">📄 Estado de Resultado por Hectárea</h2>
+      <p style="font-size:12px;color:#888">Los <strong>costos</strong> se alimentan del presupuesto real del huerto y temporada activos. Completa producción, precios y parámetros; el resto se calcula solo.</p>
+    </div>
+    <button onclick="pzImprimirEERHa()" style="padding:10px 18px;border:none;border-radius:8px;background:#3b82f6;color:#fff;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap">🖨 Imprimir PDF</button>
+  </div>
+  <div style="background:#f8fafb;border:1px solid #e3e8ee;border-radius:10px;padding:16px;margin-bottom:18px">
+    <div style="font-size:13px;font-weight:800;color:#1565c0;margin-bottom:10px">Producción del huerto <span style="font-weight:500;color:#94a3b8">(por hectárea · $/kg puede ser negativo)</span></div>
+    <div style="overflow-x:auto">
+    <table style="width:100%;border-collapse:collapse;font-size:12.5px">
+      <thead><tr style="color:#64748b;text-align:left">
+        <th style="padding:4px 8px">Mercado</th><th style="padding:4px 8px">kg/ha</th><th style="padding:4px 8px">$/kg</th></tr></thead>
+      <tbody>
+        <tr><td style="padding:4px 8px;font-weight:600">Exportación</td>
+          <td><input id="eer-exp-kg" type="text" oninput="pzRenderEERHa()" data-nouppercase="1" style="width:110px;padding:6px 8px;border:1px solid #cdd5df;border-radius:6px"></td>
+          <td><input id="eer-exp-precio" type="text" oninput="pzRenderEERHa()" data-nouppercase="1" style="width:110px;padding:6px 8px;border:1px solid #cdd5df;border-radius:6px"></td></tr>
+        <tr><td style="padding:4px 8px;font-weight:600">Categoría 2 (bajo calibre)</td>
+          <td><input id="eer-cat2-kg" type="text" oninput="pzRenderEERHa()" data-nouppercase="1" style="width:110px;padding:6px 8px;border:1px solid #cdd5df;border-radius:6px"></td>
+          <td><input id="eer-cat2-precio" type="text" oninput="pzRenderEERHa()" data-nouppercase="1" style="width:110px;padding:6px 8px;border:1px solid #cdd5df;border-radius:6px"></td></tr>
+        <tr><td style="padding:4px 8px;font-weight:600">Descarte</td>
+          <td><input id="eer-desc-kg" type="text" oninput="pzRenderEERHa()" data-nouppercase="1" style="width:110px;padding:6px 8px;border:1px solid #cdd5df;border-radius:6px"></td>
+          <td><input id="eer-desc-precio" type="text" oninput="pzRenderEERHa()" data-nouppercase="1" style="width:110px;padding:6px 8px;border:1px solid #cdd5df;border-radius:6px"></td></tr>
+      </tbody>
+    </table>
+    </div>
+    <div style="font-size:13px;font-weight:800;color:#1565c0;margin:14px 0 10px">Parámetros del cuartel</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px">
+      <div style="display:flex;flex-direction:column;gap:4px"><label style="font-size:11px;font-weight:700;color:#475569">Variedad</label>
+        <input id="eer-variedad" type="text" oninput="pzRenderEERHa()" style="padding:8px 10px;border:1px solid #cdd5df;border-radius:7px;font-size:13px"></div>
+      <div style="display:flex;flex-direction:column;gap:4px"><label style="font-size:11px;font-weight:700;color:#475569">Nombre Cuartel/Huerto</label>
+        <input id="eer-cuartel" type="text" oninput="pzRenderEERHa()" style="padding:8px 10px;border:1px solid #cdd5df;border-radius:7px;font-size:13px"></div>
+      <div style="display:flex;flex-direction:column;gap:4px"><label style="font-size:11px;font-weight:700;color:#475569">Año Plantación</label>
+        <input id="eer-anio" type="text" oninput="pzRenderEERHa()" data-nouppercase="1" style="padding:8px 10px;border:1px solid #cdd5df;border-radius:7px;font-size:13px"></div>
+      <div style="display:flex;flex-direction:column;gap:4px"><label style="font-size:11px;font-weight:700;color:#475569">Precio Venta Prom. Export (USD)</label>
+        <input id="eer-precio-usd" type="text" oninput="pzRenderEERHa()" data-nouppercase="1" style="padding:8px 10px;border:1px solid #cdd5df;border-radius:7px;font-size:13px"></div>
+    </div>
+    <p style="font-size:11px;color:#94a3b8;margin-top:10px">Superficie (ha) y tipo de cambio se toman del banner del huerto activo. Los datos se guardan por huerto y temporada.</p>
+  </div>
+  <div id="eerha-report"></div>
 </div>
 <!-- Pane: Dashboard (visible por defecto) -->
 <div id="pz-pane-dashboard" style="display:flex;flex-direction:column">
@@ -1972,10 +2016,10 @@ function renderPresupuesto(main){
 }
 
 </script>
-<script src="js/inventario.js?v=95"></script>
-<script src="js/ordencompra.js?v=95"></script>
-<script src="js/huerto.js?v=95"></script>
-<script src="js/actualizacion.js?v=95"></script>
+<script src="js/inventario.js?v=96"></script>
+<script src="js/ordencompra.js?v=96"></script>
+<script src="js/huerto.js?v=96"></script>
+<script src="js/actualizacion.js?v=96"></script>
 <script>
 
 /* ═══════════════ MÓDULO: MANTENCIONES ═══════════════ */
@@ -2734,7 +2778,7 @@ var S = { panos:[], registros:[], productos:[], ordenes:[], oCounter:1, confirma
 };
 
 </script>
-<script src="js/cuaderno.js?v=95"></script>
+<script src="js/cuaderno.js?v=96"></script>
 <script>
 
 /* ═══════════════ INTEGRACIÓN CUADERNO DE CAMPO ═══════════════ */
@@ -2791,8 +2835,8 @@ function renderCuaderno(main){
 </script>
 
 
-<script src="data/presupuesto-data.js?v=95"></script>
-<script src="js/presupuesto.js?v=95"></script>
+<script src="data/presupuesto-data.js?v=96"></script>
+<script src="js/presupuesto.js?v=96"></script>
 <script>
 /* ── Normalización global a MAYÚSCULAS en la entrada de datos ──
    Aplica a inputs de texto y textareas de todo el sistema.
