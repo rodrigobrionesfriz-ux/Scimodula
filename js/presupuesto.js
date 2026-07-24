@@ -2389,7 +2389,7 @@ function _pzSaveEERMap(map){
   STATE.cache.config=STATE.cache.config||{}; STATE.cache.config[_PZ_EER_KEY]=obj;
   try{ dbPut('config', obj); }catch(e){}
 }
-var _EER_FIELDS=['eer-exp-kg','eer-exp-precio','eer-cat2-kg','eer-cat2-precio','eer-desc-kg','eer-desc-precio','eer-variedad','eer-cuartel','eer-anio','eer-precio-usd'];
+var _EER_FIELDS=['eer-exp-kg','eer-exp-precio','eer-cat2-kg','eer-cat2-precio','eer-desc-kg','eer-desc-precio','eer-variedad','eer-cuartel','eer-anio','eer-precio-usd','eer-gfin'];
 function pzCargarEERInputs(){
   var map=_pzEERMap(); var slot=map[_pzEERSlot()]||{};
   _EER_FIELDS.forEach(function(id){ var el=document.getElementById(id); if(el) el.value=(slot[id]!=null?slot[id]:''); });
@@ -2441,7 +2441,8 @@ function pzBuildEERHaHTML(){
   var CT=pzEERCostTree();
   var tree=CT.tree, totalCostTot=CT.total;
   var perHa=function(v){ return ha>0 ? v/ha : 0; };
-  var totalCostHa=perHa(totalCostTot);
+  var gfinTot=_eerNum('eer-gfin'); var gfinHa=perHa(gfinTot);
+  var totalCostHa=perHa(totalCostTot)+gfinHa;
   function _eerCls(t){ if(/INDIRECT/.test(t)) return 'ind'; if(/DIRECT|COSECHA/.test(t)) return 'dir'; return 'otro'; }
   var _tipos=Object.keys(tree);
   var _dirTipos=_tipos.filter(function(t){return _eerCls(t)==='dir';}).sort();
@@ -2518,6 +2519,12 @@ function pzBuildEERHaHTML(){
 
   _indTipos.forEach(function(t){ costSection(t, t); });
   _otroTipos.forEach(function(t){ costSection(t, t); });
+
+  // Gastos financieros de grupo (ingreso manual)
+  if(gfinTot){
+    H+=bandRow('GASTOS FINANCIEROS (financiamiento grupo)');
+    H+=dataRow('Intereses financiamiento grupo (manual)', (precioProm>0?gfinHa/precioProm:null), (totKg>0?gfinHa/totKg:null), (totKg>0&&tc?(gfinHa/totKg)/tc:null), gfinHa, (totalCostHa>0?gfinHa/totalCostHa*100:null), 'font-weight:600');
+  }
 
   // Totales
   H+=bandRow('RESULTADO');
