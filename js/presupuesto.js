@@ -2483,7 +2483,7 @@ function pzBuildEERHaHTML(){
   }
 
   var H='';
-  H+='<table style="width:100%;border-collapse:collapse;border:1px solid #cbd8e6;border-radius:8px;overflow:hidden">';
+  H+='<table style="width:100%;min-width:560px;border-collapse:collapse;border:1px solid #cbd8e6;border-radius:8px;overflow:hidden">';
   // Produccion
   H+=bandRow('PRODUCCIÓN HUERTO');
   H+=colHdr('Mercado');
@@ -2549,7 +2549,8 @@ function pzBuildEERHaHTML(){
     '<div style="font-size:12.5px;color:#64748b">Huerto Cerezos '+PZ_HUERTO+' · Temporada '+(CT.tempSel||'(todas)')+'</div></div>';
 
   var avisoGtt = CT.falta ? '<div style="background:#fff8e1;border:1px solid #ffe082;color:#8a6d00;border-radius:9px;padding:10px 14px;font-size:12.5px;margin-bottom:12px">\u26a0\ufe0f No hay datos con clasificaci\u00f3n GTT cargados para este huerto. Los costos aparecer\u00e1n en blanco hasta que uses \u201cActualizar datos\u201d y vuelvas a seleccionar el Excel (las columnas GTT no se guardan en la nube).</div>' : '';
-  return titulo+avisoGtt+H+params+
+  var Hwrap='<div style="overflow-x:auto;-webkit-overflow-scrolling:touch">'+H+'</div>';
+  return titulo+avisoGtt+Hwrap+params+
     '<div style="font-size:10.5px;color:#94a3b8;margin-top:10px">Fuente: Control de Presupuesto SCI · costos reales del huerto/temporada; producción y precios ingresados manualmente.</div>';
 }
 
