@@ -2404,9 +2404,11 @@ function _eerNum(id){ var el=document.getElementById(id); if(!el) return 0;
   var n=parseFloat(v); return isNaN(n)?0:n; }
 function _eerTxt(id){ var el=document.getElementById(id); return el?(el.value||'').trim():''; }
 
-// Arbol de costos reales por TIPO -> SUB-GRUPO -> DESCRIPCION (temporada activa).
+// Arbol de costos reales con clasificacion GTT (Tipo GTT -> Cuenta GTT ->
+// Familia GTT), tomado del dataset GTT del huerto activo (ACTIVE_DATA_GTT).
 function pzEERCostTree(){
-  var base=ACTIVE_DATA || (PZ_HUERTO==='2018'?RAW:[]);
+  var base=(typeof ACTIVE_DATA_GTT!=='undefined' && ACTIVE_DATA_GTT && ACTIVE_DATA_GTT.length) ? ACTIVE_DATA_GTT : [];
+  var falta=!base.length;
   var tempSel=(document.getElementById('f-temporada')||{}).value||'';
   var rows=base.filter(function(d){ return !tempSel || _getTemporada(d)===tempSel; });
   var tree={}, total=0;
@@ -2421,7 +2423,7 @@ function pzEERCostTree(){
     tree[tipo].sub[sub].desc[desc]=(tree[tipo].sub[sub].desc[desc]||0)+r;
     tree[tipo].sub[sub].t+=r; tree[tipo].t+=r; total+=r;
   });
-  return {tree:tree, total:total, tempSel:tempSel};
+  return {tree:tree, total:total, tempSel:tempSel, falta:falta};
 }
 
 function pzBuildEERHaHTML(){
@@ -2440,7 +2442,12 @@ function pzBuildEERHaHTML(){
   var tree=CT.tree, totalCostTot=CT.total;
   var perHa=function(v){ return ha>0 ? v/ha : 0; };
   var totalCostHa=perHa(totalCostTot);
-  var directosTot=(tree['COSTOS DIRECTOS']?tree['COSTOS DIRECTOS'].t:0)+(tree['COSTOS DIRECTOS COSECHA']?tree['COSTOS DIRECTOS COSECHA'].t:0);
+  function _eerCls(t){ if(/INDIRECT/.test(t)) return 'ind'; if(/DIRECT|COSECHA/.test(t)) return 'dir'; return 'otro'; }
+  var _tipos=Object.keys(tree);
+  var _dirTipos=_tipos.filter(function(t){return _eerCls(t)==='dir';}).sort();
+  var _indTipos=_tipos.filter(function(t){return _eerCls(t)==='ind';}).sort();
+  var _otroTipos=_tipos.filter(function(t){return _eerCls(t)==='otro';}).sort();
+  var directosTot=_dirTipos.reduce(function(s,t){return s+tree[t].t;},0);
   var directosHa=perHa(directosTot);
   var margenOpHa=totProd-directosHa;
   var utilTotalHa=totProd-totalCostHa;
@@ -2503,18 +2510,14 @@ function pzBuildEERHaHTML(){
     H+=dataRow('Sub-Total '+title, (precioProm>0?tv/precioProm:null), (totKg>0?tv/totKg:null), (totKg>0&&tc?(tv/totKg)/tc:null), tv, (totalCostHa>0?tv/totalCostHa*100:null), SUBT);
     return node.t;
   }
-  costSection('COSTOS DIRECTOS','COSTOS DIRECTOS');
-  if(tree['COSTOS DIRECTOS COSECHA']) costSection('COSTOS DIRECTOS COSECHA','COSTOS DIRECTOS COSECHA');
+  _dirTipos.forEach(function(t){ costSection(t, t); });
 
   // Margen operacional
   H+=bandRow('UTILIDAD / MARGEN OPERACIONAL');
   H+=dataRow('Margen Operacional / ha', null, null, (tc?margenOpHa/tc:null), margenOpHa, null, 'font-weight:800');
 
-  // Indirectos y otros
-  costSection('COSTOS INDIRECTOS','COSTOS INDIRECTOS');
-  Object.keys(tree).forEach(function(t){
-    if(['COSTOS DIRECTOS','COSTOS DIRECTOS COSECHA','COSTOS INDIRECTOS'].indexOf(t)<0) costSection(t, t);
-  });
+  _indTipos.forEach(function(t){ costSection(t, t); });
+  _otroTipos.forEach(function(t){ costSection(t, t); });
 
   // Totales
   H+=bandRow('RESULTADO');
@@ -2538,7 +2541,8 @@ function pzBuildEERHaHTML(){
     '<div style="font-size:16px;font-weight:800;color:#23303d;letter-spacing:.5px">CEREZOS · ESTADO DE RESULTADO OPERACIÓN POR HECTÁREA</div>'+
     '<div style="font-size:12.5px;color:#64748b">Huerto Cerezos '+PZ_HUERTO+' · Temporada '+(CT.tempSel||'(todas)')+'</div></div>';
 
-  return titulo+H+params+
+  var avisoGtt = CT.falta ? '<div style="background:#fff8e1;border:1px solid #ffe082;color:#8a6d00;border-radius:9px;padding:10px 14px;font-size:12.5px;margin-bottom:12px">\u26a0\ufe0f No hay datos con clasificaci\u00f3n GTT cargados para este huerto. Los costos aparecer\u00e1n en blanco hasta que uses \u201cActualizar datos\u201d y vuelvas a seleccionar el Excel (las columnas GTT no se guardan en la nube).</div>' : '';
+  return titulo+avisoGtt+H+params+
     '<div style="font-size:10.5px;color:#94a3b8;margin-top:10px">Fuente: Control de Presupuesto SCI · costos reales del huerto/temporada; producción y precios ingresados manualmente.</div>';
 }
 
