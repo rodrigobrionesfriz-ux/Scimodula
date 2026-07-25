@@ -73,7 +73,7 @@ var FBCOUNT = (function(){
   });
 })();
 </script>
-<link rel="stylesheet" href="css/styles.css?v=100">
+<link rel="stylesheet" href="css/styles.css?v=101">
 </head>
 <body>
 <!-- Hoja de estilo dinámica para el tema forestal (se llena vía JS) -->
@@ -756,7 +756,7 @@ document.addEventListener('click', function(e){
   if(dd && dd.classList.contains('open') && !dd.contains(e.target)) dd.classList.remove('open');
 });
 </script>
-<script src="js/core.js?v=100"></script>
+<script src="js/core.js?v=101"></script>
 <script>
 /* ═══════════════ MÓDULO: CONTROL DE PRESUPUESTO ═══════════════ */
 /* Integra el dashboard de Control de Presupuesto (Huerto Cerezos 2018) como
@@ -1529,6 +1529,29 @@ function pzEnsureAssets(){
   #pz-root .chart-donut-wrap{ height:250px; }
   #pz-root #subgrupo-legend{ grid-template-columns:1fr!important; }
 }
+
+/* ══ Top Desviaciones: anchos fijos, sin desborde lateral ══ */
+/* table-layout:auto dimensionaba según contenido y la tabla excedía el panel;
+   al tocar una fila clicable el navegador la desplazaba y cortaba el inicio. */
+#pz-root .panel{ overflow:hidden; }
+#pz-root .dev-table{ table-layout:fixed; width:100%; max-width:100%; }
+#pz-root .dev-table th:nth-child(1), #pz-root .dev-table td:nth-child(1){
+  width:auto; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; text-align:left;
+}
+#pz-root .dev-table th:nth-child(2), #pz-root .dev-table td:nth-child(2){
+  width:39%; text-align:right; white-space:nowrap; overflow:hidden;
+}
+#pz-root .dev-table th:nth-child(3), #pz-root .dev-table td:nth-child(3){
+  width:17%; text-align:right; white-space:nowrap; overflow:hidden;
+}
+#pz-root .dev-pill{ white-space:nowrap; max-width:100%; overflow:hidden; text-overflow:ellipsis; }
+@media (max-width:640px){
+  #pz-root .dev-table th:nth-child(2), #pz-root .dev-table td:nth-child(2){ width:43%; }
+  #pz-root .dev-table th:nth-child(3), #pz-root .dev-table td:nth-child(3){ width:16%; }
+  #pz-root .dev-table th{ font-size:9px!important; padding:5px 3px!important; }
+  #pz-root .dev-table td{ font-size:10.5px!important; padding:7px 3px!important; }
+  #pz-root .dev-pill{ font-size:9.5px!important; padding:2px 5px!important; }
+}
 `;
   document.head.appendChild(st);
   _PZ_CSS_INJECTED = true;
@@ -2056,10 +2079,10 @@ function renderPresupuesto(main){
 }
 
 </script>
-<script src="js/inventario.js?v=100"></script>
-<script src="js/ordencompra.js?v=100"></script>
-<script src="js/huerto.js?v=100"></script>
-<script src="js/actualizacion.js?v=100"></script>
+<script src="js/inventario.js?v=101"></script>
+<script src="js/ordencompra.js?v=101"></script>
+<script src="js/huerto.js?v=101"></script>
+<script src="js/actualizacion.js?v=101"></script>
 <script>
 
 /* ═══════════════ MÓDULO: MANTENCIONES ═══════════════ */
@@ -2818,7 +2841,7 @@ var S = { panos:[], registros:[], productos:[], ordenes:[], oCounter:1, confirma
 };
 
 </script>
-<script src="js/cuaderno.js?v=100"></script>
+<script src="js/cuaderno.js?v=101"></script>
 <script>
 
 /* ═══════════════ INTEGRACIÓN CUADERNO DE CAMPO ═══════════════ */
@@ -2875,8 +2898,8 @@ function renderCuaderno(main){
 </script>
 
 
-<script src="data/presupuesto-data.js?v=100"></script>
-<script src="js/presupuesto.js?v=100"></script>
+<script src="data/presupuesto-data.js?v=101"></script>
+<script src="js/presupuesto.js?v=101"></script>
 <script>
 /* ── Normalización global a MAYÚSCULAS en la entrada de datos ──
    Aplica a inputs de texto y textareas de todo el sistema.
