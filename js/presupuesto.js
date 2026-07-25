@@ -1723,7 +1723,8 @@ function renderTopDev(data, byDesc) {
     const label = over ? '▲ +'+fmtVal(r.dev) : '▼ '+fmtVal(r.dev);
     const cls = over ? 'pill-over' : 'pill-under';
     const pctLabel = r.p ? (over ? '+' : '') + pct + '%' : '—';
-    const nombre = r.k.length > 24 ? r.k.slice(0,24)+'…' : r.k;
+    // El nombre va completo: la columna lo trunca con elipsis según el ancho real.
+    const nombre = r.k;
     // Cada fila es clicable: abre el detalle de gastos de esa descripción.
     // El tooltip (title) muestra el presupuesto y el real completos.
     const tip = 'Presupuesto: ' + fmtVal(r.p) + ' · Real: ' + fmtVal(r.r) + ' · Desv: ' + pctLabel + ' — Clic para ver el detalle';
