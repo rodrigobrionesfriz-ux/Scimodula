@@ -73,7 +73,7 @@ var FBCOUNT = (function(){
   });
 })();
 </script>
-<link rel="stylesheet" href="css/styles.css?v=99">
+<link rel="stylesheet" href="css/styles.css?v=100">
 </head>
 <body>
 <!-- Hoja de estilo dinámica para el tema forestal (se llena vía JS) -->
@@ -756,7 +756,7 @@ document.addEventListener('click', function(e){
   if(dd && dd.classList.contains('open') && !dd.contains(e.target)) dd.classList.remove('open');
 });
 </script>
-<script src="js/core.js?v=99"></script>
+<script src="js/core.js?v=100"></script>
 <script>
 /* ═══════════════ MÓDULO: CONTROL DE PRESUPUESTO ═══════════════ */
 /* Integra el dashboard de Control de Presupuesto (Huerto Cerezos 2018) como
@@ -1505,6 +1505,30 @@ function pzEnsureAssets(){
   #pz-root #pz-tabs-bar .pz-tab-btn{ padding:9px 12px !important; font-size:12px !important; }
   #pz-root #pz-pane-eerha{ padding:12px !important; }
 }
+
+/* ══ Gráficos: layout responsivo (fila superior + donut) ══ */
+#pz-root .top-row{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+#pz-root .top-row > *, #pz-root .mid-row > *, #pz-root .bot-row > *{ min-width:0; }
+/* El alto lo manda el contenedor, no el aspect ratio de Chart.js */
+#pz-root .chart-main-wrap{ position:relative; width:100%; height:200px; }
+#pz-root .chart-main-wrap canvas{
+  position:absolute!important; top:0; left:0;
+  width:100%!important; height:100%!important; max-height:none!important;
+}
+#pz-root .chart-donut-wrap{ position:relative; width:100%; height:230px; }
+#pz-root .chart-donut-wrap canvas{
+  position:absolute!important; top:0; left:0;
+  width:100%!important; height:100%!important; max-height:none!important;
+}
+@media (max-width:900px){
+  #pz-root .top-row{ grid-template-columns:1fr; gap:12px; }
+  #pz-root .chart-main-wrap{ height:230px; }
+}
+@media (max-width:640px){
+  #pz-root .chart-main-wrap{ height:240px; }
+  #pz-root .chart-donut-wrap{ height:250px; }
+  #pz-root #subgrupo-legend{ grid-template-columns:1fr!important; }
+}
 `;
   document.head.appendChild(st);
   _PZ_CSS_INJECTED = true;
@@ -1800,18 +1824,18 @@ function renderPresupuesto(main){
   </div>
 
   <!-- TOP ROW: Bar chart (tipo) + Evolución mensual — side by side -->
-  <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+  <div class="top-row">
 
     <!-- LEFT: Tipo de Costo línea -->
     <div class="panel chart-main">
       <div class="panel-title">Por Tipo de Costo <span>Presupuesto vs Real</span></div>
-      <canvas id="chartTipo" height="180" style="box-sizing: border-box; display: block; height: 180px; width: 907px;" width="907"></canvas>
+      <div class="chart-main-wrap"><canvas id="chartTipo"></canvas></div>
     </div>
 
     <!-- RIGHT: Línea de tiempo -->
     <div class="panel chart-main">
       <div class="panel-title">Evolución Mensual <span>Presupuesto vs Real</span></div>
-      <canvas id="chartLinea" height="180" style="box-sizing: border-box; display: block; height: 180px; width: 907px;" width="907"></canvas>
+      <div class="chart-main-wrap"><canvas id="chartLinea"></canvas></div>
     </div>
 
   </div>
@@ -1863,8 +1887,8 @@ function renderPresupuesto(main){
     <!-- RIGHT: Por Sub-Grupo donut + meses -->
     <div class="panel">
       <div class="panel-title">Por Sub-Grupo <span>Real acumulado</span></div>
-      <div style="position:relative; width:100%; height:200px;">
-        <canvas id="chartSubgrupo" style="box-sizing: border-box; display: block; height: 200px; width: 907px;" width="907" height="200"></canvas>
+      <div class="chart-donut-wrap">
+        <canvas id="chartSubgrupo"></canvas>
       </div>
       <div id="subgrupo-legend" style="display:grid; grid-template-columns:1fr 1fr; gap:5px; margin-top:7px; padding:0 2px;">
         <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:6px;padding:5px 7px;display:flex;flex-direction:column;gap:4px;">
@@ -2032,10 +2056,10 @@ function renderPresupuesto(main){
 }
 
 </script>
-<script src="js/inventario.js?v=99"></script>
-<script src="js/ordencompra.js?v=99"></script>
-<script src="js/huerto.js?v=99"></script>
-<script src="js/actualizacion.js?v=99"></script>
+<script src="js/inventario.js?v=100"></script>
+<script src="js/ordencompra.js?v=100"></script>
+<script src="js/huerto.js?v=100"></script>
+<script src="js/actualizacion.js?v=100"></script>
 <script>
 
 /* ═══════════════ MÓDULO: MANTENCIONES ═══════════════ */
@@ -2794,7 +2818,7 @@ var S = { panos:[], registros:[], productos:[], ordenes:[], oCounter:1, confirma
 };
 
 </script>
-<script src="js/cuaderno.js?v=99"></script>
+<script src="js/cuaderno.js?v=100"></script>
 <script>
 
 /* ═══════════════ INTEGRACIÓN CUADERNO DE CAMPO ═══════════════ */
@@ -2851,8 +2875,8 @@ function renderCuaderno(main){
 </script>
 
 
-<script src="data/presupuesto-data.js?v=99"></script>
-<script src="js/presupuesto.js?v=99"></script>
+<script src="data/presupuesto-data.js?v=100"></script>
+<script src="js/presupuesto.js?v=100"></script>
 <script>
 /* ── Normalización global a MAYÚSCULAS en la entrada de datos ──
    Aplica a inputs de texto y textareas de todo el sistema.
