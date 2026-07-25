@@ -3,7 +3,7 @@
    de index.html y el SW no registraba). Estrategia: cache-first con
    precache versionado; la red actualiza el cache en segundo plano. */
 
-const CACHE = 'sci-v100';
+const CACHE = 'sci-v101';
 
 const ASSETS = [
   './',
