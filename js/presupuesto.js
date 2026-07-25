@@ -1154,10 +1154,11 @@ function renderLineChart(data) {
       ]
     },
     options: {
-      responsive: true, maintainAspectRatio: true,
+      responsive: true, maintainAspectRatio: false,
+      layout: { padding: { top: 4, right: 8, bottom: 2, left: 2 } },
       interaction: { mode: 'index', intersect: false },
       plugins: {
-        legend: { labels: { color: '#94a3b8', font: { size: 11 }, boxWidth: 12 } },
+        legend: { labels: { color: '#94a3b8', font: { size: 11 }, boxWidth: 12, padding: 10 } },
         tooltip: {
           backgroundColor: '#1a2235', borderColor: '#1e2d45', borderWidth: 1,
           callbacks: {
@@ -1166,8 +1167,15 @@ function renderLineChart(data) {
         }
       },
       scales: {
-        x: { ticks: { color: '#64748b', font:{size:10} }, grid: { color: 'rgba(30,45,69,0.5)' } },
-        y: { ticks: { color: '#64748b', font:{size:10}, callback: v => fmtVal(v) }, grid: { color: 'rgba(30,45,69,0.5)' } }
+        x: {
+          ticks: { color: '#64748b', font:{size:10}, autoSkip: true, maxRotation: 0, minRotation: 0 },
+          grid: { color: 'rgba(30,45,69,0.5)' }
+        },
+        y: {
+          beginAtZero: true,
+          ticks: { color: '#64748b', font:{size:10}, maxTicksLimit: 5, callback: v => fmtVal(v) },
+          grid: { color: 'rgba(30,45,69,0.5)' }
+        }
       }
     }
   });
@@ -1218,20 +1226,36 @@ function renderTipoChart(data) {
       ]
     },
     options: {
-      responsive: true, maintainAspectRatio: true,
+      responsive: true, maintainAspectRatio: false,
+      layout: { padding: { top: 4, right: 8, bottom: 2, left: 2 } },
       interaction: { mode: 'index', intersect: false },
       plugins: {
-        legend: { labels: { color: '#94a3b8', font: { size: 11 }, boxWidth: 12 } },
+        legend: { labels: { color: '#94a3b8', font: { size: 11 }, boxWidth: 12, padding: 10 } },
         tooltip: {
           backgroundColor: '#1a2235', borderColor: '#1e2d45', borderWidth: 1,
           callbacks: {
+            title: items => (items && items[0]) ? labels[items[0].dataIndex] : '',
             label: ctx => ` ${ctx.dataset.label}: ${fmtVal(ctx.parsed.y ?? 0)}`
           }
         }
       },
       scales: {
-        x: { ticks: { color: '#64748b', font:{size:9} }, grid: { color: 'rgba(30,45,69,0.5)' } },
-        y: { ticks: { color: '#64748b', font:{size:9}, callback: v => fmtVal(v) }, grid: { color: 'rgba(30,45,69,0.5)' } }
+        x: {
+          ticks: {
+            color: '#64748b', font:{size:9}, autoSkip: false,
+            maxRotation: 55, minRotation: 0,
+            callback: function(v){
+              var t = String(this.getLabelForValue(v) || '');
+              return t.length > 12 ? t.slice(0,11) + '…' : t;
+            }
+          },
+          grid: { color: 'rgba(30,45,69,0.5)' }
+        },
+        y: {
+          beginAtZero: true,
+          ticks: { color: '#64748b', font:{size:9}, maxTicksLimit: 5, callback: v => fmtVal(v) },
+          grid: { color: 'rgba(30,45,69,0.5)' }
+        }
       }
     }
   });
@@ -1264,7 +1288,15 @@ function renderSubgrupoChart(data) {
     },
     options: {
       responsive: true, maintainAspectRatio: false, cutout: '68%',
-      layout: { padding: { top: 65, bottom: 10, left: 75, right: 75 } },
+      layout: {
+        padding: (ctx) => {
+          // Padding proporcional: en móvil 75px fijos dejaban el aro diminuto
+          const w = (ctx.chart && ctx.chart.width) || 320;
+          const compacto = w < 520;
+          const lat = compacto ? Math.round(w * 0.11) : 75;
+          return { top: compacto ? 14 : 65, bottom: 10, left: lat, right: lat };
+        }
+      },
       plugins: {
         legend: { display: false },   // hidden — we use custom HTML legend
         tooltip: {
@@ -1285,6 +1317,9 @@ function renderSubgrupoChart(data) {
         const { ctx, data: cd } = chart;
         const meta = chart.getDatasetMeta(0);
         if (!meta.data.length) return;
+        // En móvil las etiquetas flotantes se salían del canvas:
+        // los montos ya se muestran en la leyenda HTML de abajo.
+        if (chart.width < 520) return;
         ctx.save();
         meta.data.forEach((arc, i) => {
           const val  = cd.datasets[0].data[i];
