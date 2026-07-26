@@ -4764,7 +4764,7 @@ function renderCombustibleForm(c){
         <div class="form-field"><label>Fecha</label>
           <input type="date" id="cb-fecha" value="${today}"></div>
         <div class="form-field"><label>Bodega origen</label>
-          <select id="cb-bodega"><option value="">— Seleccione —</option>
+          <select id="cb-bodega" onchange="cbStockHint()"><option value="">— Seleccione —</option>
             ${bodegas.map(b=>`<option value="${b.id}">${escapeHtml(b.nombre)}</option>`).join('')}</select></div>
         <div class="form-field"><label>Equipo</label>
           <select id="cb-equipo" onchange="cbToggleOtro()">
@@ -4778,12 +4778,13 @@ function renderCombustibleForm(c){
         <div class="form-field"><label>Usuario / Operador</label>
           <input type="text" id="cb-usuario" placeholder="Nombre de quien retira"></div>
         <div class="form-field"><label>Producto</label>
-          <select id="cb-producto">
+          <select id="cb-producto" onchange="cbStockHint()">
             <option value="">— Seleccione —</option>
             ${combustibles.map(p=>`<option value="${p.codigoInterno}">${escapeHtml(p.descripcion)}</option>`).join('')}</select>
           ${combustibles.length===0?'<div class="hint" style="color:#c0392b">No hay productos de combustible en el catálogo</div>':''}</div>
         <div class="form-field"><label>Cantidad (litros)</label>
-          <input type="number" id="cb-cantidad" step="0.01" min="0" placeholder="0.00"></div>
+          <input type="number" id="cb-cantidad" step="0.01" min="0" placeholder="0.00" oninput="cbStockHint()">
+          <div class="hint" id="cb-stock-hint" style="display:none"></div></div>
         <div class="form-field" style="grid-column:1/-1"><label>Centro de costo</label>
           <select id="cb-centro"><option value="">— Seleccione —</option>
             ${centros.filter(cc=>cc.activo!==false).map(cc=>`<option value="${cc.codigo}">${escapeHtml(cc.codigo)} · ${escapeHtml(cc.descripcion||cc.nombre||'')}</option>`).join('')}</select></div>
@@ -4813,7 +4814,32 @@ function cbToggleOtro(){
     } else { hint.style.display='none'; }
   }
 }
-try{ window.renderCombustibleForm=renderCombustibleForm; window.cbToggleOtro=cbToggleOtro; }catch(e){}
+/* Muestra el saldo disponible del combustible EN LA BODEGA seleccionada
+   y avisa en el acto si la cantidad pedida lo supera. */
+function cbStockHint(){
+  const hint=document.getElementById('cb-stock-hint');
+  if(!hint) return;
+  const cod=(document.getElementById('cb-producto')||{}).value||'';
+  const bod=(document.getElementById('cb-bodega')||{}).value||'';
+  const inp=document.getElementById('cb-cantidad');
+  const cant=parseFloat(inp&&inp.value)||0;
+  if(!cod||!bod){ hint.style.display='none'; if(inp) inp.removeAttribute('max'); return; }
+  const disp=(getStock(cod,bod)?.cantidad)||0;
+  if(inp) inp.setAttribute('max',disp);
+  hint.style.display='block';
+  if(disp<=0){
+    hint.style.color='#c0392b';
+    hint.textContent='Sin stock de este combustible en la bodega seleccionada.';
+  }else if(cant>disp){
+    hint.style.color='#c0392b';
+    hint.textContent=`Excede el saldo: disponible ${fmtNum(disp,2)} LT en esta bodega.`;
+  }else{
+    hint.style.color='#0a6ed1';
+    hint.textContent=`Disponible en esta bodega: ${fmtNum(disp,2)} LT`+
+      (cant>0?` · queda ${fmtNum(disp-cant,2)} LT`:'');
+  }
+}
+try{ window.renderCombustibleForm=renderCombustibleForm; window.cbToggleOtro=cbToggleOtro; window.cbStockHint=cbStockHint; }catch(e){}
 
 async function guardarCombustible(){
   if(!can('combustible.registrar')){ toast('Sin permiso','No tiene permiso para registrar salidas de combustible','error'); return; }
@@ -4850,8 +4876,17 @@ async function guardarCombustible(){
   }
 
   const prod=getProduct(codigo);
-  const stockTotal=getStockTotal(codigo);
-  if(cantidad>stockTotal){ return setErr(`Stock insuficiente. Disponible: ${fmtNum(stockTotal,2)} LT`); }
+  // La salida se emite contra la bodega seleccionada, así que el saldo debe
+  // medirse en esa bodega. Antes se comparaba con getStockTotal (suma de todas
+  // las bodegas), lo que permitía dejar una bodega en negativo.
+  const dispBodega=(getStock(codigo,bodegaId)?.cantidad)||0;
+  if(cantidad>dispBodega){
+    const bodNom=(getWarehouse(bodegaId)?.nombre)||bodegaId;
+    const total=getStockTotal(codigo);
+    let msg=`Stock insuficiente en ${bodNom}. Disponible: ${fmtNum(dispBodega,2)} LT`;
+    if(total>dispBodega) msg+=` (total en todas las bodegas: ${fmtNum(total,2)} LT)`;
+    return setErr(msg+'.');
+  }
 
   try{
     showLoading('Registrando salida de combustible...');
@@ -5363,8 +5398,8 @@ function renderMovDetalle(){
     html+=`<tr>
       <td><input type="text" placeholder="P000001, EAN o nuevo" value="${escapeHtml(l.codigoInterno||'')}" oninput="mvFiltrarProductos(this.value);updateMovLine(${i},'codigoInterno',this.value);" onblur="resolveProductCode(${i})" list="prodList" autocomplete="off" title="Escriba para buscar; si el código no existe, se ofrecerá crearlo"></td>
       <td>${p?escapeHtml(p.descripcion):'<span style="color:var(--mu)">-</span>'} ${p?'<span style="color:var(--mu);font-size:11px">· '+escapeHtml(p.unidadMedida)+'</span>':''}</td>
-      <td class="num" style="color:${saldo>0?'var(--gm)':'var(--mu)'}">${fmtNum(saldo,2)}</td>
-      <td><input type="number" step="0.01" class="num" value="${l.cantidad||''}" oninput="updateMovLine(${i},'cantidad',this.value);recalcMovTotals()"></td>
+      <td class="num" id="mvDisp-${i}" style="color:${saldo>0?'var(--gm)':'var(--mu)'}">${fmtNum(saldo,2)}</td>
+      <td><input type="number" step="0.01" class="num" id="mvCant-${i}" value="${l.cantidad||''}" oninput="updateMovLine(${i},'cantidad',this.value);recalcMovTotals();mvChkSaldo(${i})"></td>
       <td><input type="number" step="0.01" class="num" value="${l.costo!=null?l.costo:(isEnt?'':costoSugerido)}" ${isEnt?'':'readonly'} oninput="updateMovLine(${i},'costo',this.value);recalcMovTotals()"></td>
       <td class="num" id="mvLineTot-${i}">${fmtMon(cant*costo)}</td>
       <td>${p&&p.manejaAtributos?
@@ -5417,7 +5452,49 @@ function mvFiltrarProductos(texto){
 }
 try{ window.mvFiltrarProductos=mvFiltrarProductos; }catch(e){}
   w.innerHTML=html;
+  // Marcar de inmediato las líneas que ya exceden el saldo (p. ej. al editar)
+  if(movDraft.tipo==='SAL') movDraft.lineas.forEach((l,i)=>mvChkSaldo(i));
 }
+
+/* Avisa en vivo si la cantidad de una línea de SALIDA supera el saldo disponible.
+   Usa el saldo del lote cuando el producto maneja atributos, y la bodega si no.
+   Al editar, la cantidad original del movimiento vuelve a considerarse disponible. */
+function mvChkSaldo(i){
+  if(!movDraft||movDraft.tipo!=='SAL') return;
+  const l=movDraft.lineas[i]; if(!l) return;
+  const bod=movDraft.bodegaId;
+  const p=l.codigoInterno?getProduct(l.codigoInterno):null;
+  const porLote=!!(p&&p.manejaAtributos&&l.loteId);
+  let disp=0;
+  if(porLote){
+    const lt=STATE.cache.lots.find(x=>x.id===l.loteId);
+    disp=lt?(Number(lt.cantidad)||0):0;
+  }else{
+    disp=(l.codigoInterno&&bod)?((getStock(l.codigoInterno,bod)||{}).cantidad||0):0;
+  }
+  if(movDraft.editId){
+    const orig=STATE.cache.movements.find(m=>m.numero===movDraft.editId);
+    const dets=(orig&&orig.detalles)||[];
+    const od=dets.find(d=>porLote?d.loteId===l.loteId:d.codigoInterno===l.codigoInterno);
+    if(od) disp+=Number(od.cantidad)||0;
+  }
+  const cant=Number(l.cantidad)||0;
+  const exceso=cant>disp;
+  const inp=document.getElementById('mvCant-'+i);
+  const cell=document.getElementById('mvDisp-'+i);
+  if(inp){
+    if(l.codigoInterno&&bod) inp.setAttribute('max',disp); else inp.removeAttribute('max');
+    inp.style.borderColor=exceso?'#c0392b':'';
+    inp.style.background=exceso?'#fdecea':'';
+    inp.title=exceso?('Excede el saldo disponible '+(porLote?'en el lote':'en la bodega')+': '+fmtNum(disp,2)):'';
+  }
+  if(cell){
+    cell.textContent=fmtNum(disp,2);
+    cell.style.color=exceso?'#c0392b':(disp>0?'var(--gm)':'var(--mu)');
+    cell.style.fontWeight=exceso?'700':'';
+  }
+}
+try{ window.mvChkSaldo=mvChkSaldo; }catch(e){}
 function recalcMovTotals(){
   let total=0;
   const isEnt=movDraft.tipo==='ENT';
@@ -6765,5 +6842,4 @@ function confirmRestore(file){
       catch(e){hideLoading();toast('Error',e.message,'error')}
     },'Sí, restaurar',true);
 }
-
 
