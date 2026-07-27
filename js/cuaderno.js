@@ -1075,6 +1075,8 @@ function renderCompraUrgente(){
       '<span style="font-size:22px;font-weight:700;background:rgba(255,255,255,.2);border-radius:8px;padding:4px 12px">'+nProd+'</span>'+
     '</div>';
 }
+// Claves de producto de la última apertura del detalle de compra urgente.
+var _ccUrgKeys=[];
 function abrirCompraUrgente(){
   var lista=Array.isArray(S.comprasUrgentes)?S.comprasUrgentes:[];
   var vigentes=lista.filter(function(e){ return S.ordenes.some(function(o){ return String(o.id)===String(e.ordenId); }); });
@@ -1090,7 +1092,11 @@ function abrirCompraUrgente(){
       porProd[k].ordenes.push({ numero:e.numero, fecha:e.fecha, requerido:it.requerido, disponible:it.disponible, falta:it.falta, unit:it.unit, encontrado:it.encontrado });
     });
   });
-  var bodyRows=Object.keys(porProd).map(function(k){
+  var esAdmin=(typeof can==='function') && can('config.editar');
+  // Claves en el mismo orden que las tarjetas: la casilla envía el índice,
+  // así los nombres con comillas o & no rompen el atributo onchange.
+  _ccUrgKeys=Object.keys(porProd);
+  var bodyRows=_ccUrgKeys.map(function(k,ki){
     var p=porProd[k];
     var detOrdenes=p.ordenes.map(function(o){
       return '<div style="font-size:12px;color:#475569;padding:3px 0;border-top:1px dashed #e2e8f0">'+
@@ -1099,11 +1105,18 @@ function abrirCompraUrgente(){
         ' · <span style="color:#b91c1c;font-weight:700">falta '+fmtN(o.falta,2)+' '+(o.unit||'')+'</span></div>';
     }).join('');
     var badge=p.encontrado?('Comprar ≈ '+fmtN(p.totalFalta,2)+' '+(p.unit||'')):'No está en bodega';
+    // Casilla admin: descarta la alerta cuando la compra o la baja ya se resolvió a mano.
+    var chk = esAdmin
+      ? '<label style="display:flex;align-items:center;gap:6px;margin-top:8px;padding-top:8px;border-top:1px solid #f1f5f9;font-size:11px;color:#475569;cursor:pointer" '+
+        'title="Quita este producto de la alerta. Úselo si ya lo compró o si la salida se registró manualmente.">'+
+        '<input type="checkbox" onchange="descartarCompraUrgente('+ki+')" style="width:15px;height:15px;cursor:pointer">'+
+        'Resuelto — quitar de la alerta</label>'
+      : '';
     return '<div style="border:1px solid #e2e8f0;border-radius:9px;padding:12px 14px;margin-bottom:10px">'+
       '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">'+
         '<div style="font-weight:800;color:#1f2d3d;font-size:14px">'+escapeHtml(p.nombre)+'</div>'+
         '<div style="background:#fef2f2;color:#b91c1c;font-weight:700;font-size:12px;padding:4px 10px;border-radius:8px">'+badge+'</div>'+
-      '</div>'+detOrdenes+
+      '</div>'+detOrdenes+chk+
     '</div>';
   }).join('');
   var html='<div style="max-height:60vh;overflow-y:auto">'+
@@ -1114,6 +1127,40 @@ function abrirCompraUrgente(){
       '<button class="btn btn-secondary" onclick="closeModal()">Cerrar</button>', 'lg');
   }
 }
+
+// Quita un producto de la alerta de compra urgente: se usa cuando la compra ya
+// se hizo o cuando la baja de bodega se registró manualmente desde Salidas.
+// Reservado a administradores (permiso config.editar).
+function descartarCompraUrgente(ki){
+  if(typeof can!=='function' || !can('config.editar')){
+    if(typeof toast==='function') toast('Sin permiso','Solo un administrador puede descartar alertas','error');
+    return;
+  }
+  var claveProd=(_ccUrgKeys||[])[ki];
+  if(!claveProd){ if(typeof toast==='function') toast('No encontrado','No se pudo ubicar el producto','error'); return; }
+  var lista=Array.isArray(S.comprasUrgentes)?S.comprasUrgentes:[];
+  var k=String(claveProd).toUpperCase();
+  var quitados=0;
+  lista.forEach(function(e){
+    var antes=(e.items||[]).length;
+    e.items=(e.items||[]).filter(function(it){ return (it.nombre||'').toUpperCase()!==k; });
+    quitados += antes-e.items.length;
+  });
+  // Descartar las entradas que quedaron sin productos pendientes
+  S.comprasUrgentes=lista.filter(function(e){ return (e.items||[]).length>0; });
+  if(typeof save==='function') save();
+  if(typeof renderCompraUrgente==='function') renderCompraUrgente();
+  if(typeof closeModal==='function') closeModal();
+  if(typeof toast==='function'){
+    toast('Alerta descartada', claveProd+' · '+quitados+' orden(es) actualizada(s)','success');
+  }
+  // Reabrir el detalle solo si aún quedan pendientes
+  var quedan=(S.comprasUrgentes||[]).filter(function(e){
+    return (S.ordenes||[]).some(function(o){ return String(o.id)===String(e.ordenId); });
+  });
+  if(quedan.length) setTimeout(abrirCompraUrgente,250);
+}
+try{ window.descartarCompraUrgente=descartarCompraUrgente; }catch(e){}
 
 // ══ TAB NAV ══
 function showTab(name,btn){
@@ -2884,44 +2931,63 @@ function abrirResumenBajaConfirmaciones(){
     return;
   }
   function fmtN(n,d){ n=parseFloat(n)||0; return n.toLocaleString('es-CL',{minimumFractionDigits:d||0,maximumFractionDigits:d||0}); }
+  var esAdmin=(typeof can==='function') && can('config.editar');
   var confs=(S.confirmaciones||[]).slice().sort(function(a,b){ return String(b.fechaApp||'').localeCompare(String(a.fechaApp||'')); });
 
   var filas='';
   confs.forEach(function(c,idx){
+    // Índice REAL en S.confirmaciones (confs está ordenado, no sirve su índice)
+    var realIdx=(S.confirmaciones||[]).indexOf(c);
     var orden=(S.ordenes||[]).find(function(o){ return String(o.id)===String(c.ordenId); });
     var nro=orden?(orden.numero||orden.id||''):(c.numero||c.ordenId||('#'+(idx+1)));
     var panosTxt=(c.panoIds||[]).map(function(pid){ var p=getPano(pid); return p?p.nombre:pid; });
     // Cuarteles únicos
     var cuarteles=[]; panosTxt.forEach(function(n){ if(cuarteles.indexOf(n)<0) cuarteles.push(n); });
-    var prodRows=(c.productosReales||[]).map(function(pr){
+    var prodRows=(c.productosReales||[]).map(function(pr,prIdx){
       var nombre=pr.nombre||'';
       // Buscar el producto en el catálogo del SCI por descripción
       var prodSCI=(STATE.cache.products||[]).find(function(x){ return (x.descripcion||'').toLowerCase()===nombre.toLowerCase(); });
       var codigoSCI=prodSCI?prodSCI.codigoInterno:'';
       var qty=parseFloat(pr.qtyAplicada)||0;
       var unit=pr.unitS||'';
+      // ¿Ya se dio de baja esta confirmación+producto? (marca en la confirmación)
+      var yaBaja=(c.bajasBodega && c.bajasBodega[nombre]) ? c.bajasBodega[nombre] : null;
+      // Baja registrada MANUALMENTE fuera de este flujo (marcada por un admin)
+      var manual=(c.bajasManual && c.bajasManual[nombre]) ? c.bajasManual[nombre] : null;
+      var resuelto=!!(yaBaja||manual);
       // Saldo disponible en bodega (todas las bodegas) para este producto.
       var saldo = (codigoSCI && typeof getStockTotal==='function') ? getStockTotal(codigoSCI) : null;
-      var insuf = (saldo!=null && saldo < qty);
+      // Si la baja ya está resuelta, el faltante deja de ser una alerta.
+      var insuf = (!resuelto && saldo!=null && saldo < qty);
       var saldoCell = (saldo==null)
         ? '<span style="color:#999;font-size:11px">—</span>'
         : '<span style="font-size:11px;font-weight:700;color:'+(insuf?'#b91c1c':'#15803d')+'">'+fmtN(saldo,3)+(insuf?' ⚠':'')+'</span>'+(insuf?'<div style="font-size:9px;color:#b91c1c">insuficiente</div>':'');
-      // ¿Ya se dio de baja esta confirmación+producto? (marca en la confirmación)
-      var yaBaja=(c.bajasBodega && c.bajasBodega[nombre]) ? c.bajasBodega[nombre] : null;
+      // Casilla de baja manual (solo administrador). Permite silenciar la alerta
+      // cuando la salida ya se registró a mano desde el módulo de Salidas.
+      var chk='';
+      if(esAdmin && !yaBaja){
+        chk='<label style="display:flex;align-items:center;gap:5px;justify-content:center;margin-top:5px;font-size:10px;color:#475569;cursor:pointer" '+
+            'title="Marcar si la salida ya se registró manualmente en el módulo de Salidas">'+
+            '<input type="checkbox" '+(manual?'checked':'')+' onchange="marcarBajaManual('+realIdx+','+prIdx+',this.checked)" '+
+            'style="width:14px;height:14px;cursor:pointer">Baja manual</label>';
+      }
       var accion;
       if(yaBaja){
         accion='<span style="color:#15803d;font-weight:700;font-size:11px">✓ Baja '+escapeHtml(yaBaja)+'</span>';
+      } else if(manual){
+        accion='<span style="color:#15803d;font-weight:700;font-size:11px" title="Marcada por '+escapeHtml(manual.usuario||'')+'">✓ Baja manual'+
+               (manual.fecha?('<div style="font-size:9px;font-weight:400;color:#64748b">'+escapeHtml(manual.fecha)+'</div>'):'')+'</span>';
       } else if(codigoSCI){
         accion='<button onclick="bajaConfirmacionEnBodega(\''+String(c.ordenId||idx)+'\',\''+String(idx)+'\',\''+codigoSCI+'\','+qty+')" '+
           'style="background:'+(insuf?'#b91c1c':'#1565c0')+';color:#fff;border:none;border-radius:6px;padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer">📤 Dar de baja</button>';
       } else {
         accion='<span style="color:#b91c1c;font-size:11px" title="No existe en el catálogo del SCI">⚠ Crear en SCI</span>';
       }
-      return '<tr style="border-bottom:1px solid #eee">'+
+      return '<tr style="border-bottom:1px solid #eee'+(resuelto?';background:#f6fdf8':'')+'">'+
         '<td style="padding:6px 10px">'+escapeHtml(nombre)+(codigoSCI?'<div style="font-size:10px;color:#888">'+escapeHtml(codigoSCI)+'</div>':'')+'</td>'+
         '<td style="padding:6px 10px;text-align:right;font-weight:700">'+fmtN(qty,3)+' '+escapeHtml(unit)+'</td>'+
         '<td style="padding:6px 10px;text-align:right">'+saldoCell+'</td>'+
-        '<td style="padding:6px 10px;text-align:center">'+accion+'</td>'+
+        '<td style="padding:6px 10px;text-align:center">'+accion+chk+'</td>'+
       '</tr>';
     }).join('');
     if(!prodRows) return;
@@ -2945,7 +3011,8 @@ function abrirResumenBajaConfirmaciones(){
   modal.innerHTML='<div style="background:#fff;border-radius:12px;max-width:720px;width:100%;max-height:90vh;display:flex;flex-direction:column;overflow:hidden">'+
     '<div style="background:#23303d;color:#fff;padding:14px 18px;display:flex;justify-content:space-between;align-items:center">'+
       '<div><div style="font-size:16px;font-weight:800">📦 Resumen de confirmaciones · Baja de bodega</div>'+
-        '<div style="font-size:12px;opacity:.85">Producto usado por confirmación. Pulse «Dar de baja» para registrar la salida en el SCI.</div></div>'+
+        '<div style="font-size:12px;opacity:.85">Producto usado por confirmación. Pulse «Dar de baja» para registrar la salida en el SCI.'+
+        (esAdmin?' Si ya la registró a mano, marque «Baja manual» para silenciar la alerta.':'')+'</div></div>'+
       '<button onclick="document.getElementById(\'cc-baja-resumen-modal\').remove()" style="background:rgba(255,255,255,.2);border:none;color:#fff;font-size:24px;cursor:pointer;width:40px;height:40px;border-radius:8px">×</button>'+
     '</div>'+
     '<div style="padding:18px;overflow:auto;flex:1">'+filas+'</div>'+
@@ -2955,8 +3022,45 @@ function abrirResumenBajaConfirmaciones(){
   document.body.appendChild(modal);
 }
 
-// Abre el formulario de SALIDA del SCI (consumo por centro de costo) prellenado
-// con el producto y la cantidad de la confirmación.
+// Marca (o desmarca) un producto de una confirmación como "dado de baja
+// manualmente", cuando la salida se registró a mano desde el módulo de Salidas.
+// Silencia la alerta de saldo insuficiente sin generar ningún movimiento.
+// Reservado a administradores (permiso config.editar).
+function marcarBajaManual(idx, prIdx, marcar){
+  if(typeof can!=='function' || !can('config.editar')){
+    if(typeof toast==='function') toast('Sin permiso','Solo un administrador puede marcar bajas manuales','error');
+    abrirResumenBajaConfirmaciones();
+    return;
+  }
+  var c=(S.confirmaciones||[])[idx];
+  if(!c){ if(typeof toast==='function') toast('No encontrada','No se pudo ubicar la confirmación','error'); return; }
+  var pr=(c.productosReales||[])[prIdx];
+  var nombreProd=pr?(pr.nombre||''):'';
+  if(!nombreProd){ if(typeof toast==='function') toast('No encontrado','No se pudo ubicar el producto','error'); return; }
+  if(c.bajasBodega && c.bajasBodega[nombreProd]){
+    if(typeof toast==='function') toast('Ya registrada','Esta baja tiene un movimiento asociado y no puede marcarse como manual','error');
+    abrirResumenBajaConfirmaciones();
+    return;
+  }
+  if(!c.bajasManual) c.bajasManual={};
+  if(marcar){
+    c.bajasManual[nombreProd]={
+      fecha:new Date().toISOString().slice(0,10),
+      usuario:(STATE.user&&(STATE.user.nombre||STATE.user.username))||'?'
+    };
+  } else {
+    delete c.bajasManual[nombreProd];
+  }
+  if(typeof save==='function') save();
+  if(typeof renderCompraUrgente==='function') renderCompraUrgente();
+  abrirResumenBajaConfirmaciones();
+  if(typeof toast==='function'){
+    toast(marcar?'Baja manual marcada':'Marca retirada',
+          marcar?(nombreProd+' · alerta silenciada'):(nombreProd+' · vuelve a alertar'),
+          marcar?'success':'info');
+  }
+}
+try{ window.marcarBajaManual=marcarBajaManual; }catch(e){}
 function bajaConfirmacionEnBodega(ordenId, idx, codigoSCI, cantidad){
   if(typeof can==='function' && !can('movimientos.crear')){
     if(typeof toast==='function') toast('Sin permiso','Necesita permiso para crear movimientos','error');
