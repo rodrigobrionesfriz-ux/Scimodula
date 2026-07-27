@@ -73,7 +73,7 @@ var FBCOUNT = (function(){
   });
 })();
 </script>
-<link rel="stylesheet" href="css/styles.css?v=104">
+<link rel="stylesheet" href="css/styles.css?v=105">
 </head>
 <body>
 <!-- Hoja de estilo dinámica para el tema forestal (se llena vía JS) -->
@@ -756,7 +756,7 @@ document.addEventListener('click', function(e){
   if(dd && dd.classList.contains('open') && !dd.contains(e.target)) dd.classList.remove('open');
 });
 </script>
-<script src="js/core.js?v=104"></script>
+<script src="js/core.js?v=105"></script>
 <script>
 /* ═══════════════ MÓDULO: CONTROL DE PRESUPUESTO ═══════════════ */
 /* Integra el dashboard de Control de Presupuesto (Huerto Cerezos 2018) como
@@ -2075,10 +2075,10 @@ function renderPresupuesto(main){
 }
 
 </script>
-<script src="js/inventario.js?v=104"></script>
-<script src="js/ordencompra.js?v=104"></script>
-<script src="js/huerto.js?v=104"></script>
-<script src="js/actualizacion.js?v=104"></script>
+<script src="js/inventario.js?v=105"></script>
+<script src="js/ordencompra.js?v=105"></script>
+<script src="js/huerto.js?v=105"></script>
+<script src="js/actualizacion.js?v=105"></script>
 <script>
 
 /* ═══════════════ MÓDULO: MANTENCIONES ═══════════════ */
@@ -2831,13 +2831,15 @@ function sciFbWaitForSync(timeoutMs){
 
 // ══ STATE ══
 var S = { panos:[], registros:[], productos:[], ordenes:[], oCounter:1, confirmaciones:[], equipos:[], comprasUrgentes:[],
+  // Vínculo manual nombre-del-Cuaderno → codigoInterno del SCI
+  vinculosSCI: {},
   fertirriego: { sectores:[], ordenes:[], oCounter:1, cfg:{ equipos:[], formas:['POR GOTEO','MANUAL'], unidades:['GRS.','C.C','L','kg','mL'], horarios:['08:00 A 17:00','08:00 A 18:00','18:00 A 21:00'] } },
   // % de producción asignado a cada estado de planta (usado en estimaciones de cosecha)
   prodPorEstado: { sano:100, debil:60, replante:30, muerto:0, falta:0 }
 };
 
 </script>
-<script src="js/cuaderno.js?v=104"></script>
+<script src="js/cuaderno.js?v=105"></script>
 <script>
 
 /* ═══════════════ INTEGRACIÓN CUADERNO DE CAMPO ═══════════════ */
@@ -2894,8 +2896,8 @@ function renderCuaderno(main){
 </script>
 
 
-<script src="data/presupuesto-data.js?v=104"></script>
-<script src="js/presupuesto.js?v=104"></script>
+<script src="data/presupuesto-data.js?v=105"></script>
+<script src="js/presupuesto.js?v=105"></script>
 <script>
 /* ── Normalización global a MAYÚSCULAS en la entrada de datos ──
    Aplica a inputs de texto y textareas de todo el sistema.
