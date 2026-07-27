@@ -27,16 +27,41 @@ function setCurrency(cur) {
   updateBanner();
 }
 
-// Actualiza el subtítulo con la temporada seleccionada (o la actual por defecto).
-function actualizarSubtituloTemporada(){
-  var el=document.getElementById('subtitle-temporada'); if(!el) return;
+// Pestaña activa del módulo (define la etiqueta base del título).
+var PZ_TAB = 'dashboard';
+
+// Devuelve la temporada vigente: la del filtro global, o la actual del sistema.
+function pzTemporadaVigente(){
   var t=(document.getElementById('f-temporada')||{}).value||'';
-  if(!t){ // sin filtro: usar la temporada actual del sistema si está disponible
-    try{ if(typeof temporadaActual==='function') t=temporadaActual(); }catch(e){}
-  }
+  if(!t){ try{ if(typeof temporadaActual==='function') t=temporadaActual(); }catch(e){} }
+  return t;
+}
+
+// Compone el título: etiqueta de la pestaña + huerto + temporada.
+function pzActualizarTitulo(){
+  var h1=document.getElementById('pz-dash-title'); if(!h1) return;
+  var vista=(typeof PZ_VISTA!=='undefined')?PZ_VISTA:'STD';
+  var huerto=(typeof PZ_HUERTO!=='undefined')?PZ_HUERTO:'2018';
+  var base;
+  if(PZ_TAB==='criterios')      base='Criterios';
+  else if(PZ_TAB==='eerha')     base='Resultado por Hect\u00e1rea';
+  else if(vista==='GTT')        base='Formato GTT Nahuelbuta';
+  else                          base='Control Presupuesto';
+  var txt=base+' \u00b7 CZ '+huerto;
+  var t=pzTemporadaVigente();
+  txt += t ? (' \u00b7 Temporada '+t) : ' \u00b7 Todas las temporadas';
+  h1.textContent=txt;
+}
+try{ window.pzActualizarTitulo=pzActualizarTitulo; }catch(e){}
+
+// Subtítulo: rango de meses de la temporada (la temporada ya va en el título).
+function actualizarSubtituloTemporada(){
+  pzActualizarTitulo();
+  var el=document.getElementById('subtitle-temporada'); if(!el) return;
+  var t=pzTemporadaVigente();
   if(t && /^\d{4}-\d{4}$/.test(t)){
     var a1=t.split('-')[0], a2=t.split('-')[1];
-    el.textContent='Temporada '+t+' (Mayo '+a1+' – Abril '+a2+')';
+    el.textContent='Mayo '+a1+' \u2013 Abril '+a2;
   } else if(t){
     el.textContent='Temporada '+t;
   } else {
@@ -2106,6 +2131,7 @@ function pzSetHuerto(huerto){
 }
 // Cambiar pestaña Dashboard 2018 / Dashboard 2024 / Formato GTT / Criterios
 window.pzCambiarTab = function(tab){
+  PZ_TAB = tab;
   var pDash=document.getElementById('pz-pane-dashboard');
   var pCrit=document.getElementById('pz-pane-criterios');
   document.querySelectorAll('.pz-tab-btn').forEach(function(b){
@@ -2138,11 +2164,7 @@ window.pzCambiarTab = function(tab){
     try{ render(); }catch(e){}
     try{ updateBanner(); }catch(e){}
     var h1=document.getElementById('pz-dash-title');
-    if(h1){
-      h1.textContent = (PZ_VISTA==='GTT')
-        ? 'Dashboard Gerencial \u2013 Formato GTT Nahuelbuta \u00b7 CZ ' + PZ_HUERTO
-        : 'Dashboard Gerencial \u2013 Control Presupuesto \u00b7 CZ ' + PZ_HUERTO;
-    }
+    if(h1) pzActualizarTitulo();
   }
   if(tab==='criterios'){
     pzPopularSelectoresCriterios();
@@ -2152,6 +2174,7 @@ window.pzCambiarTab = function(tab){
     try{ pzCargarEERInputs(); }catch(e){}
     try{ pzRenderEERHa(); }catch(e){}
   }
+  pzActualizarTitulo();
 };
 // Popular los selectores de temporada y tipo de gasto
 window.pzPopularSelectoresCriterios = function(){
