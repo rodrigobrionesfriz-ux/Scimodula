@@ -406,6 +406,8 @@ function fbApplyRemote(data){
       if(remote.pctExport !== undefined) S.pctExport = remote.pctExport;
       if(remote.oCounter !== undefined) S.oCounter = remote.oCounter;
       if(remote.comprasUrgentes !== undefined) S.comprasUrgentes = remote.comprasUrgentes;
+      if(remote.vinculosSCI !== undefined) S.vinculosSCI = remote.vinculosSCI;
+      if(!S.vinculosSCI || typeof S.vinculosSCI!=='object') S.vinculosSCI = {};
       if(!Array.isArray(S.comprasUrgentes)) S.comprasUrgentes = [];
       if(!Array.isArray(S.confirmaciones)) S.confirmaciones = [];
       // Guardar en localStorage como respaldo
@@ -460,6 +462,7 @@ function fbPush(immediate){
       panos: S.panos, registros: S.registros, productos: S.productos,
       ordenes: S.ordenes, confirmaciones: S.confirmaciones, oCounter: S.oCounter,
       equipos: S.equipos, comprasUrgentes: S.comprasUrgentes,
+      vinculosSCI: S.vinculosSCI,
       fertirriego: S.fertirriego, prodPorEstado: S.prodPorEstado,
       versionesEstim: S.versionesEstim,
       pctExport: S.pctExport
@@ -556,9 +559,10 @@ function _migrarPanos(){
 function load(){
   try{
     var d = localStorage.getItem('cc_v2');
-    if(d){ var p=JSON.parse(d); ['panos','registros','productos','ordenes','confirmaciones','fertirriego','equipos','comprasUrgentes','versionesEstim','pctExport'].forEach(function(k){ if(p[k]) S[k]=p[k]; }); if(p.oCounter) S.oCounter=p.oCounter;
+    if(d){ var p=JSON.parse(d); ['panos','registros','productos','ordenes','confirmaciones','fertirriego','equipos','comprasUrgentes','versionesEstim','pctExport','vinculosSCI'].forEach(function(k){ if(p[k]) S[k]=p[k]; }); if(p.oCounter) S.oCounter=p.oCounter;
       if(!Array.isArray(S.confirmaciones)) S.confirmaciones = [];
       if(!Array.isArray(S.comprasUrgentes)) S.comprasUrgentes = [];
+      if(!S.vinculosSCI || typeof S.vinculosSCI!=='object') S.vinculosSCI = {};
       if(!Array.isArray(S.equipos)) S.equipos = [];
       // Normalizar equipos (nebulizadoras) a objetos {nombre,capacidad}
       S.equipos = S.equipos.map(function(e){ return (typeof e==='string')?{nombre:e,capacidad:0}:{nombre:(e&&e.nombre)||'',capacidad:(e&&parseFloat(e.capacidad))||0}; }).filter(function(e){ return e.nombre; });
@@ -2945,9 +2949,10 @@ function abrirResumenBajaConfirmaciones(){
     var cuarteles=[]; panosTxt.forEach(function(n){ if(cuarteles.indexOf(n)<0) cuarteles.push(n); });
     var prodRows=(c.productosReales||[]).map(function(pr,prIdx){
       var nombre=pr.nombre||'';
-      // Buscar el producto en el catálogo del SCI por descripción
-      var prodSCI=(STATE.cache.products||[]).find(function(x){ return (x.descripcion||'').toLowerCase()===nombre.toLowerCase(); });
+      // Resolución por vínculo manual → descripción exacta → descripción normalizada
+      var prodSCI=_resolverProdSCI(nombre);
       var codigoSCI=prodSCI?prodSCI.codigoInterno:'';
+      var vinculado=!!_getVinculoSCI(nombre);
       var qty=parseFloat(pr.qtyAplicada)||0;
       var unit=pr.unitS||'';
       // ¿Ya se dio de baja esta confirmación+producto? (marca en la confirmación)
@@ -2981,10 +2986,21 @@ function abrirResumenBajaConfirmaciones(){
         accion='<button onclick="bajaConfirmacionEnBodega(\''+String(c.ordenId||idx)+'\',\''+String(idx)+'\',\''+codigoSCI+'\','+qty+')" '+
           'style="background:'+(insuf?'#b91c1c':'#1565c0')+';color:#fff;border:none;border-radius:6px;padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer">📤 Dar de baja</button>';
       } else {
-        accion='<span style="color:#b91c1c;font-size:11px" title="No existe en el catálogo del SCI">⚠ Crear en SCI</span>';
+        accion='<span style="color:#b91c1c;font-size:11px" title="No existe en el catálogo del SCI">⚠ Sin correspondencia</span>';
+        if(esAdmin){
+          accion+='<div style="margin-top:5px"><button onclick="abrirVinculoSCI('+realIdx+','+prIdx+')" '+
+            'style="background:#7c3aed;color:#fff;border:none;border-radius:6px;padding:4px 9px;font-size:10px;font-weight:700;cursor:pointer" '+
+            'title="Enlazar este nombre con un producto del catálogo del SCI">🔗 Vincular</button></div>';
+        }
+      }
+      // Indicador de vínculo manual activo, con opción de deshacerlo
+      var vinc='';
+      if(vinculado && codigoSCI){
+        vinc='<div style="font-size:9px;color:#7c3aed;margin-top:3px">🔗 vinculado'+
+             (esAdmin?(' · <a href="#" onclick="desvincularSCI('+realIdx+','+prIdx+');return false;" style="color:#7c3aed">quitar</a>'):'')+'</div>';
       }
       return '<tr style="border-bottom:1px solid #eee'+(resuelto?';background:#f6fdf8':'')+'">'+
-        '<td style="padding:6px 10px">'+escapeHtml(nombre)+(codigoSCI?'<div style="font-size:10px;color:#888">'+escapeHtml(codigoSCI)+'</div>':'')+'</td>'+
+        '<td style="padding:6px 10px">'+escapeHtml(nombre)+(codigoSCI?'<div style="font-size:10px;color:#888">'+escapeHtml(codigoSCI)+'</div>':'')+vinc+'</td>'+
         '<td style="padding:6px 10px;text-align:right;font-weight:700">'+fmtN(qty,3)+' '+escapeHtml(unit)+'</td>'+
         '<td style="padding:6px 10px;text-align:right">'+saldoCell+'</td>'+
         '<td style="padding:6px 10px;text-align:center">'+accion+chk+'</td>'+
@@ -3061,6 +3077,98 @@ function marcarBajaManual(idx, prIdx, marcar){
   }
 }
 try{ window.marcarBajaManual=marcarBajaManual; }catch(e){}
+
+// ── Modal: vincular un nombre del Cuaderno con un producto del catálogo SCI ──
+// Sugiere el candidato más parecido, pero la decisión es siempre del usuario:
+// nunca se enlaza automáticamente por similitud.
+function abrirVinculoSCI(idx, prIdx){
+  if(typeof can!=='function' || !can('config.editar')){
+    if(typeof toast==='function') toast('Sin permiso','Solo un administrador puede vincular productos','error');
+    return;
+  }
+  var c=(S.confirmaciones||[])[idx];
+  var pr=c?((c.productosReales||[])[prIdx]):null;
+  var nombre=pr?(pr.nombre||''):'';
+  if(!nombre){ if(typeof toast==='function') toast('No encontrado','No se pudo ubicar el producto','error'); return; }
+
+  var prods=(STATE.cache.products||[]).filter(function(p){ return p && p.activo!==false; });
+  // Ordenar por similitud con el nombre del Cuaderno
+  var conSim=prods.map(function(p){ return {p:p, sim:_similitudNombre(nombre, p.descripcion||'')}; })
+                  .sort(function(a,b){ return b.sim-a.sim; });
+  var sugerido=(conSim[0] && conSim[0].sim>=0.6) ? conSim[0] : null;
+  var actual=_getVinculoSCI(nombre);
+
+  var opciones=conSim.map(function(x){
+    var sel=(actual && String(x.p.codigoInterno)===String(actual)) ? ' selected'
+          : ((!actual && sugerido && x.p.codigoInterno===sugerido.p.codigoInterno) ? ' selected' : '');
+    var pct=Math.round(x.sim*100);
+    return '<option value="'+escapeHtml(x.p.codigoInterno)+'"'+sel+'>'+
+           escapeHtml(x.p.descripcion||'')+' · '+escapeHtml(x.p.codigoInterno)+
+           (pct>=60?(' ('+pct+'% parecido)'):'')+'</option>';
+  }).join('');
+
+  var prev=document.getElementById('cc-vinculo-modal'); if(prev) prev.remove();
+  var modal=document.createElement('div');
+  modal.id='cc-vinculo-modal';
+  modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:10008;display:flex;align-items:center;justify-content:center;padding:16px';
+  modal.onclick=function(e){ if(e.target===modal) modal.remove(); };
+  modal.innerHTML='<div style="background:#fff;border-radius:12px;max-width:560px;width:100%;display:flex;flex-direction:column;overflow:hidden">'+
+    '<div style="background:#7c3aed;color:#fff;padding:14px 18px">'+
+      '<div style="font-size:16px;font-weight:800">🔗 Vincular con producto del SCI</div>'+
+      '<div style="font-size:12px;opacity:.9">El enlace se guarda por código, así sobrevive si luego se corrige la descripción.</div>'+
+    '</div>'+
+    '<div style="padding:18px">'+
+      '<div style="font-size:12px;color:#666;margin-bottom:4px">Nombre en el Cuaderno</div>'+
+      '<div style="background:#fef3c7;color:#92600a;padding:8px 12px;border-radius:7px;font-weight:700;font-size:14px;margin-bottom:14px">📒 '+escapeHtml(nombre)+'</div>'+
+      '<div style="font-size:12px;color:#666;margin-bottom:4px">Producto del SCI</div>'+
+      '<input type="text" id="cc-vinc-buscar" placeholder="Filtrar por nombre o código..." '+
+        'style="width:100%;padding:9px 11px;border:1px solid #cdd5df;border-radius:7px;font-size:13px;margin-bottom:8px;box-sizing:border-box">'+
+      '<select id="cc-vinc-sel" size="8" style="width:100%;padding:6px;border:1px solid #cdd5df;border-radius:7px;font-size:13px;box-sizing:border-box">'+opciones+'</select>'+
+      '<div style="font-size:11px;color:#888;margin-top:8px">Los porcentajes son solo una sugerencia. Verifique que sea realmente el mismo producto antes de guardar.</div>'+
+    '</div>'+
+    '<div style="padding:12px 18px;border-top:1px solid #e3e8ee;display:flex;gap:10px;justify-content:flex-end">'+
+      '<button onclick="document.getElementById(\'cc-vinculo-modal\').remove()" style="padding:10px 16px;border:none;border-radius:9px;background:#f0f0f0;cursor:pointer;font-size:14px;font-weight:700">Cancelar</button>'+
+      '<button id="cc-vinc-ok" style="padding:10px 18px;border:none;border-radius:9px;background:#7c3aed;color:#fff;cursor:pointer;font-size:14px;font-weight:700">Vincular</button>'+
+    '</div></div>';
+  document.body.appendChild(modal);
+
+  // Filtro en vivo del listado
+  var buscar=document.getElementById('cc-vinc-buscar');
+  var sel=document.getElementById('cc-vinc-sel');
+  if(buscar&&sel){
+    buscar.oninput=function(){
+      var q=(this.value||'').toLowerCase();
+      Array.prototype.forEach.call(sel.options,function(o){
+        o.style.display = (!q || o.textContent.toLowerCase().indexOf(q)>=0) ? '' : 'none';
+      });
+    };
+  }
+  document.getElementById('cc-vinc-ok').onclick=function(){
+    var cod=sel?sel.value:'';
+    if(!cod){ if(typeof toast==='function') toast('Seleccione','Elija un producto del SCI','error'); return; }
+    if(guardarVinculoSCI(nombre, cod)){
+      modal.remove();
+      if(typeof renderCompraUrgente==='function') renderCompraUrgente();
+      abrirResumenBajaConfirmaciones();
+      if(typeof toast==='function') toast('Vinculado', nombre+' → '+cod, 'success');
+    }
+  };
+}
+try{ window.abrirVinculoSCI=abrirVinculoSCI; }catch(e){}
+
+// Quita el vínculo manual y vuelve al emparejamiento por nombre.
+function desvincularSCI(idx, prIdx){
+  var c=(S.confirmaciones||[])[idx];
+  var pr=c?((c.productosReales||[])[prIdx]):null;
+  var nombre=pr?(pr.nombre||''):'';
+  if(!nombre) return;
+  if(guardarVinculoSCI(nombre, '')){
+    if(typeof renderCompraUrgente==='function') renderCompraUrgente();
+    abrirResumenBajaConfirmaciones();
+    if(typeof toast==='function') toast('Vínculo quitado', nombre, 'info');
+  }
+}
+try{ window.desvincularSCI=desvincularSCI; }catch(e){}
 function bajaConfirmacionEnBodega(ordenId, idx, codigoSCI, cantidad){
   if(typeof can==='function' && !can('movimientos.crear')){
     if(typeof toast==='function') toast('Sin permiso','Necesita permiso para crear movimientos','error');
@@ -3828,21 +3936,75 @@ function renderOrdenChips(){
     el.appendChild(div);
   });
 }
+/* ══════════ VÍNCULO EXPLÍCITO CUADERNO → SCI ══════════
+   El emparejamiento por nombre exacto se rompía con cualquier diferencia de un
+   carácter (ej. "DORMEX 200 LT ALZ2" vs "DORMEX 200 LT ALZ"). Ahora el vínculo
+   se guarda como código en S.vinculosSCI, indexado por el nombre normalizado.
+   Se guarda el CÓDIGO, no el nombre, así el enlace sobrevive si en el SCI se
+   corrige la descripción del producto.                                        */
+
+function _claveVinculo(nombre){ return _normNombreProd(nombre); }
+
+// Devuelve el código SCI vinculado manualmente a ese nombre, o ''.
+function _getVinculoSCI(nombre){
+  try{
+    if(!S.vinculosSCI || typeof S.vinculosSCI!=='object') return '';
+    return S.vinculosSCI[_claveVinculo(nombre)] || '';
+  }catch(e){ return ''; }
+}
+
+// Resuelve la ficha del SCI para un nombre del Cuaderno.
+// Orden: 1) vínculo manual · 2) descripción exacta · 3) descripción normalizada.
+// La normalización solo ignora mayúsculas, acentos, signos y espacios: nunca
+// empareja nombres realmente distintos. Todo lo demás exige vínculo manual.
+function _resolverProdSCI(nombre){
+  var nom=(nombre||'').toString().trim();
+  if(!nom) return null;
+  var prods=(typeof STATE!=='undefined' && STATE.cache && Array.isArray(STATE.cache.products)) ? STATE.cache.products : [];
+  // 1) Vínculo manual guardado por un administrador
+  var cod=_getVinculoSCI(nom);
+  if(cod){
+    var byCod=prods.find(function(p){ return String(p.codigoInterno)===String(cod); });
+    if(byCod) return byCod;   // si el producto ya no existe, se sigue buscando
+  }
+  // 2) Coincidencia exacta de descripción
+  var low=nom.toLowerCase();
+  var exacto=prods.find(function(p){ return (p.descripcion||'').toLowerCase()===low; });
+  if(exacto) return exacto;
+  // 3) Coincidencia normalizada (acentos, espacios, signos, mayúsculas)
+  var norm=_normNombreProd(nom);
+  var porNorm=prods.find(function(p){ return _normNombreProd(p.descripcion)===norm; });
+  return porNorm||null;
+}
+try{ window._resolverProdSCI=_resolverProdSCI; }catch(e){}
+
+// Guarda o elimina el vínculo manual. Solo administradores.
+function guardarVinculoSCI(nombre, codigoSCI){
+  if(typeof can!=='function' || !can('config.editar')){
+    if(typeof toast==='function') toast('Sin permiso','Solo un administrador puede vincular productos','error');
+    return false;
+  }
+  if(!S.vinculosSCI || typeof S.vinculosSCI!=='object') S.vinculosSCI={};
+  var k=_claveVinculo(nombre);
+  if(!k) return false;
+  if(codigoSCI) S.vinculosSCI[k]=String(codigoSCI);
+  else delete S.vinculosSCI[k];
+  if(typeof save==='function') save();
+  return true;
+}
+try{ window.guardarVinculoSCI=guardarVinculoSCI; }catch(e){}
+
 // ─── Stock de un producto de la orden (por nombre) ───────────────────────
 // Mapea el nombre del producto (como aparece en la orden) a su ficha del
 // catálogo SCI para obtener el codigoInterno y el stock total en bodega.
 // Devuelve {cod, disponible, encontrado, unidadBodega}.
 function _stockProductoOrden(nombre){
-  var nom=(nombre||'').toString().trim().toUpperCase();
-  if(!nom) return {cod:'', disponible:0, encontrado:false, unidadBodega:''};
-  var cat=_getProductosCatalogo();
-  var ficha=cat.find(function(p){ return (p.nombre||'').toString().trim().toUpperCase()===nom; });
-  if(!ficha || !ficha.codigoInterno){
+  var prodSCI=_resolverProdSCI(nombre);
+  if(!prodSCI || !prodSCI.codigoInterno){
     return {cod:'', disponible:0, encontrado:false, unidadBodega:''};
   }
-  var disp = (typeof getStockTotal==='function') ? (getStockTotal(ficha.codigoInterno)||0) : 0;
-  var prod = (typeof getProduct==='function') ? getProduct(ficha.codigoInterno) : null;
-  return {cod:ficha.codigoInterno, disponible:disp, encontrado:true, unidadBodega:(prod&&prod.unidadMedida)||''};
+  var disp = (typeof getStockTotal==='function') ? (getStockTotal(prodSCI.codigoInterno)||0) : 0;
+  return {cod:prodSCI.codigoInterno, disponible:disp, encontrado:true, unidadBodega:prodSCI.unidadMedida||''};
 }
 // Faltantes de la orden en curso (se persisten al emitir). Cada item:
 // {nombre, cod, requerido, disponible, falta, unit, encontrado}
@@ -6931,7 +7093,7 @@ function startFromBackup(file){
 
 function startFresh(){
   // Clear everything
-  S = { panos:[], registros:[], productos:[], ordenes:[], oCounter:1 };
+  S = { panos:[], registros:[], productos:[], ordenes:[], oCounter:1, vinculosSCI:{} };
   save();
   closeStartupModal();
   document.getElementById('cc-panos-tbody').innerHTML='';
