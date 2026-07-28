@@ -1384,7 +1384,7 @@ function navigate(page, fromHistory){
     conteos:'Conteos en terreno',
     invplantas:'Inventario de Huerto · Conteo de Plantas',
     aih:'Actualización Inventario Huerto',
-    presupuesto:'Control de Presupuesto — Huerto Cerezos 2018'
+    presupuesto:'Control de Presupuesto — Huertos Cerezo'
   };
   document.getElementById('topTitle').textContent=titles[page]||'';
   const main=document.getElementById('mainContent');
