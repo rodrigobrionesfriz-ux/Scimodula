@@ -300,7 +300,23 @@ function sciFbStartListener(){
 }
 
 // Aplica el estado remoto a IndexedDB local
+/* Firma barata de la lista de movimientos: permite distinguir un snapshot que
+   trae cambios reales de uno que solo devuelve el eco de lo que acabamos de
+   subir. Evita recalcular todo el stock en cada notificación de Firebase.     */
+function _sigMovimientos(arr){
+  var n=0, s=0;
+  if(!Array.isArray(arr)) return '0:0';
+  for(var i=0;i<arr.length;i++){
+    var m=arr[i]; if(!m) continue;
+    n++;
+    var u=String(m.numero||'')+'|'+String(m.updatedAt||m.fecha||'')+(m.anulado?'|A':'');
+    for(var c=0;c<u.length;c++){ s=(s*31+u.charCodeAt(c))>>>0; }
+  }
+  return n+':'+s;
+}
+
 async function sciFbApplyRemote(data){
+  var llegaronMovimientos = false;
   try {
     SCIFB.applyingRemote = true;
     if(data.payload){
@@ -330,6 +346,9 @@ async function sciFbApplyRemote(data){
             for(var j=0;j<fusionado.length;j++){
               try{ await dbPutLocal(store, fusionado[j]); }catch(e){}
             }
+            if(store==='movements' && _sigMovimientos(localArr)!==_sigMovimientos(fusionado)){
+              llegaronMovimientos = true;
+            }
           } else {
             // Stores de catálogo/configuración: reemplazo directo.
             await dbClear(store);
@@ -341,11 +360,19 @@ async function sciFbApplyRemote(data){
       }
       SCIFB.lastVersion = data._version || SCIFB.lastVersion;
       await reloadCache();
-      // Refrescar la pantalla actual del SCI
-      if(typeof navigate === 'function' && typeof STATE !== 'undefined' && STATE.page){
-        try{ navigate(STATE.page); }catch(e){}
+      // El stock NO se sincroniza: es un valor DERIVADO de los movimientos.
+      // Si llegaron movimientos de otro dispositivo, hay que reconstruirlo aquí
+      // o los saldos quedarían con el valor anterior hasta el próximo ingreso.
+      if(llegaronMovimientos && typeof _ejecutarRecalculoStock==='function'){
+        try{
+          await _ejecutarRecalculoStock();   // recalcula y hace reloadCache()
+        }catch(e){ console.error('[SCI-Firebase] Recálculo tras sync falló:', e); }
       }
-      sciFbIndicator('online', 'Inventario actualizado desde la nube');
+      // Redibujar la pantalla actual (solo vistas de consulta)
+      _refrescarVistaSegura();
+      sciFbIndicator('online', llegaronMovimientos
+        ? 'Movimientos sincronizados · saldos recalculados'
+        : 'Inventario actualizado desde la nube');
     }
   } catch(e){
     console.error('[SCI-Firebase] Error al aplicar cambio remoto:', e);
@@ -353,6 +380,29 @@ async function sciFbApplyRemote(data){
     SCIFB.applyingRemote = false;
   }
 }
+
+/* ─── Refresco de la vista tras un cambio de datos de fondo ────────────────
+   Vuelve a dibujar la pantalla actual SOLO si es una vista de consulta. En
+   páginas con formulario (entradas, salidas, tomas, conteos...) redibujar
+   borraría lo que el usuario está escribiendo, así que se omite. Tampoco se
+   refresca con un modal abierto. Devuelve true si alcanzó a redibujar.        */
+var _SCI_PAGINAS_CONSULTA = {
+  dashboard:1, stock:1, movimientos:1, productos:1, bodegas:1, proveedores:1,
+  clientes:1, centrosCosto:1, tomas:1, usuarios:1, auditoria:1,
+  ordenesCompra:1, repCombustible:1, sistemasExternos:1
+};
+function _refrescarVistaSegura(){
+  try{
+    if(typeof navigate!=='function') return false;
+    if(typeof STATE==='undefined' || !STATE.page) return false;
+    if(!_SCI_PAGINAS_CONSULTA[STATE.page]) return false;
+    var bd=document.getElementById('modalBackdrop');
+    if(bd && bd.classList.contains('show')) return false;
+    navigate(STATE.page, true);   // true = no apilar en el historial
+    return true;
+  }catch(e){ return false; }
+}
+try{ window._refrescarVistaSegura=_refrescarVistaSegura; }catch(e){}
 
 // Envía todo el estado del SCI a la nube
 /* ─── Lápidas de eliminación (tombstones) ───────────────────────────────
@@ -965,7 +1015,14 @@ async function doLogin(){
               const res=await _ejecutarRecalculoStock();
               const check2=await detectarInconsistenciaStock();
               if(check2.ok){
-                toast('Stock reconstruido',`Se detectaron ${total} saldo(s) desactualizado(s) y se recalcularon automáticamente desde los movimientos.`,'success');
+                // Los saldos ya están recalculados en cache, pero la pantalla
+                // se dibujó antes: hay que volver a pintarla o el usuario
+                // seguiría viendo los valores viejos hasta reabrir la app.
+                const refrescado=_refrescarVistaSegura();
+                toast('Stock reconstruido',
+                  `Se detectaron ${total} saldo(s) desactualizado(s) y se recalcularon automáticamente desde los movimientos.`+
+                  (refrescado?'':' Vuelva a abrir la pantalla para ver los saldos nuevos.'),
+                  'success');
               }else{
                 const d0=check2.diferencias[0];
                 let nom='';
