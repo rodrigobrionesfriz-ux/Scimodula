@@ -141,15 +141,24 @@ function _helRenderLista(){
   });
 
   // ── Resumen de la temporada filtrada ──
-  var noches={}, horas=0, litrosUlt=null, tMin=null, nAuto=0;
+  // El estanque es POR TORRE: cada una tiene el suyo, así que un único valor
+  // global no significa nada. Se guarda la lectura del registro más reciente
+  // de cada torre (no la del último elemento recorrido, que por el orden
+  // descendente era justamente el más ANTIGUO).
+  var noches={}, horas=0, tMin=null, nAuto=0, ultPorTorre={};
   filtrados.forEach(function(r){
     if(r.fecha) noches[r.fecha]=1;
     var h=_helHorasHorom(r); if(h!==null && h>0) horas+=h;
     var t=parseFloat(r.tempMinima); if(!isNaN(t) && (tMin===null||t<tMin)) tMin=t;
     if(r.partida==='auto') nAuto++;
-    var l=parseFloat(r.litrosEstanque); if(!isNaN(l)) litrosUlt=l;
+    var l=parseFloat(r.litrosEstanque);
+    if(!isNaN(l)){
+      var k=r.torre||'—', prev=ultPorTorre[k];
+      if(!prev || _helEsPosterior(r, prev.reg)) ultPorTorre[k]={litros:l, fecha:r.fecha, reg:r};
+    }
   });
   var nNoches=Object.keys(noches).length;
+  var nTorresEst=Object.keys(ultPorTorre).length;
 
   var cards=
     '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:14px">'+
@@ -157,7 +166,7 @@ function _helRenderLista(){
       _helCard('Horas de torre', _helFmtH(horas), 'suma por horómetro', '#7c3aed')+
       _helCard('Temp. mínima', (tMin===null?'—':_helFmtH(tMin)+' °C'), 'de la temporada', '#b91c1c')+
       _helCard('Registros', filtrados.length, nAuto+' con partida automática', '#15803d')+
-      _helCard('Estanque', (litrosUlt===null?'—':_helFmtH(litrosUlt)+' L'), 'última lectura informada', '#c2831a')+
+      _helCardEstanque(ultPorTorre, nTorresEst)+
     '</div>';
 
   // ── Filtros ──
@@ -222,6 +231,42 @@ function _helRenderLista(){
       '</tr></thead><tbody>'+filas+'</tbody></table></div>';
 }
 var _helVista=[];   // registros tal como se muestran (para resolver índices)
+
+/* ¿El registro a es posterior a b? Compara fecha (ISO, comparable como texto)
+   y desempata por hora de término y por marca de creación. */
+function _helEsPosterior(a,b){
+  var fa=String(a.fecha||''), fb=String(b.fecha||'');
+  if(fa!==fb) return fa>fb;
+  var ha=String(a.horaTermino||''), hb=String(b.horaTermino||'');
+  if(ha!==hb) return ha>hb;
+  return String(a.createdAt||'')>String(b.createdAt||'');
+}
+
+/* Tarjeta de estanque: una línea por torre con su última lectura y la fecha.
+   Ocupa dos columnas cuando hay más de una torre, para que no se comprima. */
+function _helCardEstanque(ultPorTorre, nTorres){
+  var keys=Object.keys(ultPorTorre).sort();
+  var cuerpo;
+  if(!keys.length){
+    cuerpo='<div style="font-size:20px;font-weight:800;color:#c2831a;margin:2px 0">—</div>'+
+           '<div style="font-size:10px;color:#94a3b8">sin lecturas informadas</div>';
+  }else{
+    cuerpo=keys.map(function(k){
+      var v=ultPorTorre[k];
+      return '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:3px 0;border-top:1px solid #f1f5f9">'+
+          '<span style="font-size:11px;color:#475569;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+_helEsc(k)+
+            '<span style="color:#94a3b8;font-size:9.5px"> · '+_helFmtFecha(v.fecha)+'</span></span>'+
+          '<span style="font-size:15px;font-weight:800;color:#c2831a;white-space:nowrap">'+_helFmtH(v.litros)+' L</span>'+
+        '</div>';
+    }).join('');
+    cuerpo='<div style="margin-top:2px">'+cuerpo+'</div>';
+  }
+  return '<div style="border:1px solid #e3e8ee;border-radius:9px;padding:10px 12px;background:#fff'+
+      (nTorres>1?';grid-column:span 2':'')+'">'+
+    '<div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.4px">Estanque · última lectura por torre</div>'+
+    cuerpo+
+  '</div>';
+}
 
 function _helCard(titulo,valor,sub,color){
   return '<div style="border:1px solid #e3e8ee;border-radius:9px;padding:10px 12px;background:#fff">'+
