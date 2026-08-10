@@ -9,7 +9,7 @@
 
 /* ═══════════════ DB LAYER (IndexedDB) ═══════════════ */
 const DB_NAME='SCI_DB';
-const DB_VERSION=12;
+const DB_VERSION=13;   // v108: nuevo store 'heladas' (Control de Heladas)
 const STORES=[
   ['users','id'],
   ['products','codigoInterno'],
@@ -32,7 +32,8 @@ const STORES=[
   ['combustible','id'],
   ['config','key'],
   ['aihprop','id'],
-  ['aihver','id']
+  ['aihver','id'],
+  ['heladas','id']
 ];
 let DB=null;
 
@@ -67,7 +68,7 @@ function dbPut(store,obj){
     // el mismo registro. No se aplica al aplicar un cambio remoto (para no
     // re-sellar lo que ya viene de la nube).
     try{
-      var ACUM = {'invplantas':1,'conteos':1,'estimaciones':1,'movements':1,'mantenciones':1,'inventoryCounts':1,'lots':1,'aihprop':1};
+      var ACUM = {'invplantas':1,'conteos':1,'estimaciones':1,'movements':1,'mantenciones':1,'inventoryCounts':1,'lots':1,'aihprop':1,'heladas':1};
       if(ACUM[store] && obj && typeof obj==='object' && !(typeof SCIFB!=='undefined' && SCIFB.applyingRemote)){
         obj._mod = Date.now();
       }
@@ -191,7 +192,7 @@ var SCIFB = {
   applyingRemote: false,
   saveTimer: null,
   // Tablas que se sincronizan (todas las del SCI)
-  stores: ['users','products','warehouses','groups','productTypes','providers','customers','costCenters','inventoryCounts','movements','ordenescompra','lots','config','mantenciones','conteos','estimaciones','invplantas','combustible','aihprop']
+  stores: ['users','products','warehouses','groups','productTypes','providers','customers','costCenters','inventoryCounts','movements','ordenescompra','lots','config','mantenciones','conteos','estimaciones','invplantas','combustible','aihprop','heladas']
 };
 
 function sciFbDocRef(){
@@ -448,7 +449,7 @@ function _sciEstaEliminado(store, rec, key){
    dispositivo borre datos que otro creó. */
 var SCI_STORES_ACUMULATIVOS = {
   'invplantas':1,'conteos':1,'estimaciones':1,'movements':1,'combustible':1,'aihprop':1,
-  'mantenciones':1,'inventoryCounts':1,'audit':1,'lots':1,'ordenescompra':1
+  'mantenciones':1,'inventoryCounts':1,'audit':1,'lots':1,'ordenescompra':1,'heladas':1
 };
 function _sciStoreKey(store){
   try{ for(var i=0;i<STORES.length;i++){ if(STORES[i][0]===store) return STORES[i][1]; } }catch(e){}
@@ -585,7 +586,7 @@ async function sha256(text){
 const STATE={
   user:null,
   page:'dashboard',
-  cache:{products:[],warehouses:[],groups:[],productTypes:[],providers:[],customers:[],costCenters:[],inventoryCounts:[],movements:[],ordenescompra:[],stock:[],lots:[],users:[],config:{},mantenciones:[],conteos:[],estimaciones:[],invplantas:[],combustible:[],aihprop:[]}
+  cache:{products:[],warehouses:[],groups:[],productTypes:[],providers:[],customers:[],costCenters:[],inventoryCounts:[],movements:[],ordenescompra:[],stock:[],lots:[],users:[],config:{},mantenciones:[],conteos:[],estimaciones:[],invplantas:[],combustible:[],aihprop:[],heladas:[]}
 };
 
 // ── Advertencia al cerrar / recargar / volver atrás (evita salir por error) ──
@@ -740,15 +741,17 @@ const PERMISSIONS=[
   ['aih.ver','Acceder a Actualización Inventario Huerto'],
   ['aih.proponer','Proponer cambios de estado de plantas (terreno)'],
   ['aih.aprobar','Aprobar/rechazar propuestas y restaurar versiones del inventario'],
+  ['helada.ver','Ver el Control de Heladas y sus registros'],
+  ['helada.registrar','Registrar y editar controles de helada de las torres'],
 ];
 const ROLE_PERMS={
   'admin':PERMISSIONS.map(p=>p[0]),
   // Gerente: ve todo (solo lectura en general, pero acceso completo de visualización)
-  'gerente':['productos.ver','bodegas.ver','proveedores.ver','clientes.ver','centrosCosto.ver','tomas.ver','movimientos.ver','stock.ver','usuarios.ver','config.ver','cuaderno.ver','mantenciones.ver','presupuesto.ver'],
+  'gerente':['productos.ver','bodegas.ver','proveedores.ver','clientes.ver','centrosCosto.ver','tomas.ver','movimientos.ver','stock.ver','usuarios.ver','config.ver','cuaderno.ver','mantenciones.ver','presupuesto.ver','helada.ver'],
   // Admin. Agrónomo: gestiona todo el Cuaderno de Campo + ve el inventario
-  'agronomo':['productos.ver','bodegas.ver','stock.ver','movimientos.ver','config.ver','cuaderno.ver','cuaderno.editar','cuaderno.confirmar','cuaderno.panos','conteos.ver','conteos.revisar','invplantas.ver','invplantas.revisar','presupuesto.ver','aih.ver','aih.proponer'],
-  'operador':['productos.ver','productos.crear','bodegas.ver','proveedores.ver','proveedores.crear','clientes.ver','clientes.crear','centrosCosto.ver','centrosCosto.crear','movimientos.ver','movimientos.crear','combustible.registrar','stock.ver','tomas.ver','tomas.crear','config.ver'],
-  'consulta':['productos.ver','bodegas.ver','proveedores.ver','clientes.ver','centrosCosto.ver','movimientos.ver','stock.ver','tomas.ver','config.ver'],
+  'agronomo':['productos.ver','bodegas.ver','stock.ver','movimientos.ver','config.ver','cuaderno.ver','cuaderno.editar','cuaderno.confirmar','cuaderno.panos','conteos.ver','conteos.revisar','invplantas.ver','invplantas.revisar','presupuesto.ver','aih.ver','aih.proponer','helada.ver','helada.registrar'],
+  'operador':['productos.ver','productos.crear','bodegas.ver','proveedores.ver','proveedores.crear','clientes.ver','clientes.crear','centrosCosto.ver','centrosCosto.crear','movimientos.ver','movimientos.crear','combustible.registrar','stock.ver','tomas.ver','tomas.crear','config.ver','helada.ver','helada.registrar'],
+  'consulta':['productos.ver','bodegas.ver','proveedores.ver','clientes.ver','centrosCosto.ver','movimientos.ver','stock.ver','tomas.ver','config.ver','helada.ver'],
   // OP. CONTEOS: solo el módulo de conteos en terreno
   'opconteos':['conteos.ver','invplantas.ver','aih.ver','aih.proponer'],
   // OP. COMBUSTIBLE: solo el formulario de salida de combustible
@@ -879,6 +882,7 @@ async function reloadCache(){
   STATE.cache.conteos=await dbAll('conteos');
   STATE.cache.invplantas=await dbAll('invplantas');
   STATE.cache.aihprop=await dbAll('aihprop');
+  STATE.cache.heladas=await dbAll('heladas');
   // 'stock' es derivado y desde v82 ya NO se sincroniza: la única vía que lo
   // cargaba en memoria era applyRemote. Debe leerse aquí explícitamente.
   STATE.cache.stock=await dbAll('stock');
@@ -1147,6 +1151,7 @@ const PAGES=[
     {id:'ordenesCompra',label:'Órdenes de Compra',icon:'🧾',perm:'movimientos.ver'},
     {id:'tomas',label:'Tomas de Inventario',icon:'📋',perm:'tomas.ver'},
     {id:'repCombustible',label:'Rendimiento combustible',icon:'⛽',perm:'combustible.registrar',adminOnly:true},
+    {id:'helada',label:'Control de Heladas',icon:'❄️',perm:'helada.ver'},
   ]},
   {section:'CUADERNO DE CAMPO',items:[
     {id:'cuaderno',label:'Cuaderno de Campo',icon:'🌳',perm:'cuaderno.ver'},
@@ -1441,6 +1446,7 @@ function navigate(page, fromHistory){
     conteos:'Conteos en terreno',
     invplantas:'Inventario de Huerto · Conteo de Plantas',
     aih:'Actualización Inventario Huerto',
+    helada:'Control de Heladas — Torres de Control',
     presupuesto:'Control de Presupuesto — Huertos Cerezo'
   };
   document.getElementById('topTitle').textContent=titles[page]||'';
@@ -1472,6 +1478,7 @@ function navigate(page, fromHistory){
     case 'conteos':renderConteos(main);break;
     case 'invplantas':renderInvPlantas(main);break;
     case 'aih':renderAIH(main);break;
+    case 'helada':renderHelada(main);break;
     case 'presupuesto':renderPresupuesto(main);break;
   }
 }
