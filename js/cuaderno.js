@@ -5658,50 +5658,131 @@ function rpGenerarExcel(){
     ];
     XLSX.utils.book_append_sheet(wb, wsDet, 'Detalle confirmaciones');
 
-    // ─── HOJA 3: Consumo por producto (clave para bodega) ───
+    // ─── HOJA 3: Consumo por producto y cuartel (clave para bodega) ───
+    // Una línea por PRODUCTO × CUARTEL. La cantidad de cada confirmación se
+    // reparte entre sus paños de forma PROPORCIONAL A LAS HECTÁREAS (mismo
+    // criterio que la hoja "Consumo por paño"), no en partes iguales.
     var prodRows = [[
-      'Producto','Unidad','Cantidad total','N\u00b0 aplicaciones',
-      'Primera aplicaci\u00f3n','\u00daltima aplicaci\u00f3n','Agua acumulada (L)','\u00d3rdenes'
+      'Producto','Unidad','Cuartel','Tipo','Hect\u00e1reas',
+      'Cantidad en el cuartel','Dosis (unidad/ha)','N\u00b0 aplicaciones',
+      'Primera aplicaci\u00f3n','\u00daltima aplicaci\u00f3n','Agua en el cuartel (L)',
+      '\u00d3rdenes','Cantidad total del producto'
     ]];
-    // Recolectar también agua por producto y órdenes en que aparece
-    var prodWithExtras = {};
+    var prodWithExtras = {};   // producto -> totales (para el total y el orden)
+    var prodPorCuartel = {};   // producto + cuartel -> detalle de la línea
+
     confs.forEach(function(c){
+      // Fracción de cada paño según sus hectáreas (si no hay há, reparto igual)
+      var ids = c.panoIds || [];
+      var hasPorPano = {}, haTotalConf = 0;
+      ids.forEach(function(pid){
+        var p = getPano(pid);
+        var ha = p ? (parseFloat(p.hectareas)||0) : 0;
+        hasPorPano[pid] = ha;
+        haTotalConf += ha;
+      });
+      var aguaRealConf = parseFloat(c.aguaReal||0)||0;
+
       (c.productosReales||[]).forEach(function(p){
         if(!p.nombre) return;
         var key = p.nombre + ' [' + (p.unitS||'') + ']';
+        var qtyTotal = parseFloat(p.qtyAplicada||0)||0;
+
+        // Totales del producto (suma de todos los cuarteles)
         if(!prodWithExtras[key]){
-          prodWithExtras[key] = {
-            nombre:p.nombre, unitS:p.unitS||'',
-            qty:0, aplicaciones:0, fechaIni:c.fechaApp, fechaFin:c.fechaApp,
-            agua:0, ordenes:{}
-          };
+          prodWithExtras[key] = {nombre:p.nombre, unitS:p.unitS||'', qty:0, aplicaciones:0};
         }
-        var pe = prodWithExtras[key];
-        pe.qty += parseFloat(p.qtyAplicada||0)||0;
-        pe.aplicaciones++;
-        pe.agua += parseFloat(c.aguaReal||0)||0;
-        if(c.ordenNumero) pe.ordenes[c.ordenNumero] = true;
-        if(c.fechaApp){
-          if(c.fechaApp < pe.fechaIni) pe.fechaIni = c.fechaApp;
-          if(c.fechaApp > pe.fechaFin) pe.fechaFin = c.fechaApp;
+        prodWithExtras[key].qty += qtyTotal;
+        prodWithExtras[key].aplicaciones++;
+
+        // Desglose por cuartel
+        if(!ids.length){
+          // Confirmación sin paños asociados: no se pierde, se marca aparte
+          var kSin = key + '||(sin cuartel)';
+          if(!prodPorCuartel[kSin]){
+            prodPorCuartel[kSin] = {
+              prodKey:key, nombre:p.nombre, unitS:p.unitS||'',
+              cuartel:'(sin cuartel asignado)', tipo:'', hectareas:0,
+              qty:0, agua:0, aplicaciones:0,
+              fechaIni:c.fechaApp, fechaFin:c.fechaApp, ordenes:{}
+            };
+          }
+          var dSin = prodPorCuartel[kSin];
+          dSin.qty += qtyTotal;
+          dSin.agua += aguaRealConf;
+          dSin.aplicaciones++;
+          if(c.ordenNumero) dSin.ordenes[c.ordenNumero] = true;
+          if(c.fechaApp){
+            if(!dSin.fechaIni || c.fechaApp < dSin.fechaIni) dSin.fechaIni = c.fechaApp;
+            if(!dSin.fechaFin || c.fechaApp > dSin.fechaFin) dSin.fechaFin = c.fechaApp;
+          }
+          return;
         }
+
+        ids.forEach(function(pid){
+          var pano = getPano(pid);
+          var ha = hasPorPano[pid] || 0;
+          var frac = (haTotalConf>0) ? (ha/haTotalConf) : (ids.length ? 1/ids.length : 0);
+          var kc = key + '||' + pid;
+          if(!prodPorCuartel[kc]){
+            prodPorCuartel[kc] = {
+              prodKey: key,
+              nombre: p.nombre,
+              unitS: p.unitS||'',
+              cuartel: pano ? pano.nombre : ('Pa\u00f1o '+pid),
+              tipo: pano ? (pano.tipo||'Productivo') : '',
+              hectareas: pano ? (parseFloat(pano.hectareas)||0) : 0,
+              qty:0, agua:0, aplicaciones:0,
+              fechaIni:c.fechaApp, fechaFin:c.fechaApp, ordenes:{}
+            };
+          }
+          var d = prodPorCuartel[kc];
+          d.qty  += qtyTotal * frac;
+          d.agua += aguaRealConf * frac;
+          d.aplicaciones++;
+          if(c.ordenNumero) d.ordenes[c.ordenNumero] = true;
+          if(c.fechaApp){
+            if(!d.fechaIni || c.fechaApp < d.fechaIni) d.fechaIni = c.fechaApp;
+            if(!d.fechaFin || c.fechaApp > d.fechaFin) d.fechaFin = c.fechaApp;
+          }
+        });
       });
     });
-    // Ordenar por cantidad descendente
-    Object.values(prodWithExtras).sort(function(a,b){ return b.qty-a.qty; }).forEach(function(p){
+
+    // Ordenar: producto de mayor consumo primero; dentro de cada producto,
+    // el cuartel que más recibió. Así las líneas de un producto quedan juntas.
+    Object.values(prodPorCuartel).sort(function(a,b){
+      var ta=(prodWithExtras[a.prodKey]||{}).qty||0;
+      var tb=(prodWithExtras[b.prodKey]||{}).qty||0;
+      if(tb!==ta) return tb-ta;
+      if(a.prodKey!==b.prodKey) return a.prodKey.localeCompare(b.prodKey);
+      return b.qty-a.qty;
+    }).forEach(function(d){
+      var total=(prodWithExtras[d.prodKey]||{}).qty||0;
+      var dosis=(d.hectareas>0) ? (d.qty/d.hectareas) : '';
       prodRows.push([
-        p.nombre,
-        p.unitS,
-        parseFloat(p.qty.toFixed(3)),
-        p.aplicaciones,
-        p.fechaIni||'',
-        p.fechaFin||'',
-        Math.round(p.agua),
-        Object.keys(p.ordenes).join(', ')
+        d.nombre,
+        d.unitS,
+        d.cuartel,
+        d.tipo,
+        d.hectareas?parseFloat(d.hectareas.toFixed(2)):'',
+        parseFloat(d.qty.toFixed(3)),
+        dosis===''?'':parseFloat(dosis.toFixed(3)),
+        d.aplicaciones,
+        d.fechaIni||'',
+        d.fechaFin||'',
+        Math.round(d.agua),
+        Object.keys(d.ordenes).join(', '),
+        parseFloat(total.toFixed(3))
       ]);
     });
     var wsProd = XLSX.utils.aoa_to_sheet(prodRows);
-    wsProd['!cols'] = [{wch:30},{wch:8},{wch:15},{wch:14},{wch:14},{wch:14},{wch:16},{wch:25}];
+    wsProd['!cols'] = [
+      {wch:30},{wch:8},{wch:20},{wch:12},{wch:11},
+      {wch:20},{wch:16},{wch:14},
+      {wch:14},{wch:14},{wch:19},
+      {wch:25},{wch:22}
+    ];
     XLSX.utils.book_append_sheet(wb, wsProd, 'Consumo por producto');
 
     // ─── HOJA 4: Consumo por paño ───
