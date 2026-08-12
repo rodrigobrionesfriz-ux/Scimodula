@@ -1053,7 +1053,10 @@ function renderHeader(){
   var tHas=S.panos.reduce(function(s,p){ return s+p.hectareas; },0);
   document.getElementById('cc-h-has').textContent=tHas.toFixed(1);
   document.getElementById('cc-h-panos').textContent=S.panos.length;
-  document.getElementById('cc-h-regs').textContent=S.registros.length;
+  // Las aplicaciones reales son las CONFIRMACIONES, no S.registros (que es el
+  // registro manual antiguo y hoy queda vacío). Mismo criterio que la tarjeta
+  // "Aplicaciones confirmadas" del resumen, que sí mostraba el número correcto.
+  document.getElementById('cc-h-regs').textContent=(S.confirmaciones||[]).length;
   renderCompraUrgente();
 }
 
@@ -5274,6 +5277,9 @@ function cfGuardar(){
   S.confirmaciones.unshift(confirmacion);
   save();
   if(typeof showNotice==='function') showNotice('Confirmación registrada para '+o.numero+'.','ok');
+  // El contador de Aplicaciones del encabezado cuenta confirmaciones: refrescarlo
+  // aquí evita que quede desfasado hasta el próximo cambio de pestaña.
+  if(typeof renderHeader==='function') renderHeader();
 
   // Recargar la vista (estado puede haber cambiado de Pendiente→Parcial→Completa)
   cfCargarDetalle(o.id);
