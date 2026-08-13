@@ -883,6 +883,9 @@ async function reloadCache(){
   STATE.cache.invplantas=await dbAll('invplantas');
   STATE.cache.aihprop=await dbAll('aihprop');
   STATE.cache.heladas=await dbAll('heladas');
+  // 'combustible' se sincroniza y se escribía en cache solo al registrar una
+  // salida: tras recargar la app quedaba vacío hasta el primer consumo nuevo.
+  STATE.cache.combustible=await dbAll('combustible');
   // 'stock' es derivado y desde v82 ya NO se sincroniza: la única vía que lo
   // cargaba en memoria era applyRemote. Debe leerse aquí explícitamente.
   STATE.cache.stock=await dbAll('stock');
