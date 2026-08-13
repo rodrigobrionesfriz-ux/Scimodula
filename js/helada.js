@@ -94,11 +94,13 @@ function renderHelada(main){
   var tabs='';
   tabs+='<button onclick="helTab(0)" style="'+_helTabCss(_helTab==='registros')+'">❄️ Registros</button>';
   if(puedeReg) tabs+='<button onclick="helTab(1)" style="'+_helTabCss(_helTab==='form')+'">📝 '+(_helEditId?'Editando':'Nuevo registro')+'</button>';
+  tabs+='<button onclick="helTab(3)" style="'+_helTabCss(_helTab==='diesel')+'">⛽ Diésel</button>';
   if(esAdmin)  tabs+='<button onclick="helTab(2)" style="'+_helTabCss(_helTab==='torres')+'">🗼 Torres</button>';
 
   var body='';
   if(_helTab==='form' && puedeReg)       body=_helRenderForm();
   else if(_helTab==='torres' && esAdmin) body=_helRenderTorres();
+  else if(_helTab==='diesel')            body=_helRenderDiesel();
   else                                   body=_helRenderLista();
 
   main.innerHTML=
@@ -115,7 +117,7 @@ function _helTabCss(act){
 }
 // Índices numéricos en el onclick: evita problemas de escape con textos.
 function helTab(i){
-  _helTab=(i===1)?'form':(i===2)?'torres':'registros';
+  _helTab=(i===1)?'form':(i===2)?'torres':(i===3)?'diesel':'registros';
   if(i!==1) _helEditId=null;
   _helRefresh();
 }
@@ -552,6 +554,345 @@ async function helRenombrarTorre(i){
   _helRefresh();
 }
 
+/* ════════ TAB DIÉSEL ════════
+   Compras y consumos del diésel destinado al control de heladas.
+   Los datos NO se duplican: se derivan del SCI.
+     · Compras  → movimientos de ENTRADA de los productos marcados como diésel.
+     · Consumos → registros del store `combustible` cuyo equipo es una torre.
+   El impuesto específico ya está modelado en el SCI: cada línea de entrada
+   guarda `costoNeto`, `montoEspecifico` y `costo` (neto + parte NO recuperable),
+   y el % de recuperación vive en config.empresa.recupIEC.                      */
+
+// % del impuesto específico que la empresa NO recupera (0–1).
+function _helPctNoRecup(){
+  try{
+    var emp=(STATE.cache.config && STATE.cache.config.empresa) || {};
+    var r=(emp.recupIEC!=null?emp.recupIEC:100)/100;
+    return 1-r;
+  }catch(e){ return 0; }
+}
+
+// Código del producto con que se compra el diésel de las torres.
+// La empresa lo tiene separado del diésel general, así que la tarjeta de
+// compras no mezcla el consumo de tractores ni de otros equipos.
+var HEL_DIESEL_DEFAULT = ['P000161'];   // "DIESEL CONTROL HELADAS"
+
+// Códigos de producto considerados "diésel de control de heladas".
+// Configurable; si no hay configuración, usa el código dedicado y, solo si
+// ese código no existe en el catálogo, detecta por descripción.
+function _helCodigosDiesel(){
+  try{
+    var cfg=(STATE.cache.config||{}).helDiesel;
+    if(cfg && Array.isArray(cfg.codigos) && cfg.codigos.length) return cfg.codigos.slice();
+  }catch(e){}
+  var prods=STATE.cache.products||[];
+  var dedicados=HEL_DIESEL_DEFAULT.filter(function(cod){
+    return prods.some(function(p){ return p.codigoInterno===cod; });
+  });
+  if(dedicados.length) return dedicados;
+  return prods.filter(function(p){
+    var d=(p.descripcion||'').toUpperCase();
+    return d.indexOf('DIESEL')>=0 || d.indexOf('DIÉSEL')>=0 || d.indexOf('PETROLEO')>=0 || d.indexOf('PETRÓLEO')>=0;
+  }).map(function(p){ return p.codigoInterno; });
+}
+async function _helGuardarCodigosDiesel(codigos){
+  await dbPut('config',{key:'helDiesel', codigos:codigos});
+  STATE.cache.config=STATE.cache.config||{};
+  STATE.cache.config.helDiesel={key:'helDiesel', codigos:codigos};
+}
+
+// Descripción legible de los códigos de diésel activos (para los subtítulos).
+function _helNombresDiesel(){
+  var cods=_helCodigosDiesel();
+  if(!cods.length) return 'sin productos configurados';
+  var prods=STATE.cache.products||[];
+  return cods.map(function(c){
+    var p=prods.find(function(x){ return x.codigoInterno===c; });
+    return (p?(p.descripcion||''):'(no existe)')+' · '+c;
+  }).join('  |  ');
+}
+
+/* Compras: una fila por línea de entrada de un producto diésel. */
+function _helComprasDiesel(){
+  var cods=_helCodigosDiesel();
+  var pctNo=_helPctNoRecup();
+  var out=[];
+  (STATE.cache.movements||[]).forEach(function(m){
+    if(!m || m.tipo!=='ENT' || m.anulado) return;
+    (m.detalles||[]).forEach(function(d){
+      if(cods.indexOf(d.codigoInterno)<0) return;
+      var cant=Number(d.cantidad)||0;
+      if(cant<=0) return;
+      var netoUnit=Number(d.costoNeto!=null?d.costoNeto:d.costo)||0;
+      var espTotal=Number(d.montoEspecifico)||0;
+      var espNoRecup=espTotal*pctNo;              // parte que es COSTO
+      // `costo` ya viene con los no recuperables incorporados; si falta, se calcula.
+      var costoUnit=(d.costo!=null)?Number(d.costo):(netoUnit+espNoRecup/cant);
+      var prod=(STATE.cache.products||[]).find(function(p){ return p.codigoInterno===d.codigoInterno; });
+      out.push({
+        fecha:(m.fecha||'').slice(0,10),
+        numero:m.numero||'',
+        documento:[m.tipoDoc,m.numeroDoc].filter(Boolean).join(' ') || m.documento || '',
+        proveedor:m.proveedorNombre||m.proveedor||'—',
+        producto:(prod&&prod.descripcion)||d.codigoInterno,
+        cantidad:cant,
+        netoUnit:netoUnit,
+        espNoRecupUnit:cant>0?(espNoRecup/cant):0,
+        costoUnit:costoUnit,
+        totalNeto:netoUnit*cant,
+        totalCosto:costoUnit*cant
+      });
+    });
+  });
+  return out.sort(function(a,b){ return String(b.fecha).localeCompare(String(a.fecha)); });
+}
+
+/* Consumos: registros de `combustible` cuyo equipo es una de las torres. */
+function _helConsumosDiesel(){
+  var torres=_helTorres();
+  var movs=STATE.cache.movements||[];
+  var cods=_helCodigosDiesel();
+  return (STATE.cache.combustible||[]).filter(function(r){
+    return r && torres.indexOf(r.equipo)>=0;
+  }).map(function(r){
+    // El costo unitario real está en el movimiento de salida (PPP del momento).
+    var mov=movs.find(function(m){ return m.numero===r.movNumero; });
+    var det=mov&&(mov.detalles||[])[0];
+    var cu=det?(Number(det.costo)||0):0;
+    var cant=Number(r.cantidad)||0;
+    return {
+      fecha:(r.fecha||'').slice(0,10),
+      torre:r.equipo||'—',
+      producto:r.producto||r.codigoProducto||'',
+      codigoProducto:r.codigoProducto||'',
+      // Salida cargada a una torre pero con un producto distinto al de heladas:
+      // se muestra igual (el consumo existe) pero marcada, para poder corregirla.
+      otroProducto: !!(r.codigoProducto && cods.indexOf(r.codigoProducto)<0),
+      cantidad:cant,
+      costoUnit:cu,
+      neto:cu*cant,
+      km:r.km,
+      movNumero:r.movNumero||'',
+      anulado:!!(mov&&mov.anulado)
+    };
+  }).filter(function(x){ return !x.anulado; })
+    .sort(function(a,b){ return String(b.fecha).localeCompare(String(a.fecha)); });
+}
+
+function _helMon(n){
+  n=Number(n)||0;
+  return '$ '+n.toLocaleString('es-CL',{minimumFractionDigits:0,maximumFractionDigits:0});
+}
+function _helMon2(n){
+  n=Number(n)||0;
+  return '$ '+n.toLocaleString('es-CL',{minimumFractionDigits:2,maximumFractionDigits:2});
+}
+
+function _helRenderDiesel(){
+  var compras=_helComprasDiesel();
+  var consumos=_helConsumosDiesel();
+  var pctNo=_helPctNoRecup();
+  var esAdmin=can('config.editar');
+
+  // Filtro por temporada (reutiliza el mismo filtro de la pestaña Registros)
+  if(_helFTemp){
+    compras =compras .filter(function(x){ return _helTemporada(x.fecha)===_helFTemp; });
+    consumos=consumos.filter(function(x){ return _helTemporada(x.fecha)===_helFTemp; });
+  }
+
+  var litComp=0, totNeto=0, totCosto=0;
+  compras.forEach(function(c){ litComp+=c.cantidad; totNeto+=c.totalNeto; totCosto+=c.totalCosto; });
+  var litCons=0, totCons=0;
+  consumos.forEach(function(c){ litCons+=c.cantidad; totCons+=c.neto; });
+
+  var temporadas=[];
+  _helRegs().forEach(function(r){ if(r.temporada && temporadas.indexOf(r.temporada)<0) temporadas.push(r.temporada); });
+  temporadas.sort().reverse();
+  var optTemp='<option value="">Todas</option>'+temporadas.map(function(t){
+    return '<option value="'+_helEsc(t)+'"'+(t===_helFTemp?' selected':'')+'>'+_helEsc(t)+'</option>'; }).join('');
+
+  var head=
+    '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px">'+
+      '<div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px">TEMPORADA</label>'+
+        '<select id="hel-f-temp" onchange="helFiltrarDiesel()" style="padding:7px 10px;border:1px solid #cdd5df;border-radius:7px;font-size:13px">'+optTemp+'</select></div>'+
+      '<div style="flex:1"></div>'+
+      (esAdmin?'<button class="btn btn-secondary" onclick="helConfigDiesel()">⚙️ Productos diésel</button>':'')+
+    '</div>'+
+    '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:16px">'+
+      _helCard('Litros comprados', _helFmtH(litComp)+' L', compras.length+' compra(s)', '#0a6ed1')+
+      _helCard('Costo de compras', _helMon(totCosto), 'neto + específico no recup.', '#7c3aed')+
+      _helCard('Litros consumidos', _helFmtH(litCons)+' L', consumos.length+' consumo(s)', '#c2831a')+
+      _helCard('Costo de consumos', _helMon(totCons), 'valorizado a costo PPP', '#15803d')+
+    '</div>';
+
+  // ── Tarjeta 1: COMPRAS ──
+  var filasC=compras.map(function(c){
+    return '<tr style="border-bottom:1px solid #eee">'+
+      '<td style="padding:7px 9px;white-space:nowrap;font-weight:700">'+_helFmtFecha(c.fecha)+'</td>'+
+      '<td style="padding:7px 9px">'+_helEsc(c.proveedor)+
+        (c.documento?'<div style="font-size:10px;color:#888">'+_helEsc(c.documento)+'</div>':'')+'</td>'+
+      '<td style="padding:7px 9px;font-size:11px;color:#475569">'+_helEsc(c.producto)+'</td>'+
+      '<td style="padding:7px 9px;text-align:right;white-space:nowrap;font-weight:700">'+_helFmtH(c.cantidad)+' L</td>'+
+      '<td style="padding:7px 9px;text-align:right;white-space:nowrap">'+_helMon2(c.costoUnit)+
+        '<div style="font-size:10px;color:#888">neto '+_helMon2(c.netoUnit)+
+        (c.espNoRecupUnit>0?(' + '+_helMon2(c.espNoRecupUnit)):'')+'</div></td>'+
+      '<td style="padding:7px 9px;text-align:right;white-space:nowrap;font-weight:700">'+_helMon(c.totalNeto)+'</td>'+
+      '<td style="padding:7px 9px;text-align:right;white-space:nowrap">'+_helMon(c.totalCosto)+'</td>'+
+    '</tr>';
+  }).join('');
+
+  var cardCompras=
+    '<div style="border:1px solid #e3e8ee;border-radius:10px;padding:14px;margin-bottom:16px;background:#fff">'+
+      '<div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px;margin-bottom:4px">'+
+        '<div style="font-size:15px;font-weight:800;color:#1a3a5c">🛒 Compras de Diésel · Control Heladas</div>'+
+        (compras.length?'<button class="btn btn-secondary" onclick="helExportarDiesel(0)" style="font-size:12px;padding:5px 10px">📊 CSV</button>':'')+
+      '</div>'+
+      '<div style="font-size:11px;color:#7a8794;margin-bottom:10px">'+
+        'Producto: '+_helEsc(_helNombresDiesel())+' · '+
+        'Precio por litro = neto + la parte NO recuperable del impuesto específico ('+
+        _helFmtH(pctNo*100)+'% no recuperable según la configuración de la empresa).</div>'+
+      (compras.length
+        ? '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12.5px;min-width:780px">'+
+          '<thead><tr style="background:#f5f7fa;border-bottom:2px solid #e3e8ee">'+
+            '<th style="padding:8px 9px;text-align:left;font-size:11px;color:#64748b">FECHA</th>'+
+            '<th style="padding:8px 9px;text-align:left;font-size:11px;color:#64748b">PROVEEDOR / DOC.</th>'+
+            '<th style="padding:8px 9px;text-align:left;font-size:11px;color:#64748b">PRODUCTO</th>'+
+            '<th style="padding:8px 9px;text-align:right;font-size:11px;color:#64748b">CANTIDAD</th>'+
+            '<th style="padding:8px 9px;text-align:right;font-size:11px;color:#64748b">PRECIO / LITRO</th>'+
+            '<th style="padding:8px 9px;text-align:right;font-size:11px;color:#64748b">TOTAL NETO</th>'+
+            '<th style="padding:8px 9px;text-align:right;font-size:11px;color:#64748b">TOTAL C/IEC</th>'+
+          '</tr></thead><tbody>'+filasC+'</tbody>'+
+          '<tfoot><tr style="background:#f5f7fa;font-weight:800;border-top:2px solid #e3e8ee">'+
+            '<td colspan="3" style="padding:8px 9px">Total '+compras.length+' compra(s)</td>'+
+            '<td style="padding:8px 9px;text-align:right">'+_helFmtH(litComp)+' L</td>'+
+            '<td style="padding:8px 9px;text-align:right;font-weight:400;font-size:11px;color:#64748b">prom. '+
+              (litComp>0?_helMon2(totCosto/litComp):'—')+'</td>'+
+            '<td style="padding:8px 9px;text-align:right">'+_helMon(totNeto)+'</td>'+
+            '<td style="padding:8px 9px;text-align:right">'+_helMon(totCosto)+'</td>'+
+          '</tr></tfoot></table></div>'
+        : '<div style="color:#999;padding:22px;text-align:center;font-size:13px">Sin compras de diésel registradas'+(_helFTemp?(' en la temporada '+_helEsc(_helFTemp)):'')+'.</div>')+
+    '</div>';
+
+  // ── Tarjeta 2: CONSUMOS ──
+  var filasK=consumos.map(function(c){
+    return '<tr style="border-bottom:1px solid #eee'+(c.otroProducto?';background:#fffbeb':'')+'">'+
+      '<td style="padding:7px 9px;white-space:nowrap;font-weight:700">'+_helFmtFecha(c.fecha)+'</td>'+
+      '<td style="padding:7px 9px">'+_helEsc(c.torre)+
+        (c.movNumero?'<div style="font-size:10px;color:#888">'+_helEsc(c.movNumero)+'</div>':'')+'</td>'+
+      '<td style="padding:7px 9px;font-size:11px;color:#475569">'+_helEsc(c.producto)+
+        (c.otroProducto?'<div style="font-size:9.5px;color:#92600a;font-weight:700">⚠ otro código</div>':'')+'</td>'+
+      '<td style="padding:7px 9px;text-align:right;white-space:nowrap">'+(c.km?_helFmtH(c.km):'—')+'</td>'+
+      '<td style="padding:7px 9px;text-align:right;white-space:nowrap;font-weight:700">'+_helFmtH(c.cantidad)+' L</td>'+
+      '<td style="padding:7px 9px;text-align:right;white-space:nowrap">'+_helMon2(c.costoUnit)+'</td>'+
+      '<td style="padding:7px 9px;text-align:right;white-space:nowrap;font-weight:700">'+_helMon(c.neto)+'</td>'+
+    '</tr>';
+  }).join('');
+  var nOtro=consumos.filter(function(c){ return c.otroProducto; }).length;
+
+  var cardConsumos=
+    '<div style="border:1px solid #e3e8ee;border-radius:10px;padding:14px;background:#fff">'+
+      '<div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px;margin-bottom:4px">'+
+        '<div style="font-size:15px;font-weight:800;color:#1a3a5c">⛽ Consumos de Diésel · Control Heladas</div>'+
+        (consumos.length?'<button class="btn btn-secondary" onclick="helExportarDiesel(1)" style="font-size:12px;padding:5px 10px">📊 CSV</button>':'')+
+      '</div>'+
+      '<div style="font-size:11px;color:#7a8794;margin-bottom:10px">Salidas de combustible registradas contra una torre de control. Valorizadas al costo promedio ponderado del momento del consumo.'+
+        (nOtro?(' <span style="color:#92600a;font-weight:700">'+nOtro+' consumo(s) con un código de producto distinto al de heladas.</span>'):'')+'</div>'+
+      (consumos.length
+        ? '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12.5px;min-width:720px">'+
+          '<thead><tr style="background:#f5f7fa;border-bottom:2px solid #e3e8ee">'+
+            '<th style="padding:8px 9px;text-align:left;font-size:11px;color:#64748b">FECHA</th>'+
+            '<th style="padding:8px 9px;text-align:left;font-size:11px;color:#64748b">TORRE / MOVIMIENTO</th>'+
+            '<th style="padding:8px 9px;text-align:left;font-size:11px;color:#64748b">PRODUCTO</th>'+
+            '<th style="padding:8px 9px;text-align:right;font-size:11px;color:#64748b">HORÓMETRO</th>'+
+            '<th style="padding:8px 9px;text-align:right;font-size:11px;color:#64748b">CANTIDAD</th>'+
+            '<th style="padding:8px 9px;text-align:right;font-size:11px;color:#64748b">COSTO / LITRO</th>'+
+            '<th style="padding:8px 9px;text-align:right;font-size:11px;color:#64748b">NETO</th>'+
+          '</tr></thead><tbody>'+filasK+'</tbody>'+
+          '<tfoot><tr style="background:#f5f7fa;font-weight:800;border-top:2px solid #e3e8ee">'+
+            '<td colspan="4" style="padding:8px 9px">Total '+consumos.length+' consumo(s)</td>'+
+            '<td style="padding:8px 9px;text-align:right">'+_helFmtH(litCons)+' L</td>'+
+            '<td style="padding:8px 9px;text-align:right;font-weight:400;font-size:11px;color:#64748b">prom. '+
+              (litCons>0?_helMon2(totCons/litCons):'—')+'</td>'+
+            '<td style="padding:8px 9px;text-align:right">'+_helMon(totCons)+'</td>'+
+          '</tr></tfoot></table></div>'
+        : '<div style="color:#999;padding:22px;text-align:center;font-size:13px">Sin consumos de diésel de torres registrados'+(_helFTemp?(' en la temporada '+_helEsc(_helFTemp)):'')+'.</div>')+
+    '</div>';
+
+  return head+cardCompras+cardConsumos;
+}
+
+function helFiltrarDiesel(){
+  var t=document.getElementById('hel-f-temp');
+  _helFTemp=t?t.value:'';
+  _helRefresh();
+}
+
+/* Configuración: qué productos cuentan como diésel de control de heladas. */
+function helConfigDiesel(){
+  if(!can('config.editar')){ toast('Sin permiso','Solo un administrador puede configurar','error'); return; }
+  var sel=_helCodigosDiesel();
+  var prods=(STATE.cache.products||[]).filter(function(p){ return p && p.activo!==false; })
+    .sort(function(a,b){ return String(a.descripcion||'').localeCompare(String(b.descripcion||'')); });
+  var opts=prods.map(function(p){
+    var s=(sel.indexOf(p.codigoInterno)>=0)?' selected':'';
+    return '<option value="'+_helEsc(p.codigoInterno)+'"'+s+'>'+_helEsc(p.descripcion||'')+' · '+_helEsc(p.codigoInterno)+'</option>';
+  }).join('');
+  showModal('⚙️ Productos de diésel · Control Heladas',
+    '<div style="font-size:12.5px;color:#475569;margin-bottom:10px">Seleccione los productos del catálogo que corresponden al diésel usado en las torres. '+
+    'Las compras de estos productos alimentan la tarjeta de compras. Mantenga Ctrl (o Cmd) para elegir varios.</div>'+
+    '<select id="hel-diesel-sel" multiple size="10" style="width:100%;padding:6px;border:1px solid #cdd5df;border-radius:7px;font-size:13px;box-sizing:border-box">'+opts+'</select>'+
+    '<div style="font-size:11px;color:#888;margin-top:8px">Si no selecciona ninguno, se detectan automáticamente los productos cuya descripción contiene «diésel» o «petróleo».</div>',
+    '<button class="btn btn-secondary" onclick="closeModal()">Cancelar</button>'+
+    '<button class="btn btn-primary" onclick="helGuardarConfigDiesel()">Guardar</button>','md');
+}
+async function helGuardarConfigDiesel(){
+  var sel=document.getElementById('hel-diesel-sel');
+  if(!sel) return;
+  var cods=Array.prototype.filter.call(sel.options,function(o){ return o.selected; })
+                .map(function(o){ return o.value; });
+  await _helGuardarCodigosDiesel(cods);
+  closeModal();
+  toast('Configuración guardada', cods.length?(cods.length+' producto(s) de diésel'):'Detección automática','success');
+  _helRefresh();
+}
+
+/* Exportar: 0 = compras · 1 = consumos */
+function helExportarDiesel(cual){
+  var q=function(v){ return '"'+String(v==null?'':v).replace(/"/g,'""')+'"'; };
+  var lineas=[], nombre='';
+  if(cual===0){
+    var compras=_helComprasDiesel();
+    if(_helFTemp) compras=compras.filter(function(x){ return _helTemporada(x.fecha)===_helFTemp; });
+    if(!compras.length){ toast('Sin datos','No hay compras para exportar','error'); return; }
+    lineas.push(['Fecha','Movimiento','Documento','Proveedor','Producto','Cantidad (L)',
+                 'Neto por litro','Especifico no recuperable por litro','Precio por litro',
+                 'Total neto','Total con IEC no recuperable'].map(q).join(';'));
+    compras.forEach(function(c){
+      lineas.push([c.fecha,c.numero,c.documento,c.proveedor,c.producto,
+        c.cantidad.toFixed(2),c.netoUnit.toFixed(2),c.espNoRecupUnit.toFixed(2),
+        c.costoUnit.toFixed(2),Math.round(c.totalNeto),Math.round(c.totalCosto)].map(q).join(';'));
+    });
+    nombre='compras_diesel_heladas';
+  }else{
+    var cons=_helConsumosDiesel();
+    if(_helFTemp) cons=cons.filter(function(x){ return _helTemporada(x.fecha)===_helFTemp; });
+    if(!cons.length){ toast('Sin datos','No hay consumos para exportar','error'); return; }
+    lineas.push(['Fecha','Torre','Producto','Codigo','Movimiento','Horometro','Cantidad (L)','Costo por litro','Neto'].map(q).join(';'));
+    cons.forEach(function(c){
+      lineas.push([c.fecha,c.torre,c.producto,c.codigoProducto,c.movNumero,(c.km||''),
+        c.cantidad.toFixed(2),c.costoUnit.toFixed(2),Math.round(c.neto)].map(q).join(';'));
+    });
+    nombre='consumos_diesel_heladas';
+  }
+  var blob=new Blob(['\ufeff'+lineas.join('\r\n')],{type:'text/csv;charset=utf-8;'});
+  var a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=nombre+'_'+(_helFTemp||'todas')+'.csv';
+  document.body.appendChild(a); a.click();
+  setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); },500);
+  toast('Exportado',(lineas.length-1)+' fila(s)','success');
+}
+
 /* ════════ EXPORTAR ════════ */
 function helExportar(){
   var regs=_helVista||[];
@@ -598,4 +939,8 @@ try{
   window.helQuitarTorre=helQuitarTorre;
   window.helRenombrarTorre=helRenombrarTorre;
   window.helExportar=helExportar;
+  window.helFiltrarDiesel=helFiltrarDiesel;
+  window.helConfigDiesel=helConfigDiesel;
+  window.helGuardarConfigDiesel=helGuardarConfigDiesel;
+  window.helExportarDiesel=helExportarDiesel;
 }catch(e){}
