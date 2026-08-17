@@ -65,16 +65,32 @@ function _helHorasHorom(r){
   if(isNaN(hi)||isNaN(hf)) return null;
   return hf-hi;
 }
-// Último horómetro final registrado para una torre (excluyendo un id dado).
-function _helUltHorometro(torre, excluirId){
-  var max=null;
+/* Registros vecinos en el tiempo para una torre.
+   El horómetro es acumulativo, así que la lectura de un registro debe caber
+   ENTRE la del registro anterior y la del siguiente. Comparar contra el máximo
+   global solo funciona al agregar al final: al editar un registro antiguo (o al
+   cargar uno con fecha retroactiva) el máximo pertenece a una noche POSTERIOR y
+   la validación fallaba aunque el dato fuera correcto. */
+function _helHoromVecinos(torre, fecha, excluirId){
+  var antes=null, despues=null;
   _helRegs().forEach(function(r){
     if(r.torre!==torre) return;
     if(excluirId && String(r.id)===String(excluirId)) return;
-    var v=parseFloat(r.horometroFinal);
-    if(!isNaN(v) && (max===null || v>max)) max=v;
+    var f=String(r.fecha||'');
+    if(!f || !fecha) return;
+    if(f < fecha){
+      var vf=parseFloat(r.horometroFinal);
+      if(!isNaN(vf) && (!antes || f>antes.fecha || (f===antes.fecha && vf>antes.valor))){
+        antes={valor:vf, fecha:f};
+      }
+    }else if(f > fecha){
+      var vi=parseFloat(r.horometroInicial);
+      if(!isNaN(vi) && (!despues || f<despues.fecha || (f===despues.fecha && vi<despues.valor))){
+        despues={valor:vi, fecha:f};
+      }
+    }
   });
-  return max;
+  return {antes:antes, despues:despues};
 }
 function _helFmtH(n){ return (n===null||n===undefined||isNaN(n))?'—':(typeof fmtNum==='function'?fmtNum(n,2):Number(n).toFixed(2)); }
 function _helFmtFecha(iso){
@@ -206,6 +222,7 @@ function _helRenderLista(){
         (hR!==null?('<div style="font-size:10px;color:#888">'+_helFmtH(hR)+' h reloj</div>'):'')+'</td>'+
       '<td style="padding:7px 9px;text-align:right;white-space:nowrap">'+
         (r.tempInicio!==''&&r.tempInicio!=null?_helFmtH(parseFloat(r.tempInicio))+' °C':'—')+
+        (r.tempApagado!==''&&r.tempApagado!=null?(' → '+_helFmtH(parseFloat(r.tempApagado))+' °C'):'')+
         (r.tempMinima!==''&&r.tempMinima!=null?('<div style="font-size:10px;color:#b91c1c">mín '+_helFmtH(parseFloat(r.tempMinima))+' °C</div>'):'')+'</td>'+
       '<td style="padding:7px 9px;text-align:right;white-space:nowrap">'+_helFmtH(hH)+' h'+
         '<div style="font-size:10px;color:#888">'+_helFmtH(parseFloat(r.horometroInicial))+' → '+_helFmtH(parseFloat(r.horometroFinal))+'</div></td>'+
@@ -349,6 +366,9 @@ function _helRenderForm(){
       '<div class="form-field"><label>Temperatura al iniciar (°C)</label>'+
         '<input type="number" step="0.1" id="hel-tini" value="'+_helEsc(r.tempInicio!=null?r.tempInicio:'')+'" placeholder="Ej: -1.5"></div>'+
 
+      '<div class="form-field"><label>Temperatura al apagar (°C)</label>'+
+        '<input type="number" step="0.1" id="hel-tfin" value="'+_helEsc(r.tempApagado!=null?r.tempApagado:'')+'" placeholder="Ej: 2.0"></div>'+
+
       '<div class="form-field"><label>Temperatura mínima de la noche (°C)</label>'+
         '<input type="number" step="0.1" id="hel-tmin" value="'+_helEsc(r.tempMinima!=null?r.tempMinima:'')+'" placeholder="Ej: -3.2"></div>'+
 
@@ -377,15 +397,19 @@ function _helRenderForm(){
   '</div>';
 }
 
-/* Muestra el último horómetro registrado para la torre elegida. */
+/* Muestra las lecturas vecinas de la torre elegida para la fecha del registro. */
 function helHintHorometro(){
   var el=document.getElementById('hel-hint-hom'); if(!el) return;
   var torre=(document.getElementById('hel-torre')||{}).value||'';
-  if(!torre){ el.style.display='none'; return; }
-  var ult=_helUltHorometro(torre,_helEditId);
-  if(ult===null){ el.style.display='block'; el.style.color='#64748b'; el.textContent='Primer registro de esta torre.'; return; }
-  el.style.display='block'; el.style.color='#0a6ed1';
-  el.textContent='Último horómetro registrado: '+_helFmtH(ult);
+  var fecha=(document.getElementById('hel-fecha')||{}).value||'';
+  if(!torre||!fecha){ el.style.display='none'; return; }
+  var vec=_helHoromVecinos(torre, fecha, _helEditId);
+  var partes=[];
+  if(vec.antes)   partes.push('noche anterior: '+_helFmtH(vec.antes.valor)+' ('+_helFmtFecha(vec.antes.fecha)+')');
+  if(vec.despues) partes.push('noche siguiente: '+_helFmtH(vec.despues.valor)+' ('+_helFmtFecha(vec.despues.fecha)+')');
+  el.style.display='block';
+  if(!partes.length){ el.style.color='#64748b'; el.textContent='Primer registro de esta torre.'; }
+  else{ el.style.color='#0a6ed1'; el.textContent='Horómetro · '+partes.join(' · '); }
   helHintHoras();
 }
 /* Calcula en vivo las horas por reloj y por horómetro. */
@@ -425,7 +449,7 @@ async function helGuardar(){
   var fecha=g('hel-fecha'), torre=g('hel-torre'), resp=g('hel-resp');
   var partida=g('hel-partida')||'manual';
   var hIni=g('hel-hini'), hFin=g('hel-hfin');
-  var tIni=g('hel-tini'), tMin=g('hel-tmin');
+  var tIni=g('hel-tini'), tFin=g('hel-tfin'), tMin=g('hel-tmin');
   var homIni=g('hel-hom-ini'), homFin=g('hel-hom-fin');
   var litros=g('hel-litros'), obs=g('hel-obs');
 
@@ -437,10 +461,16 @@ async function helGuardar(){
   if(homIni!=='' && homFin!=='' && !isNaN(hi) && !isNaN(hf) && hf<hi){
     return setErr('El horómetro de término ('+_helFmtH(hf)+') no puede ser menor al inicial ('+_helFmtH(hi)+').');
   }
-  // El horómetro es acumulativo: no puede retroceder respecto de la torre.
-  var ult=_helUltHorometro(torre,_helEditId);
-  if(ult!==null && homIni!=='' && !isNaN(hi) && hi<ult){
-    return setErr('El horómetro inicial ('+_helFmtH(hi)+') es menor al último registrado de '+_helEsc(torre)+' ('+_helFmtH(ult)+'). Verifique la lectura.');
+  // El horómetro es acumulativo: la lectura debe caber entre la noche anterior
+  // y la siguiente de esa misma torre (no contra el máximo global).
+  var vec=_helHoromVecinos(torre, fecha, _helEditId);
+  if(vec.antes && homIni!=='' && !isNaN(hi) && hi<vec.antes.valor){
+    return setErr('El horómetro inicial ('+_helFmtH(hi)+') es menor al de la noche anterior de '+_helEsc(torre)+
+      ' ('+_helFmtH(vec.antes.valor)+' del '+_helFmtFecha(vec.antes.fecha)+'). Verifique la lectura.');
+  }
+  if(vec.despues && homFin!=='' && !isNaN(hf) && hf>vec.despues.valor){
+    return setErr('El horómetro de término ('+_helFmtH(hf)+') es mayor al inicial de la noche siguiente de '+_helEsc(torre)+
+      ' ('+_helFmtH(vec.despues.valor)+' del '+_helFmtFecha(vec.despues.fecha)+'). Verifique la lectura.');
   }
   // Aviso de duplicado: misma torre, misma noche.
   var dup=_helRegs().find(function(x){
@@ -457,6 +487,7 @@ async function helGuardar(){
     partida: (partida==='auto')?'auto':'manual',
     horaInicio: hIni, horaTermino: hFin,
     tempInicio: tIni===''?null:parseFloat(tIni),
+    tempApagado: tFin===''?null:parseFloat(tFin),
     tempMinima: tMin===''?null:parseFloat(tMin),
     horometroInicial: homIni===''?null:parseFloat(homIni),
     horometroFinal:  homFin===''?null:parseFloat(homFin),
@@ -898,7 +929,7 @@ function helExportar(){
   var regs=_helVista||[];
   if(!regs.length){ toast('Sin datos','No hay registros para exportar','error'); return; }
   var cab=['Fecha','Temporada','Torre','Responsable','Hora inicio','Hora termino','Horas control',
-           'Temp inicio (C)','Temp minima (C)','Horometro inicial','Horometro termino','Horas funcionamiento',
+           'Temp inicio (C)','Temp apagado (C)','Temp minima (C)','Horometro inicial','Horometro termino','Horas funcionamiento',
            'Partida','Litros estanque','Observaciones'];
   var q=function(v){ return '"'+String(v==null?'':v).replace(/"/g,'""')+'"'; };
   var lineas=[cab.map(q).join(';')];
@@ -907,7 +938,7 @@ function helExportar(){
     lineas.push([
       r.fecha||'', r.temporada||'', r.torre||'', r.responsable||'',
       r.horaInicio||'', r.horaTermino||'', hr===null?'':hr.toFixed(2),
-      r.tempInicio==null?'':r.tempInicio, r.tempMinima==null?'':r.tempMinima,
+      r.tempInicio==null?'':r.tempInicio, r.tempApagado==null?'':r.tempApagado, r.tempMinima==null?'':r.tempMinima,
       r.horometroInicial==null?'':r.horometroInicial, r.horometroFinal==null?'':r.horometroFinal,
       hh===null?'':hh.toFixed(2),
       (r.partida==='auto'?'Automatica':'Manual'),
