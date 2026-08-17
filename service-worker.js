@@ -7,7 +7,7 @@
    ASSETS se derivan de aquí, así no pueden volver a desalinearse (hasta v107
    la lista quedó congelada en ?v=99 y el precache no servía a la app, que
    pedía otra URL: en terreno sin señal eso dejaba la app sin archivos). */
-const VERSION = 113;
+const VERSION = 114;
 const CACHE = 'sci-v' + VERSION;
 const V = '?v=' + VERSION;
 
