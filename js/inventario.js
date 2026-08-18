@@ -4990,7 +4990,12 @@ function _renderMovForm(c){
       </div>
     </div>
     ${(()=>{
-      const TIPOS=isEnt?TIPOS_MOV_ENT:TIPOS_MOV_SAL;
+      const TODOS=isEnt?TIPOS_MOV_ENT:TIPOS_MOV_SAL;
+      // Al crear se ofrecen solo los tipos manuales; al editar se muestra el
+      // tipo real del movimiento aunque sea uno generado por el sistema.
+      const TIPOS=movDraft.editId
+        ? TODOS.filter(t=>!t.oculto||t.tipo===movDraft.tipoMovimiento)
+        : TODOS.filter(t=>!t.oculto);
       const cfg=getMovCfg(movDraft.tipo,movDraft.tipoMovimiento);
       const fechaLabel=isEnt?'Fecha de ingreso':'Fecha de salida';
       return `
@@ -5001,8 +5006,9 @@ function _renderMovForm(c){
           <div class="form-grid">
             <div class="form-field span-2 required"><label>Motivo del movimiento</label>
               <select id="mvTipoMov" ${movDraft.editId?'disabled':''}>
-                <option value="">- Seleccionar tipo de ${isEnt?'entrada':'salida'} -</option>
+                ${movDraft.editId?'':`<option value="">- Seleccionar tipo de ${isEnt?'entrada':'salida'} -</option>`}
                 ${TIPOS.map(t=>`<option value="${t.tipo}" ${movDraft.tipoMovimiento===t.tipo?'selected':''}>${t.icon} ${t.label}</option>`).join('')}
+                ${(movDraft.editId&&!cfg)?`<option value="${escapeHtml(movDraft.tipoMovimiento||'')}" selected>${escapeHtml(movDraft.tipoMovimiento||'(sin tipo)')}</option>`:''}
               </select>
               <div class="hint" id="mvMovPrefHint">${movDraft.editId?'No editable. El correlativo del movimiento queda atado al tipo original.':_movPrefixHint(movDraft.tipo,movDraft.tipoMovimiento)}</div>
             </div>
@@ -5312,7 +5318,10 @@ function lookupCliente(){
 /* ── Captura los valores actuales del header del form a movDraft (antes de re-render) ── */
 function _captureMovHeader(){
   const get=(id)=>{const el=document.getElementById(id);return el?el.value:''};
-  if(document.getElementById('mvTipoMov'))movDraft.tipoMovimiento=get('mvTipoMov');
+  // Al editar, el tipo es inmutable (el correlativo depende de él) y su selector
+  // está deshabilitado. Leerlo aquí lo dejaba vacío y la validación bloqueaba el
+  // guardado con "Falta tipo de movimiento".
+  if(!movDraft.editId && document.getElementById('mvTipoMov'))movDraft.tipoMovimiento=get('mvTipoMov');
   if(document.getElementById('mvFecha'))movDraft.fecha=get('mvFecha');
   if(document.getElementById('mvBodId'))movDraft.bodegaId=get('mvBodId');
   if(document.getElementById('mvBodDest'))movDraft.bodegaDestinoId=get('mvBodDest');
