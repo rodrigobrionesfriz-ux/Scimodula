@@ -159,24 +159,17 @@ function _helRenderLista(){
   });
 
   // ── Resumen de la temporada filtrada ──
-  // El estanque es POR TORRE: cada una tiene el suyo, así que un único valor
-  // global no significa nada. Se guarda la lectura del registro más reciente
-  // de cada torre (no la del último elemento recorrido, que por el orden
-  // descendente era justamente el más ANTIGUO).
-  var noches={}, horas=0, tMin=null, nAuto=0, ultPorTorre={};
+  var noches={}, horas=0, tMin=null, nAuto=0;
   filtrados.forEach(function(r){
     if(r.fecha) noches[r.fecha]=1;
     var h=_helHorasHorom(r); if(h!==null && h>0) horas+=h;
     var t=parseFloat(r.tempMinima); if(!isNaN(t) && (tMin===null||t<tMin)) tMin=t;
     if(r.partida==='auto') nAuto++;
-    var l=parseFloat(r.litrosEstanque);
-    if(!isNaN(l)){
-      var k=r.torre||'—', prev=ultPorTorre[k];
-      if(!prev || _helEsPosterior(r, prev.reg)) ultPorTorre[k]={litros:l, fecha:r.fecha, reg:r};
-    }
   });
   var nNoches=Object.keys(noches).length;
-  var nTorresEst=Object.keys(ultPorTorre).length;
+  // Saldo vigente: última lectura de cada torre (tomada al terminar el evento)
+  var saldo=_helSaldoEstanques(_helFTemp||null);
+  var ultPorTorre=saldo.porTorre, nTorresEst=saldo.nTorres;
 
   var cards=
     '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:14px">'+
@@ -251,6 +244,24 @@ function _helRenderLista(){
 }
 var _helVista=[];   // registros tal como se muestran (para resolver índices)
 
+/* Saldo en estanques: última lectura informada de CADA torre.
+   El campo "litros disponibles" del registro es el saldo AL TERMINAR el evento,
+   así que la lectura más reciente de cada torre es el saldo vigente.
+   Filtra por temporada si se indica. */
+function _helSaldoEstanques(temporada){
+  var porTorre={};
+  _helRegs().forEach(function(r){
+    if(temporada && r.temporada!==temporada) return;
+    var l=parseFloat(r.litrosEstanque);
+    if(isNaN(l)) return;
+    var k=r.torre||'—', prev=porTorre[k];
+    if(!prev || _helEsPosterior(r, prev.reg)) porTorre[k]={litros:l, fecha:r.fecha, reg:r};
+  });
+  var total=0, n=0;
+  Object.keys(porTorre).forEach(function(k){ total+=porTorre[k].litros; n++; });
+  return {porTorre:porTorre, total:total, nTorres:n};
+}
+
 /* ¿El registro a es posterior a b? Compara fecha (ISO, comparable como texto)
    y desempata por hora de término y por marca de creación. */
 function _helEsPosterior(a,b){
@@ -282,7 +293,7 @@ function _helCardEstanque(ultPorTorre, nTorres){
   }
   return '<div style="border:1px solid #e3e8ee;border-radius:9px;padding:10px 12px;background:#fff'+
       (nTorres>1?';grid-column:span 2':'')+'">'+
-    '<div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.4px">Estanque · última lectura por torre</div>'+
+    '<div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.4px">Estanque · saldo al terminar el último evento</div>'+
     cuerpo+
   '</div>';
 }
@@ -380,8 +391,9 @@ function _helRenderForm(){
         '<input type="number" step="0.1" min="0" id="hel-hom-fin" value="'+_helEsc(r.horometroFinal!=null?r.horometroFinal:'')+'" oninput="helHintHoras()">'+
         '<div class="hint" id="hel-hint-run" style="display:none"></div></div>'+
 
-      '<div class="form-field"><label>Litros disponibles en estanque</label>'+
-        '<input type="number" step="0.1" min="0" id="hel-litros" value="'+_helEsc(r.litrosEstanque!=null?r.litrosEstanque:'')+'" placeholder="Lectura al iniciar"></div>'+
+      '<div class="form-field"><label>Litros en estanque al terminar</label>'+
+        '<input type="number" step="0.1" min="0" id="hel-litros" value="'+_helEsc(r.litrosEstanque!=null?r.litrosEstanque:'')+'" placeholder="Saldo al finalizar el control">'+
+        '<div class="hint">Saldo que queda en el estanque de esta torre al apagarla.</div></div>'+
 
     '</div>'+
 
@@ -719,6 +731,24 @@ function _helMon2(n){
   return '$ '+n.toLocaleString('es-CL',{minimumFractionDigits:2,maximumFractionDigits:2});
 }
 
+/* Contraste entre los dos modos de medir el consumo:
+   por diferencia de estanques (compras − saldo) y por salidas cargadas en SCI.
+   Una brecha grande indica salidas sin registrar o lecturas de estanque
+   desactualizadas; conviene verla, no esconderla. */
+function _helCuadratura(calc, registrado){
+  var dif=calc-registrado;
+  var pct=(calc>0)?Math.abs(dif/calc*100):0;
+  var ok=(Math.abs(dif)<0.5)||(pct<=5);
+  var col=ok?'#15803d':'#92600a';
+  var fondo=ok?'#f0fdf4':'#fffbeb';
+  var borde=ok?'#bbf7d0':'#fde68a';
+  return '<div style="background:'+fondo+';border:1px solid '+borde+';border-radius:8px;padding:8px 11px;margin-bottom:10px;font-size:11.5px;color:'+col+'">'+
+    '<strong>Cuadratura:</strong> por diferencia de estanques '+_helFmtH(calc)+' L · registrado en SCI '+_helFmtH(registrado)+' L · '+
+    'diferencia '+(dif>=0?'+':'')+_helFmtH(dif)+' L'+(calc>0?(' ('+_helFmtH(pct)+'%)'):'')+
+    (ok?'' : ' — revise si faltan salidas por registrar o si alguna lectura de estanque está desactualizada.')+
+  '</div>';
+}
+
 function _helRenderDiesel(){
   var compras=_helComprasDiesel();
   var consumos=_helConsumosDiesel();
@@ -736,6 +766,17 @@ function _helRenderDiesel(){
   var litCons=0, totCons=0;
   consumos.forEach(function(c){ litCons+=c.cantidad; totCons+=c.neto; });
 
+  // Consumo por diferencia de estanques: lo comprado menos lo que aún queda.
+  // El saldo es la última lectura de cada torre (registrada al terminar el
+  // evento), sumando las torres.
+  var saldo=_helSaldoEstanques(_helFTemp||null);
+  var consumoCalc=litComp-saldo.total;
+  var costoLitroProm=(litComp>0)?(totCosto/litComp):0;
+  var costoCalc=consumoCalc*costoLitroProm;
+  var detSaldo=Object.keys(saldo.porTorre).sort().map(function(k){
+    return _helEsc(k)+' '+_helFmtH(saldo.porTorre[k].litros)+' L';
+  }).join(' · ')||'sin lecturas';
+
   var temporadas=[];
   _helRegs().forEach(function(r){ if(r.temporada && temporadas.indexOf(r.temporada)<0) temporadas.push(r.temporada); });
   temporadas.sort().reverse();
@@ -752,8 +793,11 @@ function _helRenderDiesel(){
     '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:16px">'+
       _helCard('Litros comprados', _helFmtH(litComp)+' L', compras.length+' compra(s)', '#0a6ed1')+
       _helCard('Costo de compras', _helMon(totCosto), 'neto + específico no recup.', '#7c3aed')+
-      _helCard('Litros consumidos', _helFmtH(litCons)+' L', consumos.length+' consumo(s)', '#c2831a')+
-      _helCard('Costo de consumos', _helMon(totCons), 'valorizado a costo PPP', '#15803d')+
+      _helCard('Saldo en estanques', _helFmtH(saldo.total)+' L', detSaldo, '#c2831a')+
+      _helCard('Consumo (compras − saldo)', _helFmtH(consumoCalc)+' L',
+               _helFmtH(litComp)+' comprados − '+_helFmtH(saldo.total)+' en estanque', '#b45309')+
+      _helCard('Costo del consumo', _helMon(costoCalc),
+               'a '+_helMon2(costoLitroProm)+'/L promedio de compra', '#15803d')+
     '</div>';
 
   // ── Tarjeta 1: COMPRAS ──
@@ -828,6 +872,7 @@ function _helRenderDiesel(){
       '</div>'+
       '<div style="font-size:11px;color:#7a8794;margin-bottom:10px">Salidas de combustible registradas contra una torre de control. Valorizadas al costo promedio ponderado del momento del consumo.'+
         (nOtro?(' <span style="color:#92600a;font-weight:700">'+nOtro+' consumo(s) con un código de producto distinto al de heladas.</span>'):'')+'</div>'+
+      _helCuadratura(consumoCalc, litCons)+
       (consumos.length
         ? '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12.5px;min-width:720px">'+
           '<thead><tr style="background:#f5f7fa;border-bottom:2px solid #e3e8ee">'+
