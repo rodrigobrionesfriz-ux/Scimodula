@@ -728,6 +728,60 @@ function _helMon2(n){
   return '$ '+n.toLocaleString('es-CL',{minimumFractionDigits:2,maximumFractionDigits:2});
 }
 
+/* Tarjeta: consumo por hora de funcionamiento, una línea por torre.
+   Litros vienen de las salidas de combustible; horas del horómetro de los
+   registros de helada. Si a una torre le falta una de las dos fuentes, se
+   indica en vez de mostrar un número engañoso. */
+function _helCardConsumoHora(litros, horas, costo){
+  var keys=[];
+  Object.keys(litros).forEach(function(k){ if(keys.indexOf(k)<0) keys.push(k); });
+  Object.keys(horas).forEach(function(k){ if(keys.indexOf(k)<0) keys.push(k); });
+  keys.sort();
+
+  var totL=0, totH=0;
+  keys.forEach(function(k){ totL+=(litros[k]||0); totH+=(horas[k]||0); });
+  var promGlobal=(totH>0)?(totL/totH):null;
+
+  var cuerpo;
+  if(!keys.length){
+    cuerpo='<div style="font-size:20px;font-weight:800;color:#0e7490;margin:2px 0">—</div>'+
+           '<div style="font-size:10px;color:#94a3b8">sin datos de consumo ni horómetro</div>';
+  }else{
+    cuerpo=keys.map(function(k){
+      var L=litros[k]||0, H=horas[k]||0, C=costo[k]||0;
+      var valor, sub;
+      if(H>0 && L>0){
+        valor='<span style="font-size:16px;font-weight:800;color:#0e7490;white-space:nowrap">'+_helFmtH(L/H)+' L/h</span>';
+        sub=_helFmtH(L)+' L en '+_helFmtH(H)+' h · '+_helMon(C/H)+'/h';
+      }else if(H>0){
+        valor='<span style="font-size:13px;font-weight:700;color:#92600a;white-space:nowrap">sin consumo</span>';
+        sub=_helFmtH(H)+' h registradas, sin salidas de diésel';
+      }else{
+        valor='<span style="font-size:13px;font-weight:700;color:#92600a;white-space:nowrap">sin horas</span>';
+        sub=_helFmtH(L)+' L consumidos, sin horómetro registrado';
+      }
+      return '<div style="padding:4px 0;border-top:1px solid #f1f5f9">'+
+          '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">'+
+            '<span style="font-size:11px;color:#475569;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+_helEsc(k)+'</span>'+
+            valor+
+          '</div>'+
+          '<div style="font-size:9.5px;color:#94a3b8">'+sub+'</div>'+
+        '</div>';
+    }).join('');
+    if(promGlobal!==null && keys.length>1){
+      cuerpo+='<div style="padding:4px 0;border-top:1px solid #e3e8ee;display:flex;justify-content:space-between;align-items:baseline">'+
+        '<span style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.3px">Promedio</span>'+
+        '<span style="font-size:14px;font-weight:800;color:#0e7490">'+_helFmtH(promGlobal)+' L/h</span></div>';
+    }
+    cuerpo='<div style="margin-top:2px">'+cuerpo+'</div>';
+  }
+  return '<div style="border:1px solid #e3e8ee;border-radius:9px;padding:10px 12px;background:#fff'+
+      (keys.length>1?';grid-column:span 2':'')+'">'+
+    '<div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.4px">Consumo por hora de funcionamiento</div>'+
+    cuerpo+
+  '</div>';
+}
+
 /* Contraste entre los dos modos de medir el consumo:
    por diferencia de estanques (compras − saldo) y por salidas cargadas en SCI.
    Una brecha grande indica salidas sin registrar o lecturas de estanque
@@ -774,6 +828,25 @@ function _helRenderDiesel(){
     return _helEsc(k)+' '+_helFmtH(saldo.porTorre[k].litros)+' L';
   }).join(' · ')||'sin lecturas';
 
+  // Consumo por hora de funcionamiento, por torre.
+  // Litros: de las salidas de combustible cargadas a esa torre.
+  // Horas: del horómetro de los registros de helada de esa torre.
+  // Ambas fuentes respetan el mismo filtro de temporada.
+  var horasPorTorre={}, litrosPorTorre={}, costoPorTorre={};
+  _helRegs().forEach(function(r){
+    if(_helFTemp && r.temporada!==_helFTemp) return;
+    var h=_helHorasHorom(r);
+    if(h!==null && h>0){
+      var k=r.torre||'—';
+      horasPorTorre[k]=(horasPorTorre[k]||0)+h;
+    }
+  });
+  consumos.forEach(function(c){
+    var k=c.torre||'—';
+    litrosPorTorre[k]=(litrosPorTorre[k]||0)+c.cantidad;
+    costoPorTorre[k]=(costoPorTorre[k]||0)+c.neto;
+  });
+
   var temporadas=[];
   _helRegs().forEach(function(r){ if(r.temporada && temporadas.indexOf(r.temporada)<0) temporadas.push(r.temporada); });
   temporadas.sort().reverse();
@@ -795,6 +868,7 @@ function _helRenderDiesel(){
                _helFmtH(litComp)+' comprados − '+_helFmtH(saldo.total)+' en estanque', '#b45309')+
       _helCard('Costo del consumo', _helMon(costoCalc),
                'a '+_helMon2(costoLitroProm)+'/L promedio de compra', '#15803d')+
+      _helCardConsumoHora(litrosPorTorre, horasPorTorre, costoPorTorre)+
     '</div>';
 
   // ── Tarjeta 1: COMPRAS ──
