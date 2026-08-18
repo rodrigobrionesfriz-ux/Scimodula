@@ -327,14 +327,22 @@ function updateBanner() {
   const fmtN = v => Math.round(v).toLocaleString('es-CL');          // plain number
   const fmtD = v => v.toFixed(2);                                    // 2 decimals
 
-  document.getElementById('rb-costo-real').textContent = fmtM(totalReal);
-  document.getElementById('rb-ppto-adj').textContent   = fmtM(totalPpto);
+  // Costo real, ppto y saldo se muestran en la fila KPI (Real Acumulado,
+  // Presupuesto Total y Desviación), que además responde a los filtros de tipo,
+  // sub-grupo y descripción. Aquí se mantienen los cálculos porque alimentan
+  // costo/Kg y $/Ha, pero ya no se pintan en el banner.
+  const costoRealEl = document.getElementById('rb-costo-real');
+  if (costoRealEl) costoRealEl.textContent = fmtM(totalReal);
+  const pptoAdjEl = document.getElementById('rb-ppto-adj');
+  if (pptoAdjEl) pptoAdjEl.textContent = fmtM(totalPpto);
 
   const saldoEl    = document.getElementById('rb-saldo');
   const saldoSubEl = document.getElementById('rb-saldo-sub');
-  saldoEl.textContent = (saldo >= 0 ? '+' : '') + fmtM(saldo);
-  saldoEl.className   = 'rb-value ' + (saldo >= 0 ? 'accent' : 'danger');
-  saldoSubEl.textContent = saldo >= 0 ? 'Bajo presupuesto ✓' : 'Sobre presupuesto ✗';
+  if (saldoEl) {
+    saldoEl.textContent = (saldo >= 0 ? '+' : '') + fmtM(saldo);
+    saldoEl.className   = 'rb-value ' + (saldo >= 0 ? 'accent' : 'danger');
+  }
+  if (saldoSubEl) saldoSubEl.textContent = saldo >= 0 ? 'Bajo presupuesto ✓' : 'Sobre presupuesto ✗';
 
   document.getElementById('rb-costo-kg').textContent = CURRENCY === 'USD'
     ? 'USD ' + costoKg.toFixed(2) + '/Kg'
