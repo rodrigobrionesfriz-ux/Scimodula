@@ -821,7 +821,12 @@ const TIPOS_MOV_SAL=[
   {tipo:'TRASPASO BODEGA',       prefijo:'TRB', label:'Traspaso entre bodega',        icon:'🔄', reqDoc:false, reqCli:false, reqCC:false, reqBodDest:true,  validaUnicidadDoc:false},
   {tipo:'MERMA',                 prefijo:'MER', label:'Merma',                        icon:'🗑️', reqDoc:false, reqCli:false, reqCC:false, reqBodDest:false, validaUnicidadDoc:false},
   {tipo:'DEVOLUCION PROVEEDOR',  prefijo:'DEV', label:'Devolución a proveedor',       icon:'↪️', reqDoc:true,  reqCli:false, reqCC:false, reqBodDest:false, validaUnicidadDoc:false, reqProv:true},
-  {tipo:'TOMA INVENTARIO SAL',   prefijo:'TIS', label:'Salida por toma de inventario',icon:'📋', reqDoc:false, reqCli:false, reqCC:false, reqBodDest:false, validaUnicidadDoc:false}
+  {tipo:'TOMA INVENTARIO SAL',   prefijo:'TIS', label:'Salida por toma de inventario',icon:'📋', reqDoc:false, reqCli:false, reqCC:false, reqBodDest:false, validaUnicidadDoc:false},
+  // Generado por el formulario de combustible (que además registra equipo y
+  // horómetro). No se ofrece al crear una salida manual —de ahí `oculto`— pero
+  // debe existir aquí: sin él, getMovCfg devolvía null y el movimiento no se
+  // podía editar ni guardar.
+  {tipo:'CONSUMO COMBUSTIBLE',   prefijo:'SAL', label:'Consumo de combustible',       icon:'⛽', reqDoc:false, reqCli:false, reqCC:true,  reqBodDest:false, validaUnicidadDoc:false, oculto:true}
 ];
 
 function getMovCfg(tipo,tipoMov){
