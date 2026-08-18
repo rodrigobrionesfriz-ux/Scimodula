@@ -5802,6 +5802,20 @@ async function saveMovimiento(){
         updated.bodegaDestinoId=movDraft.bodegaDestinoId;
       }
       await dbPut('movements',updated);
+      // El registro de `combustible` guarda una COPIA de cantidad y fecha. Si no
+      // se actualiza aquí, los informes que lo leen (rendimiento y Control de
+      // Heladas) siguen mostrando los valores originales tras editar la salida.
+      try{
+        const regsComb=(STATE.cache.combustible||[]).filter(r=>r.movNumero===movDraft.editId);
+        for(const rc of regsComb){
+          const det=(detalles||[]).find(d=>d.codigoInterno===rc.codigoProducto)||detalles[0];
+          if(det) rc.cantidad=Number(det.cantidad)||0;
+          rc.fecha=updated.fecha;
+          rc.bodegaId=updated.bodegaId;
+          if(updated.centroCosto) rc.centroCosto=updated.centroCosto;
+          await dbPut('combustible',rc);
+        }
+      }catch(e){ console.error('[SCI] No se pudo sincronizar el registro de combustible:',e); }
       await reloadCache();
       // Recalcular stock desde cero (incluye el cambio recién hecho)
       await _ejecutarRecalculoStock();
