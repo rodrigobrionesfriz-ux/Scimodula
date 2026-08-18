@@ -690,41 +690,33 @@ function _helComprasDiesel(){
   return out.sort(function(a,b){ return String(b.fecha).localeCompare(String(a.fecha)); });
 }
 
-/* Consumos: registros de `combustible` cuyo equipo es una de las torres. */
+/* Consumos: registros de `combustible` cuyo equipo es una de las torres.
+   Se usa getCombustibleReal() (inventario.js), que ya reconcilia cantidad,
+   fecha y costo contra el movimiento y descarta los anulados. */
 function _helConsumosDiesel(){
   var torres=_helTorres();
-  var movs=STATE.cache.movements||[];
   var cods=_helCodigosDiesel();
-  return (STATE.cache.combustible||[]).filter(function(r){
+  var base=(typeof getCombustibleReal==='function')
+    ? getCombustibleReal()
+    : (STATE.cache.combustible||[]);
+  return base.filter(function(r){
     return r && torres.indexOf(r.equipo)>=0;
   }).map(function(r){
-    // El movimiento es la FUENTE DE VERDAD de cantidad, fecha y costo: el
-    // registro de combustible guarda una copia que puede quedar desfasada si la
-    // salida se editó. Aquí se prefiere el movimiento y la copia queda de
-    // respaldo solo si el movimiento ya no existe.
-    var mov=movs.find(function(m){ return m.numero===r.movNumero; });
-    var det=mov&&(mov.detalles||[]).find(function(d){ return d.codigoInterno===r.codigoProducto; });
-    if(!det && mov) det=(mov.detalles||[])[0];
-    var cu=det?(Number(det.costo)||0):0;
-    var cant=det?(Number(det.cantidad)||0):(Number(r.cantidad)||0);
-    var fecha=((mov&&mov.fecha)||r.fecha||'').slice(0,10);
     return {
-      fecha:fecha,
+      fecha:String(r.fecha||'').slice(0,10),
       torre:r.equipo||'—',
       producto:r.producto||r.codigoProducto||'',
       codigoProducto:r.codigoProducto||'',
       // Salida cargada a una torre pero con un producto distinto al de heladas:
       // se muestra igual (el consumo existe) pero marcada, para poder corregirla.
       otroProducto: !!(r.codigoProducto && cods.indexOf(r.codigoProducto)<0),
-      cantidad:cant,
-      costoUnit:cu,
-      neto:cu*cant,
+      cantidad:Number(r.cantidad)||0,
+      costoUnit:Number(r.costoUnit)||0,
+      neto:(Number(r.costoUnit)||0)*(Number(r.cantidad)||0),
       km:r.km,
-      movNumero:r.movNumero||'',
-      anulado:!!(mov&&mov.anulado)
+      movNumero:r.movNumero||''
     };
-  }).filter(function(x){ return !x.anulado; })
-    .sort(function(a,b){ return String(b.fecha).localeCompare(String(a.fecha)); });
+  }).sort(function(a,b){ return String(b.fecha).localeCompare(String(a.fecha)); });
 }
 
 function _helMon(n){
