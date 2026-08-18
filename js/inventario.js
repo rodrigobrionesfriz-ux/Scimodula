@@ -4306,10 +4306,35 @@ let movDraft={lineas:[],tipo:'ENT',editId:null};
 /* ═══════════════ SALIDAS: selector normal vs combustible ═══════════════ */
 const CB_EQUIPOS=['Tractor 1','Tractor 2','Camioneta adm.','Torre Control Helada 1','Torre Control Helada 2','Maq. Auxiliares','Otro (especificar)'];
 
+/* Registros de combustible reconciliados contra sus movimientos.
+   El store `combustible` guarda una COPIA de cantidad y fecha; el movimiento es
+   la fuente de verdad. Desde v117 la edición sincroniza ambos, pero los
+   registros editados ANTES de esa versión siguen con la copia antigua, así que
+   aquí se prefiere siempre el dato del movimiento. Además descarta los
+   movimientos anulados, que antes seguían sumando en los informes. */
+function getCombustibleReal(){
+  const movs=STATE.cache.movements||[];
+  return (STATE.cache.combustible||[]).map(r=>{
+    const mov=movs.find(m=>m.numero===r.movNumero);
+    if(!mov) return Object.assign({},r);
+    let det=(mov.detalles||[]).find(d=>d.codigoInterno===r.codigoProducto);
+    if(!det) det=(mov.detalles||[])[0];
+    return Object.assign({},r,{
+      cantidad: det?(Number(det.cantidad)||0):(Number(r.cantidad)||0),
+      costoUnit: det?(Number(det.costo)||0):0,
+      fecha: mov.fecha||r.fecha,
+      centroCosto: mov.centroCosto||r.centroCosto,
+      bodegaId: mov.bodegaId||r.bodegaId,
+      _anulado: !!mov.anulado
+    });
+  }).filter(r=>!r._anulado);
+}
+try{ window.getCombustibleReal=getCombustibleReal; }catch(e){}
+
 /* ═══════════════ REPORTE: rendimiento de combustible (solo admin) ═══════════════ */
 function renderReporteCombustible(c){
   if(STATE.user.role!=='admin'){ c.innerHTML='<div class="empty-state">Solo disponible para administrador.</div>'; return; }
-  const regs=[...(STATE.cache.combustible||[])].sort((a,b)=>new Date(a.fecha)-new Date(b.fecha));
+  const regs=getCombustibleReal().sort((a,b)=>new Date(a.fecha)-new Date(b.fecha));
   // Agrupar por equipo
   const porEquipo={};
   regs.forEach(r=>{ (porEquipo[r.equipo]=porEquipo[r.equipo]||[]).push(r); });
@@ -4368,7 +4393,7 @@ function renderReporteCombustible(c){
     ${bloques}`;
 }
 function exportarReporteCombustible(){
-  const regs=[...(STATE.cache.combustible||[])].sort((a,b)=>a.equipo.localeCompare(b.equipo)||new Date(a.fecha)-new Date(b.fecha));
+  const regs=getCombustibleReal().sort((a,b)=>a.equipo.localeCompare(b.equipo)||new Date(a.fecha)-new Date(b.fecha));
   const rows=[['Equipo','Fecha','Km/Horometro','Recorrido','Litros','Rend/L','Operador','Producto','Centro Costo','N Movimiento']];
   const porEquipo={};
   regs.forEach(r=>{ (porEquipo[r.equipo]=porEquipo[r.equipo]||[]).push(r); });
@@ -4573,7 +4598,8 @@ function _validateConsumos(rowsC,rowsB){
   const usado={}; // key prod|bodega → cantidad ya comprometida en este archivo
   const kmMax={}; // equipo → último km visto (historial + archivo)
   // Precargar último km por equipo desde historial
-  (STATE.cache.combustible||[]).forEach(r=>{ if(r.equipo && (r.km||0)>0){ kmMax[r.equipo]=Math.max(kmMax[r.equipo]||0, r.km||0); } });
+  // Reconciliado: un movimiento anulado no debe seguir fijando el horómetro máximo
+  getCombustibleReal().forEach(r=>{ if(r.equipo && (r.km||0)>0){ kmMax[r.equipo]=Math.max(kmMax[r.equipo]||0, r.km||0); } });
 
   function chkComun(d, isComb){
     const errs=[], warns=[];
@@ -4805,7 +4831,7 @@ function cbToggleOtro(){
   // Mostrar último horómetro/km registrado para el equipo elegido
   const hint=document.getElementById('cb-km-hint');
   if(hint){
-    const previos=(STATE.cache.combustible||[]).filter(r=>r.equipo===sel && (r.km||0)>0)
+    const previos=getCombustibleReal().filter(r=>r.equipo===sel && (r.km||0)>0)
       .sort((a,b)=>new Date(b.fecha)-new Date(a.fecha));
     if(sel && sel!=='Otro (especificar)' && previos.length>0){
       const u=previos[0];
@@ -4866,7 +4892,7 @@ async function guardarCombustible(){
   if(!centro) return setErr('Seleccione el centro de costo.');
 
   // Validación de horómetro/kilometraje: no puede ser inferior al último del equipo.
-  const previos=(STATE.cache.combustible||[]).filter(r=>r.equipo===equipo && (r.km||0)>0)
+  const previos=getCombustibleReal().filter(r=>r.equipo===equipo && (r.km||0)>0)
     .sort((a,b)=>new Date(b.fecha)-new Date(a.fecha));
   if(km>0 && previos.length>0){
     const ultimo=previos[0];
