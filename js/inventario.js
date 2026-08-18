@@ -4332,6 +4332,22 @@ function getCombustibleReal(){
 try{ window.getCombustibleReal=getCombustibleReal; }catch(e){}
 
 /* ═══════════════ REPORTE: rendimiento de combustible (solo admin) ═══════════════ */
+/* ¿Este equipo se mide con HORÓMETRO (horas) o con odómetro (km)?
+   El campo del formulario es genérico ("Kilometraje / Horómetro"), así que el
+   tipo se deduce del equipo. Para una torre, el indicador útil es litros por
+   hora de funcionamiento; para un vehículo, kilómetros por litro. Son inversos
+   entre sí, y mostrar el de vehículo en una torre daba cifras como "0,02" que
+   no significan nada operativamente. */
+function _cbUsaHorometro(equipo){
+  try{
+    const cfg=(STATE.cache.config||{}).cbEquiposHora;
+    if(cfg && Array.isArray(cfg.lista) && cfg.lista.length) return cfg.lista.indexOf(equipo)>=0;
+  }catch(e){}
+  // Catálogo compartido con Control de Heladas: sus torres siempre son horómetro
+  try{ if(typeof _helTorres==='function' && _helTorres().indexOf(equipo)>=0) return true; }catch(e){}
+  return /torre|generador|motobomba|bomba|motor/i.test(equipo||'');
+}
+
 function renderReporteCombustible(c){
   if(STATE.user.role!=='admin'){ c.innerHTML='<div class="empty-state">Solo disponible para administrador.</div>'; return; }
   const regs=getCombustibleReal().sort((a,b)=>new Date(a.fecha)-new Date(b.fecha));
@@ -4342,20 +4358,24 @@ function renderReporteCombustible(c){
   let bloques='';
   Object.keys(porEquipo).sort().forEach(eq=>{
     const lista=porEquipo[eq];
-    let filas=''; let totalLitros=0, totalRecorrido=0;
+    const porHora=_cbUsaHorometro(eq);
+    let filas=''; let totalLitros=0, totalRecorrido=0, litrosEnTramos=0;
     for(let i=0;i<lista.length;i++){
       const r=lista[i];
       totalLitros+=(r.cantidad||0);
       let rend='—', recorrido='—';
-      // Rendimiento entre esta carga y la anterior (con km válido)
+      // Indicador entre esta carga y la anterior: los litros de la carga
+      // ANTERIOR son los que se gastaron para recorrer/funcionar este tramo.
       if(i>0){
         const prev=lista[i-1];
         const dif=(r.km||0)-(prev.km||0);
         if(dif>0 && (prev.cantidad||0)>0){
           recorrido=fmtNum(dif,1);
-          // rendimiento = distancia u horas recorridas / litros de la carga ANTERIOR
-          rend=fmtNum(dif/(prev.cantidad||1),2);
+          rend = porHora
+            ? fmtNum((prev.cantidad||0)/dif, 2)   // litros por hora
+            : fmtNum(dif/(prev.cantidad||1), 2);  // km por litro
           totalRecorrido+=dif;
+          litrosEnTramos+=(prev.cantidad||0);
         }
       }
       filas+=`<tr>
@@ -4368,17 +4388,25 @@ function renderReporteCombustible(c){
         <td>${escapeHtml(r.centroCosto||'')}</td>
       </tr>`;
     }
-    const rendProm = totalLitros>0 ? (totalRecorrido/totalLitros) : 0;
+    // Promedio del bloque, coherente con el indicador de cada fila
+    const rendProm = porHora
+      ? (totalRecorrido>0 ? litrosEnTramos/totalRecorrido : 0)
+      : (litrosEnTramos>0 ? totalRecorrido/litrosEnTramos : 0);
+    const unidadProm = porHora ? 'L por hora' : 'km por litro';
+    const colRend    = porHora ? 'L/Hora' : 'Rend/L';
+    const colRec     = porHora ? 'Horas'  : 'Recorrido';
+    const colMedida  = porHora ? 'Horómetro' : 'Km';
+    const icono      = porHora ? '🗼' : '🚜';
     bloques+=`<div class="card" style="margin-bottom:16px">
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px">
-        <div style="font-weight:800;font-size:16px">🚜 ${escapeHtml(eq)}</div>
+        <div style="font-weight:800;font-size:16px">${icono} ${escapeHtml(eq)}</div>
         <div style="font-size:13px;color:var(--mu)">
           ${lista.length} carga(s) · ${fmtNum(totalLitros,1)} L total
-          ${totalRecorrido>0?` · Rend. prom: <strong style="color:var(--gd)">${fmtNum(rendProm,2)}</strong> por litro`:''}
+          ${totalRecorrido>0?` · ${porHora?'Consumo':'Rend.'} prom: <strong style="color:var(--gd)">${fmtNum(rendProm,2)}</strong> ${unidadProm}`:''}
         </div>
       </div>
       <div class="table-wrap"><table class="data" style="width:100%">
-        <thead><tr><th>Fecha</th><th class="num">Km/Hr</th><th class="num">Recorrido</th><th class="num">Litros</th><th class="num">Rend/L</th><th>Operador</th><th>C.Costo</th></tr></thead>
+        <thead><tr><th>Fecha</th><th class="num">${colMedida}</th><th class="num">${colRec}</th><th class="num">Litros</th><th class="num">${colRend}</th><th>Operador</th><th>C.Costo</th></tr></thead>
         <tbody>${filas}</tbody>
       </table></div>
     </div>`;
@@ -4389,20 +4417,32 @@ function renderReporteCombustible(c){
     <div class="page-header"><div><div class="page-title">⛽ Rendimiento de combustible</div>
       <div class="page-subtitle">Consumo y rendimiento por equipo entre cargas</div></div>
       <button class="btn btn-secondary" onclick="exportarReporteCombustible()">📥 Exportar Excel</button></div>
-    <div class="hint" style="margin-bottom:14px">El <strong>rendimiento</strong> es el recorrido (km u horas) logrado por cada litro de la carga anterior. Requiere al menos 2 cargas con horómetro para calcularse.</div>
+    <div class="hint" style="margin-bottom:14px">Los equipos con <strong>horómetro</strong> (🗼 torres, generadores) se miden en <strong>litros por hora</strong> de funcionamiento; los que llevan <strong>odómetro</strong> (🚜 tractores, vehículos) en <strong>km por litro</strong>. En ambos casos se usan los litros de la carga anterior, que son los que alimentaron ese tramo. Requiere al menos 2 cargas con lectura para calcularse.</div>
     ${bloques}`;
 }
 function exportarReporteCombustible(){
   const regs=getCombustibleReal().sort((a,b)=>a.equipo.localeCompare(b.equipo)||new Date(a.fecha)-new Date(b.fecha));
-  const rows=[['Equipo','Fecha','Km/Horometro','Recorrido','Litros','Rend/L','Operador','Producto','Centro Costo','N Movimiento']];
+  const rows=[['Equipo','Medicion','Fecha','Km/Horometro','Recorrido u horas','Litros','Km por litro','Litros por hora','Operador','Producto','Centro Costo','N Movimiento']];
   const porEquipo={};
   regs.forEach(r=>{ (porEquipo[r.equipo]=porEquipo[r.equipo]||[]).push(r); });
   Object.keys(porEquipo).forEach(eq=>{
     const lista=porEquipo[eq];
+    const porHora=_cbUsaHorometro(eq);
     lista.forEach((r,i)=>{
-      let recorrido='', rend='';
-      if(i>0){ const dif=(r.km||0)-(lista[i-1].km||0); if(dif>0&&(lista[i-1].cantidad||0)>0){ recorrido=dif; rend=(dif/(lista[i-1].cantidad||1)).toFixed(2); } }
-      rows.push([eq,new Date(r.fecha).toLocaleDateString('es-CL'),r.km||0,recorrido,r.cantidad||0,rend,r.usuario||'',r.producto||'',r.centroCosto||'',r.movNumero||'']);
+      // Dos columnas separadas en vez de una ambigua: cada equipo llena la suya
+      let recorrido='', kmL='', lH='';
+      if(i>0){
+        const dif=(r.km||0)-(lista[i-1].km||0);
+        const litrosPrev=lista[i-1].cantidad||0;
+        if(dif>0 && litrosPrev>0){
+          recorrido=dif;
+          if(porHora) lH=(litrosPrev/dif).toFixed(2);
+          else        kmL=(dif/litrosPrev).toFixed(2);
+        }
+      }
+      rows.push([eq,porHora?'Horometro':'Odometro',new Date(r.fecha).toLocaleDateString('es-CL'),
+                 r.km||0,recorrido,r.cantidad||0,kmL,lH,
+                 r.usuario||'',r.producto||'',r.centroCosto||'',r.movNumero||'']);
     });
   });
   const ws=XLSX.utils.aoa_to_sheet(rows);
