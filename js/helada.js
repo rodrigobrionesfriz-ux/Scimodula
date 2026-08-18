@@ -698,13 +698,18 @@ function _helConsumosDiesel(){
   return (STATE.cache.combustible||[]).filter(function(r){
     return r && torres.indexOf(r.equipo)>=0;
   }).map(function(r){
-    // El costo unitario real está en el movimiento de salida (PPP del momento).
+    // El movimiento es la FUENTE DE VERDAD de cantidad, fecha y costo: el
+    // registro de combustible guarda una copia que puede quedar desfasada si la
+    // salida se editó. Aquí se prefiere el movimiento y la copia queda de
+    // respaldo solo si el movimiento ya no existe.
     var mov=movs.find(function(m){ return m.numero===r.movNumero; });
-    var det=mov&&(mov.detalles||[])[0];
+    var det=mov&&(mov.detalles||[]).find(function(d){ return d.codigoInterno===r.codigoProducto; });
+    if(!det && mov) det=(mov.detalles||[])[0];
     var cu=det?(Number(det.costo)||0):0;
-    var cant=Number(r.cantidad)||0;
+    var cant=det?(Number(det.cantidad)||0):(Number(r.cantidad)||0);
+    var fecha=((mov&&mov.fecha)||r.fecha||'').slice(0,10);
     return {
-      fecha:(r.fecha||'').slice(0,10),
+      fecha:fecha,
       torre:r.equipo||'—',
       producto:r.producto||r.codigoProducto||'',
       codigoProducto:r.codigoProducto||'',
