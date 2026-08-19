@@ -210,18 +210,21 @@ function openDetalleModal(descripcion) {
   document.body.style.overflow = 'hidden';
 }
 
-function closeDetalleModal(e) {
-  if (e && e.target !== document.getElementById('detalle-overlay')) return;
+function closeDetalleModal() {
+  // Ya no se cierra al hacer clic fuera: solo con el botón o con Escape. Con el
+  // comparador detrás, el clic accidental fuera cerraba el detalle sin querer.
   document.getElementById('detalle-overlay').classList.remove('active');
-  document.body.style.overflow = '';
+  // Si el comparador sigue abierto detrás, el scroll del cuerpo debe seguir
+  // bloqueado: restituirlo aquí dejaba la página desplazándose bajo el modal.
+  if (!document.getElementById('pz-cmp-overlay')) document.body.style.overflow = '';
 }
 
-// Close on Escape key
+// Escape cierra SOLO la ventana de más arriba
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') {
-    document.getElementById('detalle-overlay').classList.remove('active');
-    document.body.style.overflow = '';
-  }
+  if (e.key !== 'Escape') return;
+  const det = document.getElementById('detalle-overlay');
+  if (det && det.classList.contains('active')) { closeDetalleModal(); return; }
+  if (document.getElementById('pz-cmp-overlay')) cerrarComparador();
 });
 
 function filterDetalleTable() {
@@ -516,7 +519,8 @@ function openComparadorModal(){
   var ov=document.createElement('div');
   ov.id='pz-cmp-overlay';
   ov.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:10020;display:flex;align-items:center;justify-content:center;padding:16px';
-  ov.onclick=function(e){ if(e.target===ov) cerrarComparador(); };
+  // Sin cierre por clic fuera: desde aquí se abre el detalle y un clic
+  // accidental en el fondo hacía perder la comparación completa.
   ov.innerHTML='<div style="background:#fff;border-radius:14px;max-width:1000px;width:100%;max-height:92vh;display:flex;flex-direction:column;overflow:hidden">'+
     '<div style="background:#1a3a5c;color:#fff;padding:15px 20px;display:flex;justify-content:space-between;align-items:flex-start;gap:12px">'+
       '<div><div style="font-size:17px;font-weight:800">📊 Comparación entre temporadas</div>'+
@@ -547,7 +551,9 @@ function openComparadorModal(){
 function cerrarComparador(){
   var ov=document.getElementById('pz-cmp-overlay');
   if(ov) ov.remove();
-  document.body.style.overflow='';
+  // Solo liberar el scroll si no queda otra ventana modal abierta encima
+  var det=document.getElementById('detalle-overlay');
+  if(!(det && det.classList.contains('active'))) document.body.style.overflow='';
 }
 
 function refrescarComparador(){
@@ -628,9 +634,10 @@ function _cmpCard(titulo,valor,sub,color){
     '<div style="font-size:10px;color:#94a3b8">'+escapeHtml(sub)+'</div></div>';
 }
 
-/* Al abrir el detalle de un ítem, se alinea el filtro de temporada del dashboard
-   con la temporada ACTUAL de la comparación: openDetalleModal lee ese filtro, y
-   sin esto el detalle mostraría una temporada distinta a la de la fila clicada. */
+/* Abre el detalle SOBRE el comparador, sin cerrarlo: al salir del detalle se
+   vuelve a la comparación en el mismo punto. Se alinea el filtro de temporada
+   del dashboard con la temporada ACTUAL de la comparación, porque
+   openDetalleModal lo lee y si no mostraría otra temporada. */
 function verDetalleComparado(i){
   var f=_cmpFilas[i]; if(!f) return;
   var tA=(document.getElementById('pz-cmp-act')||{}).value||'';
@@ -639,7 +646,6 @@ function verDetalleComparado(i){
     selTemp.value=tA;
     try{ if(typeof render==='function') render(); }catch(e){}
   }
-  cerrarComparador();
   openDetalleModal(f.desc);
 }
 
