@@ -86,6 +86,10 @@ function fmtValK(v)   {
 // ===================== DETALLE GASTOS MODAL =====================
 let currentDetalleItems = [];
 let currentDetallePpto = 0;
+// Contexto activo cuando el detalle se abre DESDE el comparador de temporadas.
+// null = abierto desde el dashboard (referencia = presupuesto).
+let _detalleCtxCmp = null;
+let _detalleCtxPend = null;   // lo deja verDetalleComparado; se consume al abrir
 let currentDetalleTC = 0; // TC implícito del Excel para la familia (REAL_CLP/REAL_USD)
 
 /* _isSeasonDetalle(obj): true si el detalle ya está segmentado por temporada
@@ -158,6 +162,12 @@ function _getDetalleFamilia(familia, temporada){
   return acc;
 }
 function openDetalleModal(descripcion) {
+  // El contexto de comparación es de UN SOLO USO: lo deja `verDetalleComparado`
+  // en `_detalleCtxPend` justo antes de llamar aquí, y se consume al entrar.
+  // Así, si el detalle se abre desde un gráfico o desde Top Desviaciones, el pie
+  // vuelve a contrastar contra el presupuesto en vez de arrastrar la temporada.
+  _detalleCtxCmp = _detalleCtxPend;
+  _detalleCtxPend = null;
   const MONTH_ORDER = ['MAYO','JUNIO','JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE','ENERO','FEBRERO','MARZO','ABRIL'];
   // Detalle filtrado por la TEMPORADA seleccionada en el dashboard (o todas).
   const tempSel = (document.getElementById('f-temporada') || {}).value || '';
@@ -262,18 +272,34 @@ function renderDetalleTable(items) {
   noData.style.display = 'none';
   const total = items.reduce((s, x) => s + convertVal(x.total), 0);
   countEl.textContent = `${items.length} registro${items.length !== 1 ? 's' : ''}`;
-  // Pie del modal: además del gasto real, mostrar el presupuesto de la
-  // descripción y el % de desviación (real vs presupuesto).
-  // currentDetallePpto se suma desde getPpto(), que YA devuelve el valor en la
-  // moneda activa (PPTO_USD en modo USD). No se debe volver a convertir.
-  var pptoConv = currentDetallePpto || 0;
-  var devPct = (pptoConv && pptoConv !== 0) ? ((total - pptoConv) / Math.abs(pptoConv)) * 100 : null;
-  var devColor = (devPct == null) ? '#64748b' : (devPct > 0 ? '#ef4444' : '#16a34a');
-  var devTxt = (devPct == null) ? 's/ppto' : ((devPct > 0 ? '+' : '') + devPct.toFixed(1) + '%');
-  totalEl.innerHTML =
-    '<span style="margin-right:14px">Gasto: <strong>' + fmtVal(total) + '</strong></span>' +
-    '<span style="margin-right:14px;color:#475569">Ppto: <strong>' + fmtVal(pptoConv) + '</strong></span>' +
-    '<span style="color:' + devColor + '">Desv: <strong>' + devTxt + '</strong></span>';
+  // Pie del modal. Hay dos contextos y cada uno pide una referencia distinta:
+  //  · Abierto desde el comparador de temporadas → contra el REAL de la
+  //    temporada anterior, que es lo que se está analizando.
+  //  · Abierto desde el dashboard → contra el PRESUPUESTO, como siempre.
+  if (_detalleCtxCmp) {
+    var refReal = _detalleCtxCmp.prev || 0;
+    var difR    = total - refReal;
+    var pctR    = (refReal > 0) ? (difR / refReal) * 100 : null;
+    var colR    = (pctR == null) ? '#64748b' : (pctR > 0 ? '#ef4444' : '#16a34a');
+    var txtR    = (pctR == null)
+      ? (refReal <= 0 && total > 0 ? 'nuevo' : 's/base')
+      : ((pctR > 0 ? '+' : '') + pctR.toFixed(1) + '%');
+    totalEl.innerHTML =
+      '<span style="margin-right:14px">Real ' + escapeHtml(_detalleCtxCmp.tAct) + ': <strong>' + fmtVal(total) + '</strong></span>' +
+      '<span style="margin-right:14px;color:#475569">Real ' + escapeHtml(_detalleCtxCmp.tPrev) + ': <strong>' + fmtVal(refReal) + '</strong></span>' +
+      '<span style="color:' + colR + '">Variación: <strong>' + txtR + '</strong></span>';
+  } else {
+    // currentDetallePpto se suma desde getPpto(), que YA devuelve el valor en la
+    // moneda activa (PPTO_USD en modo USD). No se debe volver a convertir.
+    var pptoConv = currentDetallePpto || 0;
+    var devPct = (pptoConv && pptoConv !== 0) ? ((total - pptoConv) / Math.abs(pptoConv)) * 100 : null;
+    var devColor = (devPct == null) ? '#64748b' : (devPct > 0 ? '#ef4444' : '#16a34a');
+    var devTxt = (devPct == null) ? 's/ppto' : ((devPct > 0 ? '+' : '') + devPct.toFixed(1) + '%');
+    totalEl.innerHTML =
+      '<span style="margin-right:14px">Gasto: <strong>' + fmtVal(total) + '</strong></span>' +
+      '<span style="margin-right:14px;color:#475569">Ppto: <strong>' + fmtVal(pptoConv) + '</strong></span>' +
+      '<span style="color:' + devColor + '">Desv: <strong>' + devTxt + '</strong></span>';
+  }
 
   tbody.innerHTML = items.map(x => {
     const converted = convertVal(x.total);
@@ -641,11 +667,15 @@ function _cmpCard(titulo,valor,sub,color){
 function verDetalleComparado(i){
   var f=_cmpFilas[i]; if(!f) return;
   var tA=(document.getElementById('pz-cmp-act')||{}).value||'';
+  var tP=(document.getElementById('pz-cmp-prev')||{}).value||'';
   var selTemp=document.getElementById('f-temporada');
   if(selTemp && tA && selTemp.value!==tA){
     selTemp.value=tA;
     try{ if(typeof render==='function') render(); }catch(e){}
   }
+  // El pie del detalle debe contrastar contra el REAL de la temporada anterior,
+  // no contra el presupuesto: es lo que se está analizando en el comparador.
+  _detalleCtxPend={ tAct:tA, tPrev:tP, prev:f.prev, act:f.act };
   openDetalleModal(f.desc);
 }
 
