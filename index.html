@@ -73,7 +73,7 @@ var FBCOUNT = (function(){
   });
 })();
 </script>
-<link rel="stylesheet" href="css/styles.css?v=121">
+<link rel="stylesheet" href="css/styles.css?v=122">
 </head>
 <body>
 <!-- Hoja de estilo dinámica para el tema forestal (se llena vía JS) -->
@@ -756,7 +756,7 @@ document.addEventListener('click', function(e){
   if(dd && dd.classList.contains('open') && !dd.contains(e.target)) dd.classList.remove('open');
 });
 </script>
-<script src="js/core.js?v=121"></script>
+<script src="js/core.js?v=122"></script>
 <script>
 /* ═══════════════ MÓDULO: CONTROL DE PRESUPUESTO ═══════════════ */
 /* Integra el dashboard de Control de Presupuesto (Huerto Cerezos 2018) como
@@ -1589,6 +1589,7 @@ function renderPresupuesto(main){
       <button class="cur-btn active" id="btn-clp" onclick="PZ.setCurrency('CLP')">$ CLP</button>
       <button class="cur-btn" id="btn-usd" onclick="PZ.setCurrency('USD')">USD</button>
     </div>
+    <button class="btn-pdf" onclick="PZ.openComparadorModal()" style="background:#7c3aed">📊 Comparar temporadas</button>
     <button class="btn-pdf" onclick="PZ.imprimirPDF()">🖨 Imprimir PDF</button>
     <button class="btn-upload" id="pz-btn-upload" onclick="document.getElementById('file-input').click()">⬆ Actualizar datos</button>
     <input type="file" id="file-input" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" onchange="PZ.handleFileSelect(event)" style="position:absolute;opacity:0;width:1px;height:1px;overflow:hidden;left:-9999px;top:-9999px;">
@@ -2057,11 +2058,11 @@ function renderPresupuesto(main){
 }
 
 </script>
-<script src="js/inventario.js?v=121"></script>
-<script src="js/ordencompra.js?v=121"></script>
-<script src="js/huerto.js?v=121"></script>
-<script src="js/actualizacion.js?v=121"></script>
-<script src="js/helada.js?v=121"></script>
+<script src="js/inventario.js?v=122"></script>
+<script src="js/ordencompra.js?v=122"></script>
+<script src="js/huerto.js?v=122"></script>
+<script src="js/actualizacion.js?v=122"></script>
+<script src="js/helada.js?v=122"></script>
 <script>
 
 /* ═══════════════ MÓDULO: MANTENCIONES ═══════════════ */
@@ -2822,7 +2823,7 @@ var S = { panos:[], registros:[], productos:[], ordenes:[], oCounter:1, confirma
 };
 
 </script>
-<script src="js/cuaderno.js?v=121"></script>
+<script src="js/cuaderno.js?v=122"></script>
 <script>
 
 /* ═══════════════ INTEGRACIÓN CUADERNO DE CAMPO ═══════════════ */
@@ -2879,8 +2880,8 @@ function renderCuaderno(main){
 </script>
 
 
-<script src="data/presupuesto-data.js?v=121"></script>
-<script src="js/presupuesto.js?v=121"></script>
+<script src="data/presupuesto-data.js?v=122"></script>
+<script src="js/presupuesto.js?v=122"></script>
 <script>
 /* ── Normalización global a MAYÚSCULAS en la entrada de datos ──
    Aplica a inputs de texto y textareas de todo el sistema.
