@@ -424,6 +424,245 @@ function pzDataset(){
   return (PZ_HUERTO==='2018') ? RAW : [];
 }
 
+/* ══════════════ COMPARADOR DE TEMPORADAS ══════════════
+   Compara el REAL de la temporada seleccionada contra el de la anterior.
+   Agrupa por DESCRIPCIÓN (el mismo nivel que ya usa el detalle de gastos), de
+   modo que cada fila se puede abrir con openDetalleModal.
+   Trabaja siempre sobre el REAL: comparar presupuestos entre temporadas no dice
+   nada del gasto efectivo, que es lo que interesa al cerrar un año. */
+
+var _cmpFilas = [];      // filas de la comparación, en el orden mostrado
+var _cmpModo  = 'desv';  // 'desv' = mayor desviación absoluta · 'pct' = mayor variación %
+
+// Devuelve la temporada anterior a "2026-2027" → "2025-2026".
+function _tempAnterior(t){
+  var m=/^(\d{4})-(\d{4})$/.exec(String(t||''));
+  if(!m) return '';
+  return (parseInt(m[1],10)-1)+'-'+(parseInt(m[2],10)-1);
+}
+
+// Lista de temporadas presentes en el dataset, ordenadas descendente.
+function _pzTemporadas(){
+  var set={};
+  (pzDataset()||[]).forEach(function(d){ var t=_getTemporada(d); if(t) set[t]=1; });
+  return Object.keys(set).sort().reverse();
+}
+
+/* Construye la comparación. Respeta el filtro de MES para poder comparar
+   períodos equivalentes (ej. solo mayo-julio de cada temporada), pero ignora
+   los filtros de tipo/sub-grupo/descripción: el modal tiene sus propios. */
+function _cmpConstruir(tActual, tPrevia){
+  var mesesSel = getMesesSel();
+  var acc = {};
+  (pzDataset()||[]).forEach(function(d){
+    var t=_getTemporada(d);
+    if(t!==tActual && t!==tPrevia) return;
+    if(mesesSel.length && mesesSel.indexOf(d.MES)<0) return;
+    var desc=(d.DESCRIPCION||'(sin descripción)').trim();
+    if(!acc[desc]){
+      acc[desc]={desc:desc, tipo:(d['TIPO DE COSTO']||'').trim(),
+                 sub:(d['SUB-GRUPO']||'').trim(), act:0, prev:0};
+    }
+    var v=parseFloat(getReal(d))||0;
+    if(t===tActual) acc[desc].act+=v; else acc[desc].prev+=v;
+  });
+
+  var filas=Object.keys(acc).map(function(k){
+    var f=acc[k];
+    f.dif = f.act - f.prev;
+    // Sin base previa el porcentaje no existe: se marca como ítem nuevo en vez
+    // de inventar un 100% o dividir por cero.
+    f.pct = (f.prev>0) ? (f.dif/f.prev*100) : null;
+    f.nuevo    = (f.prev<=0 && f.act>0);
+    f.discontinuado = (f.act<=0 && f.prev>0);
+    return f;
+  }).filter(function(f){ return f.act!==0 || f.prev!==0; });
+
+  return filas;
+}
+
+function _cmpOrdenar(filas){
+  return filas.slice().sort(function(a,b){
+    if(_cmpModo==='pct'){
+      var pa=(a.pct===null)?-Infinity:Math.abs(a.pct);
+      var pb=(b.pct===null)?-Infinity:Math.abs(b.pct);
+      if(pb!==pa) return pb-pa;
+    }
+    return Math.abs(b.dif)-Math.abs(a.dif);
+  });
+}
+
+function _cmpPct(f){
+  if(f.nuevo) return '<span style="color:#7c3aed;font-weight:700">nuevo</span>';
+  if(f.discontinuado) return '<span style="color:#64748b;font-weight:700">sin gasto</span>';
+  if(f.pct===null) return '—';
+  var col=(f.pct>0)?'#b91c1c':'#15803d';
+  return '<span style="color:'+col+';font-weight:700">'+(f.pct>0?'+':'')+f.pct.toFixed(1)+'%</span>';
+}
+
+function openComparadorModal(){
+  var temporadas=_pzTemporadas();
+  var tActual=(document.getElementById('f-temporada')||{}).value || temporadas[0] || '';
+  if(!tActual){
+    if(typeof toast==='function') toast('Sin datos','No hay temporadas cargadas para comparar','error');
+    return;
+  }
+  var sugerida=_tempAnterior(tActual);
+  var tPrevia = (temporadas.indexOf(sugerida)>=0)
+    ? sugerida
+    : (temporadas.filter(function(t){ return t<tActual; })[0] || '');
+
+  var prev=document.getElementById('pz-cmp-overlay'); if(prev) prev.remove();
+  var ov=document.createElement('div');
+  ov.id='pz-cmp-overlay';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:10020;display:flex;align-items:center;justify-content:center;padding:16px';
+  ov.onclick=function(e){ if(e.target===ov) cerrarComparador(); };
+  ov.innerHTML='<div style="background:#fff;border-radius:14px;max-width:1000px;width:100%;max-height:92vh;display:flex;flex-direction:column;overflow:hidden">'+
+    '<div style="background:#1a3a5c;color:#fff;padding:15px 20px;display:flex;justify-content:space-between;align-items:flex-start;gap:12px">'+
+      '<div><div style="font-size:17px;font-weight:800">📊 Comparación entre temporadas</div>'+
+        '<div style="font-size:12px;opacity:.85" id="pz-cmp-sub">Gasto real acumulado</div></div>'+
+      '<button onclick="PZ.cerrarComparador()" style="background:rgba(255,255,255,.15);color:#fff;border:none;border-radius:8px;width:32px;height:32px;font-size:18px;cursor:pointer;flex:0 0 auto">×</button>'+
+    '</div>'+
+    '<div style="padding:14px 20px;border-bottom:1px solid #e3e8ee;display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">'+
+      '<div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px">TEMPORADA ACTUAL</label>'+
+        '<select id="pz-cmp-act" onchange="PZ.refrescarComparador()" style="padding:7px 10px;border:1px solid #cdd5df;border-radius:7px;font-size:13px">'+
+        temporadas.map(function(t){ return '<option value="'+t+'"'+(t===tActual?' selected':'')+'>'+t+'</option>'; }).join('')+'</select></div>'+
+      '<div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px">COMPARAR CONTRA</label>'+
+        '<select id="pz-cmp-prev" onchange="PZ.refrescarComparador()" style="padding:7px 10px;border:1px solid #cdd5df;border-radius:7px;font-size:13px">'+
+        temporadas.map(function(t){ return '<option value="'+t+'"'+(t===tPrevia?' selected':'')+'>'+t+'</option>'; }).join('')+'</select></div>'+
+      '<div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px">ORDENAR POR</label>'+
+        '<select id="pz-cmp-modo" onchange="PZ.refrescarComparador()" style="padding:7px 10px;border:1px solid #cdd5df;border-radius:7px;font-size:13px">'+
+          '<option value="desv">Mayor diferencia ($)</option><option value="pct">Mayor variación (%)</option>'+
+        '</select></div>'+
+      '<div style="flex:1"></div>'+
+      '<button class="btn btn-secondary" onclick="PZ.exportarComparador()" style="font-size:12px;padding:7px 12px">📊 CSV</button>'+
+    '</div>'+
+    '<div id="pz-cmp-body" style="padding:16px 20px;overflow-y:auto;flex:1"></div>'+
+  '</div>';
+  document.body.appendChild(ov);
+  document.body.style.overflow='hidden';
+  refrescarComparador();
+}
+
+function cerrarComparador(){
+  var ov=document.getElementById('pz-cmp-overlay');
+  if(ov) ov.remove();
+  document.body.style.overflow='';
+}
+
+function refrescarComparador(){
+  var body=document.getElementById('pz-cmp-body'); if(!body) return;
+  var tA=(document.getElementById('pz-cmp-act')||{}).value||'';
+  var tP=(document.getElementById('pz-cmp-prev')||{}).value||'';
+  _cmpModo=(document.getElementById('pz-cmp-modo')||{}).value||'desv';
+
+  if(tA===tP){
+    body.innerHTML='<div style="color:#92600a;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:14px;font-size:13px">Seleccione dos temporadas distintas para comparar.</div>';
+    return;
+  }
+
+  var filas=_cmpConstruir(tA,tP);
+  _cmpFilas=_cmpOrdenar(filas);
+
+  var totA=0,totP=0;
+  filas.forEach(function(f){ totA+=f.act; totP+=f.prev; });
+  var difT=totA-totP;
+  var pctT=(totP>0)?(difT/totP*100):null;
+
+  var mesesSel=getMesesSel();
+  var sub=document.getElementById('pz-cmp-sub');
+  if(sub) sub.textContent='Gasto real'+(mesesSel.length?(' · '+mesesSel.join(', ')):' · Todos los meses')+
+    ' · '+(CURRENCY==='CLP'?'Pesos':'Dólares');
+
+  if(!_cmpFilas.length){
+    body.innerHTML='<div style="color:#999;padding:26px;text-align:center;font-size:13px">No hay gasto real registrado en ninguna de las dos temporadas para el período seleccionado.</div>';
+    return;
+  }
+
+  var colT=(difT>0)?'#b91c1c':'#15803d';
+  var resumen=
+    '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:16px">'+
+      _cmpCard(tA, fmtVal(totA), 'real acumulado', '#0a6ed1')+
+      _cmpCard(tP, fmtVal(totP), 'real acumulado', '#64748b')+
+      _cmpCard('Diferencia', (difT>0?'+':'')+fmtVal(difT), (difT>0?'mayor gasto':'menor gasto')+' vs '+tP, colT)+
+      _cmpCard('Variación', (pctT===null?'—':((pctT>0?'+':'')+pctT.toFixed(1)+'%')), 'sobre '+tP, colT)+
+    '</div>';
+
+  var filasHTML=_cmpFilas.map(function(f,i){
+    var colD=(f.dif>0)?'#b91c1c':'#15803d';
+    return '<tr onclick="PZ.verDetalleComparado('+i+')" style="border-bottom:1px solid #eee;cursor:pointer" '+
+        'onmouseover="this.style.background=\'#f8fafc\'" onmouseout="this.style.background=\'\'">'+
+      '<td style="padding:8px 9px">'+escapeHtml(f.desc)+
+        (f.tipo?'<div style="font-size:10px;color:#94a3b8">'+escapeHtml(f.tipo)+(f.sub?(' · '+escapeHtml(f.sub)):'')+'</div>':'')+'</td>'+
+      '<td style="padding:8px 9px;text-align:right;white-space:nowrap">'+fmtVal(f.act)+'</td>'+
+      '<td style="padding:8px 9px;text-align:right;white-space:nowrap;color:#64748b">'+fmtVal(f.prev)+'</td>'+
+      '<td style="padding:8px 9px;text-align:right;white-space:nowrap;font-weight:700;color:'+colD+'">'+
+        (f.dif>0?'▲ +':'▼ ')+fmtVal(f.dif)+'</td>'+
+      '<td style="padding:8px 9px;text-align:right;white-space:nowrap">'+_cmpPct(f)+'</td>'+
+    '</tr>';
+  }).join('');
+
+  body.innerHTML=resumen+
+    '<div style="font-size:11px;color:#7a8794;margin-bottom:6px">Haga clic en una fila para ver el detalle de gastos de esa descripción.</div>'+
+    '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12.5px;min-width:660px">'+
+      '<thead><tr style="background:#f5f7fa;border-bottom:2px solid #e3e8ee">'+
+        '<th style="padding:8px 9px;text-align:left;font-size:11px;color:#64748b">DESCRIPCIÓN</th>'+
+        '<th style="padding:8px 9px;text-align:right;font-size:11px;color:#64748b">'+escapeHtml(tA)+'</th>'+
+        '<th style="padding:8px 9px;text-align:right;font-size:11px;color:#64748b">'+escapeHtml(tP)+'</th>'+
+        '<th style="padding:8px 9px;text-align:right;font-size:11px;color:#64748b">DIFERENCIA</th>'+
+        '<th style="padding:8px 9px;text-align:right;font-size:11px;color:#64748b">VARIACIÓN</th>'+
+      '</tr></thead><tbody>'+filasHTML+'</tbody>'+
+      '<tfoot><tr style="background:#f5f7fa;font-weight:800;border-top:2px solid #e3e8ee">'+
+        '<td style="padding:9px">Total '+_cmpFilas.length+' ítem(s)</td>'+
+        '<td style="padding:9px;text-align:right">'+fmtVal(totA)+'</td>'+
+        '<td style="padding:9px;text-align:right;color:#64748b">'+fmtVal(totP)+'</td>'+
+        '<td style="padding:9px;text-align:right;color:'+colT+'">'+(difT>0?'+':'')+fmtVal(difT)+'</td>'+
+        '<td style="padding:9px;text-align:right;color:'+colT+'">'+(pctT===null?'—':((pctT>0?'+':'')+pctT.toFixed(1)+'%'))+'</td>'+
+      '</tr></tfoot></table></div>';
+}
+
+function _cmpCard(titulo,valor,sub,color){
+  return '<div style="border:1px solid #e3e8ee;border-radius:9px;padding:10px 12px">'+
+    '<div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.4px">'+escapeHtml(titulo)+'</div>'+
+    '<div style="font-size:19px;font-weight:800;color:'+color+';margin:2px 0">'+valor+'</div>'+
+    '<div style="font-size:10px;color:#94a3b8">'+escapeHtml(sub)+'</div></div>';
+}
+
+/* Al abrir el detalle de un ítem, se alinea el filtro de temporada del dashboard
+   con la temporada ACTUAL de la comparación: openDetalleModal lee ese filtro, y
+   sin esto el detalle mostraría una temporada distinta a la de la fila clicada. */
+function verDetalleComparado(i){
+  var f=_cmpFilas[i]; if(!f) return;
+  var tA=(document.getElementById('pz-cmp-act')||{}).value||'';
+  var selTemp=document.getElementById('f-temporada');
+  if(selTemp && tA && selTemp.value!==tA){
+    selTemp.value=tA;
+    try{ if(typeof render==='function') render(); }catch(e){}
+  }
+  cerrarComparador();
+  openDetalleModal(f.desc);
+}
+
+function exportarComparador(){
+  if(!_cmpFilas.length){ if(typeof toast==='function') toast('Sin datos','No hay filas para exportar','error'); return; }
+  var tA=(document.getElementById('pz-cmp-act')||{}).value||'';
+  var tP=(document.getElementById('pz-cmp-prev')||{}).value||'';
+  var q=function(v){ return '"'+String(v==null?'':v).replace(/"/g,'""')+'"'; };
+  var lineas=[['Descripcion','Tipo de costo','Sub-grupo','Real '+tA,'Real '+tP,'Diferencia','Variacion %','Nota'].map(q).join(';')];
+  _cmpFilas.forEach(function(f){
+    lineas.push([f.desc,f.tipo,f.sub,Math.round(f.act),Math.round(f.prev),Math.round(f.dif),
+      (f.pct===null?'':f.pct.toFixed(1)),
+      (f.nuevo?'Nuevo':(f.discontinuado?'Sin gasto':''))].map(q).join(';'));
+  });
+  var blob=new Blob(['\ufeff'+lineas.join('\r\n')],{type:'text/csv;charset=utf-8;'});
+  var a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='comparacion_'+tA+'_vs_'+tP+'.csv';
+  document.body.appendChild(a); a.click();
+  setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); },500);
+  if(typeof toast==='function') toast('Exportado',_cmpFilas.length+' ítem(s)','success');
+}
+
 function openUploadModal() {
   document.getElementById('upload-modal').classList.add('active');
   setStatus('⏳ Leyendo archivo...', 'loading');
@@ -2650,6 +2889,11 @@ window.PZ = {
   closeDetalleModal: closeDetalleModal,
   filterDetalleTable: filterDetalleTable,
   openDetalleModal: openDetalleModal,
+  openComparadorModal: openComparadorModal,
+  cerrarComparador: cerrarComparador,
+  refrescarComparador: refrescarComparador,
+  verDetalleComparado: verDetalleComparado,
+  exportarComparador: exportarComparador,
   serializeDataset: pzSerializeDataset,
   loadDataset: pzLoadDataset,
   fbInit: pzFbInit,
