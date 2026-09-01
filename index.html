@@ -73,7 +73,7 @@ var FBCOUNT = (function(){
   });
 })();
 </script>
-<link rel="stylesheet" href="css/styles.css?v=124">
+<link rel="stylesheet" href="css/styles.css?v=125">
 </head>
 <body>
 <!-- Hoja de estilo dinámica para el tema forestal (se llena vía JS) -->
@@ -100,7 +100,19 @@ var FBCOUNT = (function(){
     </form>
     <div class="login-footer">
       Sistema multibodegas · Costeo PPP · Trazabilidad por lote
-      <div style="margin-top:8px;font-size:11px;opacity:.75">SCI v1.0 · Desarrollado por Rodrigo Briones Friz / Claude AI</div>
+      <div style="margin-top:8px;font-size:11px;opacity:.75">
+        SCI <span id="login-version">v—</span> · Desarrollado por Rodrigo Briones Friz / Claude AI
+      </div>
+      <div id="login-update" style="display:none;margin-top:10px;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:9px 11px;text-align:left">
+        <div style="font-size:11.5px;color:#9a3412;font-weight:700;margin-bottom:6px">
+          ⬆️ Hay una versión nueva disponible
+        </div>
+        <div style="font-size:10.5px;color:#9a3412;opacity:.85;margin-bottom:7px" id="login-update-detalle"></div>
+        <button type="button" onclick="sciAplicarActualizacion()"
+          style="width:100%;background:#ea580c;color:#fff;border:none;border-radius:7px;padding:8px;font-size:12px;font-weight:700;cursor:pointer">
+          Actualizar ahora
+        </button>
+      </div>
     </div>
   </div>
 </div>
@@ -756,7 +768,7 @@ document.addEventListener('click', function(e){
   if(dd && dd.classList.contains('open') && !dd.contains(e.target)) dd.classList.remove('open');
 });
 </script>
-<script src="js/core.js?v=124"></script>
+<script src="js/core.js?v=125"></script>
 <script>
 /* ═══════════════ MÓDULO: CONTROL DE PRESUPUESTO ═══════════════ */
 /* Integra el dashboard de Control de Presupuesto (Huerto Cerezos 2018) como
@@ -2060,11 +2072,11 @@ function renderPresupuesto(main){
 }
 
 </script>
-<script src="js/inventario.js?v=124"></script>
-<script src="js/ordencompra.js?v=124"></script>
-<script src="js/huerto.js?v=124"></script>
-<script src="js/actualizacion.js?v=124"></script>
-<script src="js/helada.js?v=124"></script>
+<script src="js/inventario.js?v=125"></script>
+<script src="js/ordencompra.js?v=125"></script>
+<script src="js/huerto.js?v=125"></script>
+<script src="js/actualizacion.js?v=125"></script>
+<script src="js/helada.js?v=125"></script>
 <script>
 
 /* ═══════════════ MÓDULO: MANTENCIONES ═══════════════ */
@@ -2825,7 +2837,7 @@ var S = { panos:[], registros:[], productos:[], ordenes:[], oCounter:1, confirma
 };
 
 </script>
-<script src="js/cuaderno.js?v=124"></script>
+<script src="js/cuaderno.js?v=125"></script>
 <script>
 
 /* ═══════════════ INTEGRACIÓN CUADERNO DE CAMPO ═══════════════ */
@@ -2882,8 +2894,8 @@ function renderCuaderno(main){
 </script>
 
 
-<script src="data/presupuesto-data.js?v=124"></script>
-<script src="js/presupuesto.js?v=124"></script>
+<script src="data/presupuesto-data.js?v=125"></script>
+<script src="js/presupuesto.js?v=125"></script>
 <script>
 /* ── Normalización global a MAYÚSCULAS en la entrada de datos ──
    Aplica a inputs de texto y textareas de todo el sistema.
@@ -2919,12 +2931,82 @@ function renderCuaderno(main){
 })();
 </script>
 <script>
+/* ═══════════ VERSIÓN Y ACTUALIZACIÓN (PWA) ═══════════
+   La versión en uso se deduce del ?v= con que se cargó core.js, así que nunca
+   se desincroniza de lo que realmente está corriendo el navegador.
+   Para saber si hay una versión nueva se lee `const VERSION` del propio
+   service-worker.js, pidiéndolo con cache:'no-store'. El SW hace skipWaiting()
+   al instalar, por lo que nunca queda en estado "waiting" y el patrón habitual
+   de reg.waiting no dispararía nunca. */
+var SCI_VER_PAGINA = (function(){
+  try{
+    var sc = document.querySelector('script[src*="js/core.js"]');
+    var m  = /[?&]v=(\d+)/.exec(sc ? sc.getAttribute('src') : '');
+    return m ? parseInt(m[1],10) : 0;
+  }catch(e){ return 0; }
+})();
+
+function sciMostrarVersion(){
+  var el = document.getElementById('login-version');
+  if(el) el.textContent = SCI_VER_PAGINA ? ('v'+SCI_VER_PAGINA) : 'v—';
+}
+
+function sciChequearActualizacion(){
+  // Sin conexión no se puede saber si hay algo nuevo: se omite en silencio
+  // para no alarmar en terreno.
+  if(!navigator.onLine || !SCI_VER_PAGINA) return;
+  fetch('./service-worker.js?_=' + Date.now(), { cache:'no-store' })
+    .then(function(r){ return r.ok ? r.text() : ''; })
+    .then(function(t){
+      var m = /const\s+VERSION\s*=\s*(\d+)/.exec(t || '');
+      if(!m) return;
+      var remota = parseInt(m[1],10);
+      if(remota <= SCI_VER_PAGINA) return;
+      var det = document.getElementById('login-update-detalle');
+      if(det) det.textContent = 'Está usando la v'+SCI_VER_PAGINA+' y ya está publicada la v'+remota+'.';
+      var box = document.getElementById('login-update');
+      if(box) box.style.display = 'block';
+    })
+    .catch(function(){ /* sin red o recurso no disponible: no se avisa nada */ });
+}
+
+function sciAplicarActualizacion(){
+  if(!navigator.onLine){
+    alert('Sin conexión. Conéctese a internet antes de actualizar: el proceso borra los archivos guardados y necesita descargarlos de nuevo.');
+    return;
+  }
+  var box = document.getElementById('login-update');
+  if(box) box.innerHTML = '<div style="font-size:11.5px;color:#9a3412;font-weight:700;text-align:center;padding:6px">Actualizando…</div>';
+  var pasos = [];
+  if('serviceWorker' in navigator){
+    pasos.push(navigator.serviceWorker.getRegistrations()
+      .then(function(regs){ return Promise.all(regs.map(function(r){ return r.update().catch(function(){}); })); })
+      .catch(function(){}));
+  }
+  // Borrar los caches es imprescindible: el SW responde cache-first, así que un
+  // reload normal volvería a servir el index.html y los JS antiguos.
+  if(window.caches){
+    pasos.push(caches.keys()
+      .then(function(keys){ return Promise.all(keys.map(function(k){ return caches.delete(k); })); })
+      .catch(function(){}));
+  }
+  Promise.all(pasos).then(function(){
+    setTimeout(function(){ location.reload(); }, 300);
+  });
+}
+
 /* Registro del Service Worker (PWA offline) */
 if('serviceWorker' in navigator){
   window.addEventListener('load', function(){
     navigator.serviceWorker.register('./service-worker.js').catch(function(e){ console.warn('SW no registrado:', e); });
   });
 }
+
+document.addEventListener('DOMContentLoaded', function(){
+  sciMostrarVersion();
+  // Se consulta con un pequeño retardo para no competir con la carga inicial
+  setTimeout(sciChequearActualizacion, 1200);
+});
 </script>
 </body>
 </html>
