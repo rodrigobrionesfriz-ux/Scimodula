@@ -220,6 +220,66 @@ function openDetalleModal(descripcion) {
   document.body.style.overflow = 'hidden';
 }
 
+/* Detalle de gastos reales de un SUB-GRUPO completo.
+   La dona agrupa por sub-grupo, no por descripción, así que se reúnen los
+   detalles de todas las descripciones que caen en él. Reutiliza el mismo modal
+   que el detalle por descripción para no duplicar tabla, búsqueda ni pie. */
+function openDetalleSubgrupo(sub){
+  if(!sub) return;
+  _detalleCtxCmp = null; _detalleCtxPend = null;   // referencia = presupuesto
+  const MONTH_ORDER = ['MAYO','JUNIO','JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE','ENERO','FEBRERO','MARZO','ABRIL'];
+  const tempSel = (document.getElementById('f-temporada') || {}).value || '';
+  const mesesSel = getMesesSel();
+
+  var filas = (pzDataset() || []).filter(function(d){
+    if(String(d['SUB-GRUPO']||'').trim() !== String(sub).trim()) return false;
+    if(tempSel && _getTemporada(d) !== tempSel) return false;
+    if(mesesSel.length && mesesSel.indexOf(d.MES) < 0) return false;
+    return true;
+  });
+  if(!filas.length){
+    if(typeof toast==='function') toast('Sin detalle','No hay gastos registrados en '+sub+' para el período','info');
+    return;
+  }
+
+  // Descripciones únicas del sub-grupo
+  var descs=[];
+  filas.forEach(function(d){
+    var k=d.DESCRIPCION;
+    if(k && descs.indexOf(k)<0) descs.push(k);
+  });
+
+  var items=[];
+  descs.forEach(function(dsc){
+    var it=_getDetalleFamilia(dsc, tempSel) || [];
+    if(mesesSel.length) it=it.filter(function(x){ return mesesSel.indexOf(x.mes)>=0; });
+    items=items.concat(it);
+  });
+  items.sort(function(a,b){
+    var ai=MONTH_ORDER.indexOf(a.mes), bi=MONTH_ORDER.indexOf(b.mes);
+    return (ai===-1?99:ai)-(bi===-1?99:bi);
+  });
+  currentDetalleItems = items;
+
+  // Presupuesto y TC implícito del sub-grupo, con el mismo criterio que el
+  // detalle por descripción (para que el pie no descuadre al pasar a USD).
+  try{
+    currentDetallePpto = filas.reduce(function(s,d){ return s + (parseFloat(getPpto(d))||0); }, 0);
+    var sClp=filas.reduce(function(s,d){ return s+(parseFloat(d.REAL_CLP)||0); },0);
+    var sUsd=filas.reduce(function(s,d){ return s+(parseFloat(d.REAL_USD)||0); },0);
+    currentDetalleTC = (sUsd>0) ? (sClp/sUsd) : 0;
+  }catch(e){ currentDetallePpto = 0; currentDetalleTC = 0; }
+
+  document.getElementById('detalle-title').textContent = sub;
+  var mesLabel = mesesSel.length ? (' · '+mesesSel.join(', ')) : ' · Todos los meses';
+  document.getElementById('detalle-subtitle').textContent =
+    items.length+' registros · '+descs.length+' ítem(s) del sub-grupo'+mesLabel;
+  document.getElementById('detalle-search').value = '';
+  renderDetalleTable(items);
+  document.getElementById('detalle-overlay').classList.add('active');
+  document.body.style.overflow = 'hidden';
+}
+
 function closeDetalleModal() {
   // Ya no se cierra al hacer clic fuera: solo con el botón o con Escape. Con el
   // comparador detrás, el clic accidental fuera cerraba el detalle sin querer.
@@ -1596,6 +1656,16 @@ function renderSubgrupoChart(data) {
     },
     options: {
       responsive: true, maintainAspectRatio: false, cutout: '68%',
+      // Clic en un segmento → detalle de los gastos reales de ese sub-grupo
+      onClick: (evt, elems) => {
+        if(!elems || !elems.length) return;
+        const idx = elems[0].index;
+        if(subs[idx]) openDetalleSubgrupo(subs[idx]);
+      },
+      onHover: (evt, elems) => {
+        const c = evt && evt.native && evt.native.target;
+        if(c) c.style.cursor = (elems && elems.length) ? 'pointer' : 'default';
+      },
       layout: {
         padding: (ctx) => {
           // Padding proporcional: en móvil 75px fijos dejaban el aro diminuto
@@ -1683,7 +1753,9 @@ function renderSubgrupoChart(data) {
           </div>`;
         }).join('');
       return `
-        <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:6px;padding:5px 7px;display:flex;flex-direction:column;gap:4px;">
+        <div onclick="PZ.openDetalleSubgrupo('${String(label).replace(/'/g,"\\'")}')" title="Ver el detalle de gastos de ${label}"
+             style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:6px;padding:5px 7px;display:flex;flex-direction:column;gap:4px;cursor:pointer;"
+             onmouseover="this.style.background='rgba(255,255,255,0.08)'" onmouseout="this.style.background='rgba(255,255,255,0.03)'">
           <div style="display:flex;align-items:center;gap:7px;">
             <span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:${col};flex-shrink:0;"></span>
             <span style="font-size:10.5px;font-weight:700;color:#ffffff;line-height:1.2;">${label}</span>
@@ -2925,6 +2997,7 @@ window.PZ = {
   closeDetalleModal: closeDetalleModal,
   filterDetalleTable: filterDetalleTable,
   openDetalleModal: openDetalleModal,
+  openDetalleSubgrupo: openDetalleSubgrupo,
   openComparadorModal: openComparadorModal,
   cerrarComparador: cerrarComparador,
   refrescarComparador: refrescarComparador,
