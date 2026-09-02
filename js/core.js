@@ -9,7 +9,7 @@
 
 /* ═══════════════ DB LAYER (IndexedDB) ═══════════════ */
 const DB_NAME='SCI_DB';
-const DB_VERSION=13;   // v108: nuevo store 'heladas' (Control de Heladas)
+const DB_VERSION=14;   // v129: nuevo store 'clima' (histórico diario de temperaturas)
 const STORES=[
   ['users','id'],
   ['products','codigoInterno'],
@@ -33,7 +33,8 @@ const STORES=[
   ['config','key'],
   ['aihprop','id'],
   ['aihver','id'],
-  ['heladas','id']
+  ['heladas','id'],
+  ['clima','fecha']
 ];
 let DB=null;
 
@@ -68,7 +69,7 @@ function dbPut(store,obj){
     // el mismo registro. No se aplica al aplicar un cambio remoto (para no
     // re-sellar lo que ya viene de la nube).
     try{
-      var ACUM = {'invplantas':1,'conteos':1,'estimaciones':1,'movements':1,'mantenciones':1,'inventoryCounts':1,'lots':1,'aihprop':1,'heladas':1};
+      var ACUM = {'invplantas':1,'conteos':1,'estimaciones':1,'movements':1,'mantenciones':1,'inventoryCounts':1,'lots':1,'aihprop':1,'heladas':1,'clima':1};
       if(ACUM[store] && obj && typeof obj==='object' && !(typeof SCIFB!=='undefined' && SCIFB.applyingRemote)){
         obj._mod = Date.now();
       }
@@ -192,7 +193,7 @@ var SCIFB = {
   applyingRemote: false,
   saveTimer: null,
   // Tablas que se sincronizan (todas las del SCI)
-  stores: ['users','products','warehouses','groups','productTypes','providers','customers','costCenters','inventoryCounts','movements','ordenescompra','lots','config','mantenciones','conteos','estimaciones','invplantas','combustible','aihprop','heladas']
+  stores: ['users','products','warehouses','groups','productTypes','providers','customers','costCenters','inventoryCounts','movements','ordenescompra','lots','config','mantenciones','conteos','estimaciones','invplantas','combustible','aihprop','heladas','clima']
 };
 
 function sciFbDocRef(){
@@ -449,7 +450,7 @@ function _sciEstaEliminado(store, rec, key){
    dispositivo borre datos que otro creó. */
 var SCI_STORES_ACUMULATIVOS = {
   'invplantas':1,'conteos':1,'estimaciones':1,'movements':1,'combustible':1,'aihprop':1,
-  'mantenciones':1,'inventoryCounts':1,'audit':1,'lots':1,'ordenescompra':1,'heladas':1
+  'mantenciones':1,'inventoryCounts':1,'audit':1,'lots':1,'ordenescompra':1,'heladas':1,'clima':1
 };
 function _sciStoreKey(store){
   try{ for(var i=0;i<STORES.length;i++){ if(STORES[i][0]===store) return STORES[i][1]; } }catch(e){}
@@ -586,7 +587,7 @@ async function sha256(text){
 const STATE={
   user:null,
   page:'dashboard',
-  cache:{products:[],warehouses:[],groups:[],productTypes:[],providers:[],customers:[],costCenters:[],inventoryCounts:[],movements:[],ordenescompra:[],stock:[],lots:[],users:[],config:{},mantenciones:[],conteos:[],estimaciones:[],invplantas:[],combustible:[],aihprop:[],heladas:[]}
+  cache:{products:[],warehouses:[],groups:[],productTypes:[],providers:[],customers:[],costCenters:[],inventoryCounts:[],movements:[],ordenescompra:[],stock:[],lots:[],users:[],config:{},mantenciones:[],conteos:[],estimaciones:[],invplantas:[],combustible:[],aihprop:[],heladas:[],clima:[]}
 };
 
 // ── Advertencia al cerrar / recargar / volver atrás (evita salir por error) ──
@@ -888,6 +889,7 @@ async function reloadCache(){
   STATE.cache.invplantas=await dbAll('invplantas');
   STATE.cache.aihprop=await dbAll('aihprop');
   STATE.cache.heladas=await dbAll('heladas');
+  STATE.cache.clima=await dbAll('clima');
   // 'combustible' se sincroniza y se escribía en cache solo al registrar una
   // salida: tras recargar la app quedaba vacío hasta el primer consumo nuevo.
   STATE.cache.combustible=await dbAll('combustible');
