@@ -760,6 +760,32 @@ async function importBackup(file){
 }
 
 /* ═══════════════ PAGE: DASHBOARD ═══════════════ */
+/* Desde el desglose por tipo de la tarjeta de valor: abre la página Stock ya
+   filtrada por ese tipo. "Sin clasificar" no es un tipo real del catálogo, así
+   que en ese caso se limpia el filtro y se avisa, en vez de dejar la tabla
+   vacía sin explicación. */
+function verStockPorTipo(tipo){
+  if(typeof stockFilter==='undefined') return;
+  // navigate() no valida permisos, así que se comprueba aquí: un usuario sin
+  // acceso a Stock vería la página igual al tocar la tarjeta.
+  if(typeof can==='function' && !can('stock.ver')){
+    if(typeof toast==='function') toast('Sin acceso','No tiene permiso para ver el stock por bodega','error');
+    return;
+  }
+  var sinClasificar = (tipo==='Sin clasificar');
+  stockFilter.tipo        = sinClasificar ? '' : (tipo||'');
+  stockFilter.bodega      = '';
+  stockFilter.grupo       = '';
+  stockFilter.subgrupo    = '';
+  stockFilter.search      = '';
+  stockFilter.soloConSaldo= true;
+  navigate('stock');
+  if(sinClasificar && typeof toast==='function'){
+    toast('Sin clasificar','Son productos sin tipo asignado en su ficha. Se muestra el stock completo.','info');
+  }
+}
+try{ window.verStockPorTipo=verStockPorTipo; }catch(e){}
+
 // Detalle de productos bajo stock mínimo (desde la tarjeta del dashboard)
 function verStockBajo(){
   var filas=[];
@@ -844,6 +870,36 @@ function renderDashboard(c){
     if(!p || p.inventariable!==false) return s;
     return s+(x.cantidad*x.costoPromedio||0);
   },0);
+  // Desglose del valor por TIPO DE PRODUCTO (campo `tipoProducto`, el mismo que
+  // usa el filtro de la página Productos, para que ambas vistas coincidan).
+  // Los productos sin tipo van a "Sin clasificar": si se descartaran, la suma
+  // de las líneas no cuadraría con el total y parecería un error de cálculo.
+  const porTipo=(()=>{
+    const acc={};
+    STATE.cache.stock.forEach(x=>{
+      const p=getProduct(x.codigoInterno);
+      if(p && p.inventariable===false) return;      // los servicios van aparte
+      const val=(x.cantidad*x.costoPromedio)||0;
+      if(!val) return;
+      const k=(p && p.tipoProducto) ? p.tipoProducto : 'Sin clasificar';
+      acc[k]=(acc[k]||0)+val;
+    });
+    return Object.keys(acc)
+      .map(k=>({tipo:k, valor:acc[k], pct: valorInv>0 ? (acc[k]/valorInv*100) : 0}))
+      .sort((a,b)=>b.valor-a.valor);
+  })();
+  const porTipoHtml = porTipo.length
+    ? porTipo.map(t=>{
+        const arg=String(t.tipo).replace(/'/g,"\\'");
+        return `<div onclick="verStockPorTipo('${escapeHtml(arg)}')" title="Ver el stock de ${escapeHtml(t.tipo)}"
+             style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:5px 0;border-top:1px solid rgba(0,0,0,.06);cursor:pointer"
+             onmouseover="this.style.background='rgba(0,0,0,.03)'" onmouseout="this.style.background=''">
+          <span style="font-size:12px;color:var(--mu);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(t.tipo)}</span>
+          <span style="white-space:nowrap"><strong style="font-size:14px">${fmtMon(t.valor)}</strong>
+            <span style="font-size:11px;color:var(--mu);margin-left:5px">${t.pct.toFixed(1)}%</span></span>
+        </div>`;
+      }).join('')
+    : '<div style="font-size:12px;color:var(--mu);padding:6px 0">Sin existencias valorizadas.</div>';
   // Stock bajo: recorrer PRODUCTOS con stock mínimo definido y comparar su existencia total.
   // Incluye productos en 0 o sin registro en cache.stock (que antes quedaban fuera).
   const lowStock=(()=>{
@@ -913,6 +969,10 @@ function renderDashboard(c){
         <div style="display:flex;flex-wrap:wrap;gap:6px 22px;align-items:baseline">
           <div><span class="stat-value">${fmtMon(valorInv)}</span> <span class="stat-sub">inventariables · costo PPP</span></div>
           <div><span class="stat-label">Servicios</span> <span style="font-size:18px;font-weight:800">${fmtMon(valorServ)}</span></div>
+        </div>
+        <div style="margin-top:10px">
+          <div style="font-size:10px;color:var(--mu);text-transform:uppercase;letter-spacing:.4px;margin-bottom:2px">Por tipo de producto · toca para ver el detalle</div>
+          ${porTipoHtml}
         </div>
       </div>
       <div class="stat-card amber" ${(new Set(lowStock.map(s=>s.codigoInterno)).size)>0?'onclick="verStockBajo()" style="cursor:pointer"':''}>
