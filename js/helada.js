@@ -107,9 +107,13 @@ function renderHelada(main){
   }
   var puedeReg=can('helada.registrar');
   var esAdmin=can('config.editar');
+  var riesgo=_helRiesgoHelada();
   var tabs='';
   tabs+='<button onclick="helTab(0)" style="'+_helTabCss(_helTab==='registros')+'">❄️ Registros</button>';
   if(puedeReg) tabs+='<button onclick="helTab(1)" style="'+_helTabCss(_helTab==='form')+'">📝 '+(_helEditId?'Editando':'Nuevo registro')+'</button>';
+  tabs+='<button onclick="helTab(4)" style="'+_helTabCss(_helTab==='clima')+'">🌤️ Clima'+
+        (riesgo?'<span style="background:'+(riesgo.minima<=0?'#b91c1c':'#b45309')+';color:#fff;border-radius:9px;padding:1px 6px;font-size:10px;margin-left:6px">'+riesgo.dias.length+'</span>':'')+
+        '</button>';
   tabs+='<button onclick="helTab(3)" style="'+_helTabCss(_helTab==='diesel')+'">⛽ Diésel</button>';
   if(esAdmin)  tabs+='<button onclick="helTab(2)" style="'+_helTabCss(_helTab==='torres')+'">🗼 Torres</button>';
 
@@ -117,7 +121,8 @@ function renderHelada(main){
   if(_helTab==='form' && puedeReg)       body=_helRenderForm();
   else if(_helTab==='torres' && esAdmin) body=_helRenderTorres();
   else if(_helTab==='diesel')            body=_helRenderDiesel();
-  else                                   body=_helRenderLista();
+  else if(_helTab==='clima')             body=_helRenderClima();
+  else                                   body=_helBannerRiesgo()+_helRenderLista();
 
   main.innerHTML=
     '<div class="card" style="padding:16px">'+
@@ -133,7 +138,7 @@ function _helTabCss(act){
 }
 // Índices numéricos en el onclick: evita problemas de escape con textos.
 function helTab(i){
-  _helTab=(i===1)?'form':(i===2)?'torres':(i===3)?'diesel':'registros';
+  _helTab=(i===1)?'form':(i===2)?'torres':(i===3)?'diesel':(i===4)?'clima':'registros';
   if(i!==1) _helEditId=null;
   _helRefresh();
 }
@@ -1040,6 +1045,354 @@ function helExportarDiesel(cual){
   toast('Exportado',(lineas.length-1)+' fila(s)','success');
 }
 
+/* ════════════════ CLIMA Y PRONÓSTICO DE HELADAS ════════════════
+   Fuente: Open-Meteo (open-meteo.com). Se eligió porque no exige clave de API
+   ni backend y permite CORS, así que funciona desde esta PWA estática.
+     · Pronóstico  → api.open-meteo.com          (7 días)
+     · Histórico   → archive-api.open-meteo.com  (reanálisis, desde 1940)
+   La configuración (coordenadas y umbral) va en `config` y se sincroniza.
+   El último pronóstico se guarda en localStorage —NO en config— para no
+   generar tráfico de sincronización con un dato que caduca en horas; sirve
+   además para mostrar algo cuando el equipo está sin señal en terreno.        */
+
+var HEL_CLIMA_DEFAULT = { lat:-37.7958, lon:-72.7167, nombre:'Angol, La Araucanía', umbral:2 };
+var _helClimaCargando = false;
+var _helHistCargando  = false;
+var _helHist          = null;   // resultado del histórico en memoria
+
+function _helClimaCfg(){
+  try{
+    var c=(STATE.cache.config||{}).helClima;
+    if(c && c.lat!=null && c.lon!=null){
+      return { lat:Number(c.lat), lon:Number(c.lon),
+               nombre:c.nombre||'', umbral:(c.umbral!=null?Number(c.umbral):2) };
+    }
+  }catch(e){}
+  return Object.assign({}, HEL_CLIMA_DEFAULT);
+}
+async function _helGuardarClimaCfg(cfg){
+  await dbPut('config',{key:'helClima', lat:cfg.lat, lon:cfg.lon, nombre:cfg.nombre, umbral:cfg.umbral});
+  STATE.cache.config=STATE.cache.config||{};
+  STATE.cache.config.helClima={key:'helClima', lat:cfg.lat, lon:cfg.lon, nombre:cfg.nombre, umbral:cfg.umbral};
+}
+
+// Cache local del pronóstico (por dispositivo)
+function _helPronCache(){
+  try{ return JSON.parse(localStorage.getItem('sci_hel_pronostico')||'null'); }catch(e){ return null; }
+}
+function _helPronGuardar(obj){
+  try{ localStorage.setItem('sci_hel_pronostico', JSON.stringify(obj)); }catch(e){}
+}
+
+/* Noches con riesgo según el pronóstico vigente. Se usa tanto en la pestaña
+   Clima como en el aviso que aparece sobre cualquier pestaña del módulo. */
+function _helRiesgoHelada(){
+  var p=_helPronCache();
+  if(!p || !p.dias || !p.dias.length) return null;
+  var umbral=_helClimaCfg().umbral;
+  var hoy=new Date().toISOString().slice(0,10);
+  var riesgo=p.dias.filter(function(d){ return d.fecha>=hoy && d.min!=null && d.min<=umbral; });
+  if(!riesgo.length) return null;
+  return { dias:riesgo, umbral:umbral, actualizado:p.ts,
+           minima:riesgo.reduce(function(m,d){ return (m===null||d.min<m)?d.min:m; }, null) };
+}
+
+function _helBannerRiesgo(){
+  var r=_helRiesgoHelada();
+  if(!r) return '';
+  var critico=(r.minima<=0);
+  var col=critico?'#b91c1c':'#b45309';
+  var fondo=critico?'#fef2f2':'#fffbeb';
+  var borde=critico?'#fecaca':'#fde68a';
+  var lista=r.dias.slice(0,7).map(function(d){
+    var c=(d.min<=0)?'#b91c1c':'#b45309';
+    return '<span style="display:inline-block;background:#fff;border:1px solid '+borde+';border-radius:7px;padding:3px 9px;margin:2px 4px 2px 0;font-size:11.5px">'+
+      _helEsc(_helDiaCorto(d.fecha))+' <strong style="color:'+c+'">'+_helFmtH(d.min)+' °C</strong></span>';
+  }).join('');
+  return '<div style="background:'+fondo+';border:1px solid '+borde+';border-radius:10px;padding:12px 14px;margin-bottom:14px">'+
+    '<div style="font-weight:800;color:'+col+';font-size:14px;margin-bottom:5px">'+
+      (critico?'🚨':'⚠️')+' Riesgo de helada · '+r.dias.length+' noche(s) con mínima ≤ '+_helFmtH(r.umbral)+' °C</div>'+
+    '<div>'+lista+'</div>'+
+    '<div style="font-size:10.5px;color:#94a3b8;margin-top:6px">Pronóstico actualizado '+_helHace(r.actualizado)+' · Open-Meteo</div>'+
+  '</div>';
+}
+
+function _helDiaCorto(iso){
+  try{
+    var d=new Date(iso+'T12:00:00');
+    var dias=['dom','lun','mar','mié','jue','vie','sáb'];
+    return dias[d.getDay()]+' '+String(d.getDate()).padStart(2,'0')+'-'+String(d.getMonth()+1).padStart(2,'0');
+  }catch(e){ return iso; }
+}
+function _helHace(ts){
+  if(!ts) return 'hace un momento';
+  var min=Math.round((Date.now()-ts)/60000);
+  if(min<1) return 'recién';
+  if(min<60) return 'hace '+min+' min';
+  var h=Math.round(min/60);
+  if(h<24) return 'hace '+h+' h';
+  return 'hace '+Math.round(h/24)+' día(s)';
+}
+
+/* ── Descarga del pronóstico ── */
+async function helCargarPronostico(silencioso){
+  if(_helClimaCargando) return;
+  var cfg=_helClimaCfg();
+  if(!navigator.onLine){
+    if(!silencioso && typeof toast==='function') toast('Sin conexión','Se muestra el último pronóstico guardado','info');
+    return;
+  }
+  _helClimaCargando=true;
+  if(!silencioso) _helRefresh();
+  try{
+    var url='https://api.open-meteo.com/v1/forecast'+
+      '?latitude='+encodeURIComponent(cfg.lat)+'&longitude='+encodeURIComponent(cfg.lon)+
+      '&daily=temperature_2m_min,temperature_2m_max,precipitation_sum,windspeed_10m_max'+
+      '&hourly=temperature_2m,relativehumidity_2m'+
+      '&timezone=auto&forecast_days=7';
+    var r=await fetch(url,{cache:'no-store'});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    var j=await r.json();
+    var d=j.daily||{};
+    var dias=(d.time||[]).map(function(f,i){
+      return { fecha:f,
+               min:(d.temperature_2m_min||[])[i],
+               max:(d.temperature_2m_max||[])[i],
+               lluvia:(d.precipitation_sum||[])[i],
+               viento:(d.windspeed_10m_max||[])[i],
+               horaMin:_helHoraMinima(j.hourly, f) };
+    });
+    _helPronGuardar({ ts:Date.now(), lat:cfg.lat, lon:cfg.lon, tz:j.timezone||'', dias:dias });
+    if(!silencioso && typeof toast==='function') toast('Pronóstico actualizado', dias.length+' días · '+(j.timezone||''),'success');
+  }catch(e){
+    console.error('[SCI] Pronóstico:',e);
+    if(!silencioso && typeof toast==='function') toast('No se pudo obtener el pronóstico','Revise la conexión o las coordenadas','error');
+  }finally{
+    _helClimaCargando=false;
+    _helRefresh();
+  }
+}
+
+// Hora en que se produce la mínima de esa noche (útil para programar el control)
+function _helHoraMinima(hourly, fecha){
+  try{
+    if(!hourly || !hourly.time) return '';
+    var mejor=null, hora='';
+    for(var i=0;i<hourly.time.length;i++){
+      var t=hourly.time[i];
+      if(t.slice(0,10)!==fecha) continue;
+      var v=hourly.temperature_2m[i];
+      if(v==null) continue;
+      if(mejor===null || v<mejor){ mejor=v; hora=t.slice(11,16); }
+    }
+    return hora;
+  }catch(e){ return ''; }
+}
+
+/* ── Descarga del histórico ── */
+async function helCargarHistorico(){
+  if(_helHistCargando) return;
+  var cfg=_helClimaCfg();
+  var ini=(document.getElementById('hel-hist-ini')||{}).value||'';
+  var fin=(document.getElementById('hel-hist-fin')||{}).value||'';
+  if(!ini||!fin){ if(typeof toast==='function') toast('Faltan fechas','Indique el rango a consultar','error'); return; }
+  if(ini>fin){ if(typeof toast==='function') toast('Rango inválido','La fecha inicial es posterior a la final','error'); return; }
+  if(!navigator.onLine){ if(typeof toast==='function') toast('Sin conexión','El histórico requiere internet','error'); return; }
+  _helHistCargando=true; _helRefresh();
+  try{
+    var url='https://archive-api.open-meteo.com/v1/archive'+
+      '?latitude='+encodeURIComponent(cfg.lat)+'&longitude='+encodeURIComponent(cfg.lon)+
+      '&start_date='+ini+'&end_date='+fin+
+      '&daily=temperature_2m_min,temperature_2m_max,precipitation_sum&timezone=auto';
+    var r=await fetch(url,{cache:'no-store'});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    var j=await r.json();
+    var d=j.daily||{};
+    _helHist={ ini:ini, fin:fin, dias:(d.time||[]).map(function(f,i){
+      return { fecha:f, min:(d.temperature_2m_min||[])[i], max:(d.temperature_2m_max||[])[i],
+               lluvia:(d.precipitation_sum||[])[i] };
+    })};
+    if(typeof toast==='function') toast('Histórico cargado', _helHist.dias.length+' día(s)','success');
+  }catch(e){
+    console.error('[SCI] Histórico:',e);
+    if(typeof toast==='function') toast('No se pudo obtener el histórico','El archivo tiene ~5 días de rezago','error');
+  }finally{
+    _helHistCargando=false; _helRefresh();
+  }
+}
+
+/* ── Render de la pestaña ── */
+function _helRenderClima(){
+  var cfg=_helClimaCfg();
+  var esAdmin=can('config.editar');
+  var pron=_helPronCache();
+  var umbral=cfg.umbral;
+
+  var cabecera=
+    '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px">'+
+      '<div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px">UBICACIÓN</label>'+
+        '<div style="font-size:13px;font-weight:700;color:#1a3a5c">'+_helEsc(cfg.nombre||'(sin nombre)')+
+        '<div style="font-size:10.5px;color:#94a3b8;font-weight:400">'+cfg.lat.toFixed(4)+', '+cfg.lon.toFixed(4)+' · umbral '+_helFmtH(umbral)+' °C</div></div></div>'+
+      '<div style="flex:1"></div>'+
+      (esAdmin?'<button class="btn btn-secondary" onclick="helConfigClima()">📍 Coordenadas</button>':'')+
+      '<button class="btn btn-primary" onclick="helCargarPronostico()" '+(_helClimaCargando?'disabled':'')+'>'+
+        (_helClimaCargando?'Consultando…':'🔄 Actualizar pronóstico')+'</button>'+
+    '</div>';
+
+  // ── Pronóstico 7 días ──
+  var pronHtml;
+  if(!pron || !pron.dias || !pron.dias.length){
+    pronHtml='<div style="color:#999;padding:26px;text-align:center;font-size:13px">'+
+      'Sin pronóstico descargado. Pulse «Actualizar pronóstico».</div>';
+  }else{
+    var tarjetas=pron.dias.map(function(d){
+      var riesgo=(d.min!=null && d.min<=umbral);
+      var critico=(d.min!=null && d.min<=0);
+      var borde=critico?'#fecaca':(riesgo?'#fde68a':'#e3e8ee');
+      var fondo=critico?'#fef2f2':(riesgo?'#fffbeb':'#fff');
+      var colMin=critico?'#b91c1c':(riesgo?'#b45309':'#0a6ed1');
+      return '<div style="border:1px solid '+borde+';background:'+fondo+';border-radius:9px;padding:9px 10px;text-align:center">'+
+        '<div style="font-size:11px;color:#64748b;font-weight:700">'+_helEsc(_helDiaCorto(d.fecha))+'</div>'+
+        '<div style="font-size:20px;font-weight:800;color:'+colMin+';margin:3px 0">'+_helFmtH(d.min)+'°</div>'+
+        '<div style="font-size:10.5px;color:#94a3b8">máx '+_helFmtH(d.max)+'°</div>'+
+        (d.horaMin?'<div style="font-size:10px;color:#64748b;margin-top:2px">mín '+_helEsc(d.horaMin)+'</div>':'')+
+        (riesgo?'<div style="font-size:9.5px;font-weight:700;color:'+colMin+';margin-top:3px">'+(critico?'HELADA':'RIESGO')+'</div>':'')+
+      '</div>';
+    }).join('');
+    pronHtml='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(92px,1fr));gap:8px">'+tarjetas+'</div>'+
+      '<div style="font-size:10.5px;color:#94a3b8;margin-top:8px">Actualizado '+_helHace(pron.ts)+
+        ' · Temperatura a 2 m · Fuente: Open-Meteo</div>';
+  }
+
+  // ── Histórico ──
+  var hoy=new Date();
+  var haceUnMes=new Date(Date.now()-30*86400000).toISOString().slice(0,10);
+  // El archivo de reanálisis tiene ~5 días de rezago
+  var finSug=new Date(Date.now()-6*86400000).toISOString().slice(0,10);
+  var iniVal=(_helHist?_helHist.ini:haceUnMes);
+  var finVal=(_helHist?_helHist.fin:finSug);
+
+  var histHtml='';
+  if(_helHist && _helHist.dias.length){
+    var nHel=0,nRiesgo=0,minAbs=null,sum=0,n=0;
+    _helHist.dias.forEach(function(d){
+      if(d.min==null) return;
+      n++; sum+=d.min;
+      if(d.min<=0) nHel++;
+      if(d.min<=umbral) nRiesgo++;
+      if(minAbs===null||d.min<minAbs) minAbs=d.min;
+    });
+    histHtml=
+      '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin:12px 0">'+
+        _helCard('Noches ≤ 0 °C', nHel, 'heladas efectivas', '#b91c1c')+
+        _helCard('Noches ≤ '+_helFmtH(umbral)+' °C', nRiesgo, 'bajo el umbral', '#b45309')+
+        _helCard('Mínima absoluta', (minAbs===null?'—':_helFmtH(minAbs)+' °C'), 'del período', '#0a6ed1')+
+        _helCard('Mínima promedio', (n?_helFmtH(sum/n)+' °C':'—'), n+' día(s) con dato', '#15803d')+
+      '</div>'+
+      '<div style="max-height:320px;overflow-y:auto"><table style="width:100%;border-collapse:collapse;font-size:12.5px">'+
+        '<thead><tr style="background:#f5f7fa;border-bottom:2px solid #e3e8ee;position:sticky;top:0">'+
+          '<th style="padding:7px 9px;text-align:left;font-size:11px;color:#64748b">FECHA</th>'+
+          '<th style="padding:7px 9px;text-align:right;font-size:11px;color:#64748b">MÍNIMA</th>'+
+          '<th style="padding:7px 9px;text-align:right;font-size:11px;color:#64748b">MÁXIMA</th>'+
+          '<th style="padding:7px 9px;text-align:right;font-size:11px;color:#64748b">LLUVIA</th>'+
+          '<th style="padding:7px 9px;text-align:center;font-size:11px;color:#64748b">EVENTO</th>'+
+        '</tr></thead><tbody>'+
+        _helHist.dias.slice().reverse().map(function(d){
+          var critico=(d.min!=null&&d.min<=0), riesgo=(d.min!=null&&d.min<=umbral);
+          return '<tr style="border-bottom:1px solid #eee'+(critico?';background:#fef2f2':(riesgo?';background:#fffbeb':''))+'">'+
+            '<td style="padding:6px 9px;white-space:nowrap">'+_helFmtFecha(d.fecha)+'</td>'+
+            '<td style="padding:6px 9px;text-align:right;font-weight:700;color:'+(critico?'#b91c1c':(riesgo?'#b45309':'#1f2d3d'))+'">'+_helFmtH(d.min)+' °C</td>'+
+            '<td style="padding:6px 9px;text-align:right;color:#64748b">'+_helFmtH(d.max)+' °C</td>'+
+            '<td style="padding:6px 9px;text-align:right;color:#64748b">'+(d.lluvia!=null?_helFmtH(d.lluvia)+' mm':'—')+'</td>'+
+            '<td style="padding:6px 9px;text-align:center;font-size:10.5px;font-weight:700;color:'+(critico?'#b91c1c':'#b45309')+'">'+
+              (critico?'HELADA':(riesgo?'riesgo':''))+'</td>'+
+          '</tr>';
+        }).join('')+
+      '</tbody></table></div>'+
+      '<button class="btn btn-secondary" onclick="helExportarHistorico()" style="margin-top:10px;font-size:12px;padding:6px 11px">📊 Exportar CSV</button>';
+  }else{
+    histHtml='<div style="color:#999;padding:22px;text-align:center;font-size:13px">'+
+      'Elija un rango y pulse «Consultar» para ver el histórico de temperaturas.</div>';
+  }
+
+  return _helBannerRiesgo()+cabecera+
+    '<div style="border:1px solid #e3e8ee;border-radius:10px;padding:14px;margin-bottom:16px;background:#fff">'+
+      '<div style="font-size:15px;font-weight:800;color:#1a3a5c;margin-bottom:3px">🌤️ Pronóstico · próximos 7 días</div>'+
+      '<div style="font-size:11px;color:#7a8794;margin-bottom:10px">Se marcan en ámbar las noches con mínima ≤ '+_helFmtH(umbral)+' °C y en rojo las de 0 °C o menos.</div>'+
+      pronHtml+
+    '</div>'+
+    '<div style="border:1px solid #e3e8ee;border-radius:10px;padding:14px;background:#fff">'+
+      '<div style="font-size:15px;font-weight:800;color:#1a3a5c;margin-bottom:3px">📈 Histórico de temperaturas</div>'+
+      '<div style="font-size:11px;color:#7a8794;margin-bottom:10px">Datos de reanálisis para las coordenadas configuradas. El archivo tiene alrededor de 5 días de rezago.</div>'+
+      '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:8px">'+
+        '<div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px">DESDE</label>'+
+          '<input type="date" id="hel-hist-ini" value="'+iniVal+'" style="padding:7px 10px;border:1px solid #cdd5df;border-radius:7px;font-size:13px"></div>'+
+        '<div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px">HASTA</label>'+
+          '<input type="date" id="hel-hist-fin" value="'+finVal+'" style="padding:7px 10px;border:1px solid #cdd5df;border-radius:7px;font-size:13px"></div>'+
+        '<button class="btn btn-primary" onclick="helCargarHistorico()" '+(_helHistCargando?'disabled':'')+'>'+
+          (_helHistCargando?'Consultando…':'🔍 Consultar')+'</button>'+
+      '</div>'+
+      histHtml+
+    '</div>';
+}
+
+/* ── Configuración de coordenadas ── */
+function helConfigClima(){
+  if(!can('config.editar')){ toast('Sin permiso','Solo un administrador puede cambiar la ubicación','error'); return; }
+  var c=_helClimaCfg();
+  showModal('📍 Ubicación para el pronóstico',
+    '<div style="font-size:12.5px;color:#475569;margin-bottom:12px">Coordenadas del huerto. Puede obtenerlas en Google Maps: toque un punto y copie los dos números que aparecen.</div>'+
+    '<div class="form-field"><label>Nombre de referencia</label>'+
+      '<input type="text" id="hel-cl-nom" value="'+_helEsc(c.nombre)+'" placeholder="Ej: Angol, La Araucanía"></div>'+
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'+
+      '<div class="form-field"><label>Latitud</label>'+
+        '<input type="number" step="0.0001" id="hel-cl-lat" value="'+c.lat+'" placeholder="-37.7958"></div>'+
+      '<div class="form-field"><label>Longitud</label>'+
+        '<input type="number" step="0.0001" id="hel-cl-lon" value="'+c.lon+'" placeholder="-72.7167"></div>'+
+    '</div>'+
+    '<div class="form-field"><label>Umbral de alerta (°C)</label>'+
+      '<input type="number" step="0.5" id="hel-cl-umb" value="'+c.umbral+'">'+
+      '<div class="hint">Se avisa cuando la mínima pronosticada sea igual o inferior a este valor.</div></div>'+
+    '<div id="hel-cl-err" style="display:none;background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;border-radius:8px;padding:9px 11px;font-size:12px;margin-top:8px"></div>',
+    '<button class="btn btn-secondary" onclick="closeModal()">Cancelar</button>'+
+    '<button class="btn btn-primary" onclick="helGuardarClima()">Guardar</button>','md');
+}
+async function helGuardarClima(){
+  var err=document.getElementById('hel-cl-err');
+  function setErr(m){ if(err){ err.style.display='block'; err.textContent=m; } }
+  var lat=parseFloat((document.getElementById('hel-cl-lat')||{}).value);
+  var lon=parseFloat((document.getElementById('hel-cl-lon')||{}).value);
+  var umb=parseFloat((document.getElementById('hel-cl-umb')||{}).value);
+  var nom=((document.getElementById('hel-cl-nom')||{}).value||'').trim();
+  if(isNaN(lat)||lat< -90||lat>90)   return setErr('La latitud debe estar entre -90 y 90.');
+  if(isNaN(lon)||lon< -180||lon>180) return setErr('La longitud debe estar entre -180 y 180.');
+  if(isNaN(umb)) umb=2;
+  await _helGuardarClimaCfg({lat:lat, lon:lon, nombre:nom, umbral:umb});
+  closeModal();
+  _helPronGuardar(null);          // el pronóstico anterior era de otra ubicación
+  _helHist=null;
+  if(typeof toast==='function') toast('Ubicación guardada', lat.toFixed(4)+', '+lon.toFixed(4),'success');
+  helCargarPronostico(true);
+}
+
+function helExportarHistorico(){
+  if(!_helHist || !_helHist.dias.length){ if(typeof toast==='function') toast('Sin datos','Consulte primero un rango','error'); return; }
+  var umbral=_helClimaCfg().umbral;
+  var q=function(v){ return '"'+String(v==null?'':v).replace(/"/g,'""')+'"'; };
+  var lineas=[['Fecha','Temp minima (C)','Temp maxima (C)','Lluvia (mm)','Helada','Bajo umbral'].map(q).join(';')];
+  _helHist.dias.forEach(function(d){
+    lineas.push([d.fecha, d.min==null?'':d.min, d.max==null?'':d.max, d.lluvia==null?'':d.lluvia,
+      (d.min!=null&&d.min<=0)?'SI':'NO', (d.min!=null&&d.min<=umbral)?'SI':'NO'].map(q).join(';'));
+  });
+  var blob=new Blob(['\ufeff'+lineas.join('\r\n')],{type:'text/csv;charset=utf-8;'});
+  var a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='clima_'+_helHist.ini+'_'+_helHist.fin+'.csv';
+  document.body.appendChild(a); a.click();
+  setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); },500);
+  if(typeof toast==='function') toast('Exportado',_helHist.dias.length+' día(s)','success');
+}
+
 /* ════════ EXPORTAR ════════ */
 function helExportar(){
   var regs=_helVista||[];
@@ -1086,6 +1439,11 @@ try{
   window.helQuitarTorre=helQuitarTorre;
   window.helRenombrarTorre=helRenombrarTorre;
   window.helExportar=helExportar;
+  window.helCargarPronostico=helCargarPronostico;
+  window.helCargarHistorico=helCargarHistorico;
+  window.helConfigClima=helConfigClima;
+  window.helGuardarClima=helGuardarClima;
+  window.helExportarHistorico=helExportarHistorico;
   window.helFiltrarDiesel=helFiltrarDiesel;
   window.helConfigDiesel=helConfigDiesel;
   window.helGuardarConfigDiesel=helGuardarConfigDiesel;
