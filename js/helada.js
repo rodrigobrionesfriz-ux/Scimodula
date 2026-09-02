@@ -107,6 +107,7 @@ function renderHelada(main){
   }
   var puedeReg=can('helada.registrar');
   var esAdmin=can('config.editar');
+  try{ _helAutoActualizar(); }catch(e){}   // una vez al día, en segundo plano
   var riesgo=_helRiesgoHelada();
   var tabs='';
   tabs+='<button onclick="helTab(0)" style="'+_helTabCss(_helTab==='registros')+'">❄️ Registros</button>';
@@ -1058,7 +1059,17 @@ function helExportarDiesel(cual){
 var HEL_CLIMA_DEFAULT = { lat:-37.7958, lon:-72.7167, nombre:'Angol, La Araucanía', umbral:2 };
 var _helClimaCargando = false;
 var _helHistCargando  = false;
-var _helHist          = null;   // resultado del histórico en memoria
+var _helHistRango     = null;   // {ini,fin} del rango que se está mirando
+
+/* Días guardados dentro del rango visible, ordenados por fecha. La fuente es
+   siempre el store `clima`: lo descargado ya quedó persistido, así que el
+   histórico se ve igual sin conexión. */
+function _helHistDias(){
+  var r=_helHistRango; if(!r) return [];
+  return _helClimaRegs()
+    .filter(function(x){ return x.fecha>=r.ini && x.fecha<=r.fin; })
+    .sort(function(a,b){ return String(a.fecha).localeCompare(String(b.fecha)); });
+}
 
 function _helClimaCfg(){
   try{
@@ -1076,12 +1087,70 @@ async function _helGuardarClimaCfg(cfg){
   STATE.cache.config.helClima={key:'helClima', lat:cfg.lat, lon:cfg.lon, nombre:cfg.nombre, umbral:cfg.umbral};
 }
 
-// Cache local del pronóstico (por dispositivo)
+/* Cache local del PRONÓSTICO (días futuros). Sigue en localStorage porque
+   caduca en horas y no tiene sentido sincronizarlo. Los días ya transcurridos
+   sí se guardan en el store `clima`, que es persistente y se sincroniza. */
 function _helPronCache(){
   try{ return JSON.parse(localStorage.getItem('sci_hel_pronostico')||'null'); }catch(e){ return null; }
 }
 function _helPronGuardar(obj){
   try{ localStorage.setItem('sci_hel_pronostico', JSON.stringify(obj)); }catch(e){}
+}
+
+/* ── Histórico persistente (store `clima`, clave = fecha) ──
+   Cada fila es un día observado. Se guarda lat/lon para no mezclar datos si
+   alguna vez se corrigen las coordenadas del huerto. */
+function _helClimaRegs(){
+  var c=_helClimaCfg();
+  var lat=Number(c.lat).toFixed(3), lon=Number(c.lon).toFixed(3);
+  var todos=(STATE.cache.clima||[]);
+  var propios=todos.filter(function(r){
+    if(r.lat==null||r.lon==null) return true;               // registros antiguos sin coords
+    return Number(r.lat).toFixed(3)===lat && Number(r.lon).toFixed(3)===lon;
+  });
+  propios._otros = todos.length - propios.length;
+  return propios;
+}
+
+/* Guarda o refresca los días indicados. Los datos se van afinando: un día
+   pronosticado se reemplaza luego por el observado, por eso se sobrescribe
+   siempre en vez de conservar el primero que llegó. */
+async function _helGuardarDias(dias, fuente){
+  var c=_helClimaCfg();
+  var n=0;
+  for(var i=0;i<dias.length;i++){
+    var d=dias[i];
+    if(!d || !d.fecha || d.min==null) continue;
+    try{
+      await dbPut('clima', {
+        fecha:d.fecha, min:d.min, max:(d.max==null?null:d.max),
+        lluvia:(d.lluvia==null?null:d.lluvia), cod:(d.cod==null?null:d.cod),
+        fuente:fuente||'', lat:c.lat, lon:c.lon,
+        updatedAt:new Date().toISOString()
+      });
+      n++;
+    }catch(e){ console.error('[SCI] clima:',e); }
+  }
+  if(n){ try{ STATE.cache.clima=await dbAll('clima'); }catch(e){} }
+  return n;
+}
+
+/* ── Actualización diaria automática ──
+   Se ejecuta al abrir el módulo. Solo consulta si cambió el día respecto de la
+   última vez y hay conexión; el resto de las veces usa lo guardado, para no
+   gastar datos ni pegarle a la API en cada navegación. */
+function _helUltAuto(){
+  try{ return localStorage.getItem('sci_hel_ult_auto')||''; }catch(e){ return ''; }
+}
+function _helMarcarAuto(){
+  try{ localStorage.setItem('sci_hel_ult_auto', new Date().toISOString().slice(0,10)); }catch(e){}
+}
+function _helAutoActualizar(){
+  var hoy=new Date().toISOString().slice(0,10);
+  if(_helUltAuto()===hoy) return;      // ya se actualizó hoy en este dispositivo
+  if(!navigator.onLine) return;
+  _helMarcarAuto();
+  helCargarPronostico(true);
 }
 
 /* Noches con riesgo según el pronóstico vigente. Se usa tanto en la pestaña
@@ -1151,12 +1220,14 @@ async function helCargarPronostico(silencioso){
       '?latitude='+encodeURIComponent(cfg.lat)+'&longitude='+encodeURIComponent(cfg.lon)+
       '&daily=weathercode,temperature_2m_min,temperature_2m_max,precipitation_sum,windspeed_10m_max'+
       '&hourly=temperature_2m,relativehumidity_2m'+
-      '&timezone=auto&forecast_days=7';
+      // past_days trae los días ya transcurridos con valores observados: es lo
+      // que alimenta el histórico sin depender del archivo, que va 5 días atrás.
+      '&timezone=auto&forecast_days=7&past_days=14';
     var r=await fetch(url,{cache:'no-store'});
     if(!r.ok) throw new Error('HTTP '+r.status);
     var j=await r.json();
     var d=j.daily||{};
-    var dias=(d.time||[]).map(function(f,i){
+    var todos=(d.time||[]).map(function(f,i){
       return { fecha:f,
                cod:(d.weathercode||[])[i],
                min:(d.temperature_2m_min||[])[i],
@@ -1165,8 +1236,19 @@ async function helCargarPronostico(silencioso){
                viento:(d.windspeed_10m_max||[])[i],
                horaMin:_helHoraMinima(j.hourly, f) };
     });
+    var hoy=new Date().toISOString().slice(0,10);
+    var dias   = todos.filter(function(x){ return x.fecha>=hoy; });   // pronóstico
+    var pasados= todos.filter(function(x){ return x.fecha< hoy; });   // observado
     _helPronGuardar({ ts:Date.now(), lat:cfg.lat, lon:cfg.lon, tz:j.timezone||'', dias:dias });
-    if(!silencioso && typeof toast==='function') toast('Pronóstico actualizado', dias.length+' días · '+(j.timezone||''),'success');
+    var guardados=await _helGuardarDias(pasados,'observado');
+    // El día de hoy también se registra: sirve para no perderlo si mañana no
+    // se abre la app, aunque su mínima todavía puede afinarse.
+    var deHoy=todos.filter(function(x){ return x.fecha===hoy; });
+    if(deHoy.length) await _helGuardarDias(deHoy,'parcial');
+    _helMarcarAuto();
+    if(!silencioso && typeof toast==='function'){
+      toast('Pronóstico actualizado', dias.length+' días · '+guardados+' día(s) al histórico','success');
+    }
   }catch(e){
     console.error('[SCI] Pronóstico:',e);
     if(!silencioso && typeof toast==='function') toast('No se pudo obtener el pronóstico','Revise la conexión o las coordenadas','error');
@@ -1211,12 +1293,16 @@ async function helCargarHistorico(){
     if(!r.ok) throw new Error('HTTP '+r.status);
     var j=await r.json();
     var d=j.daily||{};
-    _helHist={ ini:ini, fin:fin, dias:(d.time||[]).map(function(f,i){
+    var dias=(d.time||[]).map(function(f,i){
       return { fecha:f, cod:(d.weathercode||[])[i],
                min:(d.temperature_2m_min||[])[i], max:(d.temperature_2m_max||[])[i],
                lluvia:(d.precipitation_sum||[])[i] };
-    })};
-    if(typeof toast==='function') toast('Histórico cargado', _helHist.dias.length+' día(s)','success');
+    });
+    // Se persiste lo descargado: así el rango queda disponible sin internet y
+    // se puede ir completando el histórico año por año.
+    var n=await _helGuardarDias(dias,'archivo');
+    _helHistRango={ini:ini, fin:fin};
+    if(typeof toast==='function') toast('Histórico cargado', dias.length+' día(s) · '+n+' guardado(s)','success');
   }catch(e){
     console.error('[SCI] Histórico:',e);
     if(typeof toast==='function') toast('No se pudo obtener el histórico','El archivo tiene ~5 días de rezago','error');
@@ -1246,6 +1332,18 @@ function _helIconoClima(cod){
   if(c===95)                     return { i:'⛈️', t:'Tormenta' };
   if(c===96||c===99)             return { i:'⛈️', t:'Tormenta con granizo' };
   return { i:'🌡️', t:'' };
+}
+
+/* Qué hay guardado ya, para que se note que el histórico se acumula solo. */
+function _helResumenGuardado(){
+  var regs=_helClimaRegs();
+  var base='Los días consultados quedan guardados y se ven sin conexión. El archivo de reanálisis tiene unos 5 días de rezago.';
+  if(!regs.length) return base;
+  var fechas=regs.map(function(r){ return r.fecha; }).sort();
+  var extra=' <strong>'+regs.length+' día(s) guardado(s)</strong> entre '+
+    _helFmtFecha(fechas[0])+' y '+_helFmtFecha(fechas[fechas.length-1])+'.';
+  if(regs._otros) extra+=' <span style="color:#94a3b8">('+regs._otros+' de otra ubicación, ocultos)</span>';
+  return base+extra;
 }
 
 /* ── Render de la pestaña ── */
@@ -1300,13 +1398,23 @@ function _helRenderClima(){
   var haceUnMes=new Date(Date.now()-30*86400000).toISOString().slice(0,10);
   // El archivo de reanálisis tiene ~5 días de rezago
   var finSug=new Date(Date.now()-6*86400000).toISOString().slice(0,10);
-  var iniVal=(_helHist?_helHist.ini:haceUnMes);
-  var finVal=(_helHist?_helHist.fin:finSug);
+  var iniVal=(_helHistRango?_helHistRango.ini:haceUnMes);
+  var finVal=(_helHistRango?_helHistRango.fin:finSug);
+  // Sin rango elegido se muestra todo lo guardado: al entrar ya hay algo que
+  // ver, sin depender de una consulta ni de tener señal.
+  if(!_helHistRango){
+    var todas=_helClimaRegs().map(function(r){ return r.fecha; }).sort();
+    if(todas.length){
+      _helHistRango={ini:todas[0], fin:todas[todas.length-1]};
+      iniVal=todas[0]; finVal=todas[todas.length-1];
+    }
+  }
+  var histDias=_helHistDias();
 
   var histHtml='';
-  if(_helHist && _helHist.dias.length){
+  if(histDias.length){
     var nHel=0,nRiesgo=0,minAbs=null,sum=0,n=0;
-    _helHist.dias.forEach(function(d){
+    histDias.forEach(function(d){
       if(d.min==null) return;
       n++; sum+=d.min;
       if(d.min<=0) nHel++;
@@ -1329,7 +1437,7 @@ function _helRenderClima(){
           '<th style="padding:7px 9px;text-align:right;font-size:11px;color:#64748b">LLUVIA</th>'+
           '<th style="padding:7px 9px;text-align:center;font-size:11px;color:#64748b">EVENTO</th>'+
         '</tr></thead><tbody>'+
-        _helHist.dias.slice().reverse().map(function(d){
+        histDias.slice().reverse().map(function(d){
           var critico=(d.min!=null&&d.min<=0), riesgo=(d.min!=null&&d.min<=umbral);
           var ic=_helIconoClima(d.cod);
           return '<tr style="border-bottom:1px solid #eee'+(critico?';background:#fef2f2':(riesgo?';background:#fffbeb':''))+'">'+
@@ -1357,7 +1465,7 @@ function _helRenderClima(){
     '</div>'+
     '<div style="border:1px solid #e3e8ee;border-radius:10px;padding:14px;background:#fff">'+
       '<div style="font-size:15px;font-weight:800;color:#1a3a5c;margin-bottom:3px">📈 Histórico de temperaturas</div>'+
-      '<div style="font-size:11px;color:#7a8794;margin-bottom:10px">Datos de reanálisis para las coordenadas configuradas. El archivo tiene alrededor de 5 días de rezago.</div>'+
+      '<div style="font-size:11px;color:#7a8794;margin-bottom:10px">'+_helResumenGuardado()+'</div>'+
       '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:8px">'+
         '<div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px">DESDE</label>'+
           '<input type="date" id="hel-hist-ini" value="'+iniVal+'" style="padding:7px 10px;border:1px solid #cdd5df;border-radius:7px;font-size:13px"></div>'+
@@ -1404,27 +1512,28 @@ async function helGuardarClima(){
   await _helGuardarClimaCfg({lat:lat, lon:lon, nombre:nom, umbral:umb});
   closeModal();
   _helPronGuardar(null);          // el pronóstico anterior era de otra ubicación
-  _helHist=null;
+  _helHistRango=null;
   if(typeof toast==='function') toast('Ubicación guardada', lat.toFixed(4)+', '+lon.toFixed(4),'success');
   helCargarPronostico(true);
 }
 
 function helExportarHistorico(){
-  if(!_helHist || !_helHist.dias.length){ if(typeof toast==='function') toast('Sin datos','Consulte primero un rango','error'); return; }
+  var dias=_helHistDias();
+  if(!dias.length){ if(typeof toast==='function') toast('Sin datos','Consulte primero un rango','error'); return; }
   var umbral=_helClimaCfg().umbral;
   var q=function(v){ return '"'+String(v==null?'':v).replace(/"/g,'""')+'"'; };
   var lineas=[['Fecha','Tiempo','Temp minima (C)','Temp maxima (C)','Lluvia (mm)','Helada','Bajo umbral'].map(q).join(';')];
-  _helHist.dias.forEach(function(d){
+  dias.forEach(function(d){
     lineas.push([d.fecha, _helIconoClima(d.cod).t, d.min==null?'':d.min, d.max==null?'':d.max, d.lluvia==null?'':d.lluvia,
       (d.min!=null&&d.min<=0)?'SI':'NO', (d.min!=null&&d.min<=umbral)?'SI':'NO'].map(q).join(';'));
   });
   var blob=new Blob(['\ufeff'+lineas.join('\r\n')],{type:'text/csv;charset=utf-8;'});
   var a=document.createElement('a');
   a.href=URL.createObjectURL(blob);
-  a.download='clima_'+_helHist.ini+'_'+_helHist.fin+'.csv';
+  a.download='clima_'+_helHistRango.ini+'_'+_helHistRango.fin+'.csv';
   document.body.appendChild(a); a.click();
   setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); },500);
-  if(typeof toast==='function') toast('Exportado',_helHist.dias.length+' día(s)','success');
+  if(typeof toast==='function') toast('Exportado',dias.length+' día(s)','success');
 }
 
 /* ════════ EXPORTAR ════════ */
