@@ -684,7 +684,7 @@ function _helComprasDiesel(){
       var costoUnit=(d.costo!=null)?Number(d.costo):(netoUnit+espNoRecup/cant);
       var prod=(STATE.cache.products||[]).find(function(p){ return p.codigoInterno===d.codigoInterno; });
       out.push({
-        fecha:(m.fecha||'').slice(0,10),
+        fecha:_helFechaLocal(m.fecha),
         numero:m.numero||'',
         documento:[m.tipoDoc,m.numeroDoc].filter(Boolean).join(' ') || m.documento || '',
         proveedor:m.proveedorNombre||m.proveedor||'—',
@@ -704,30 +704,63 @@ function _helComprasDiesel(){
 /* Consumos: registros de `combustible` cuyo equipo es una de las torres.
    Se usa getCombustibleReal() (inventario.js), que ya reconcilia cantidad,
    fecha y costo contra el movimiento y descarta los anulados. */
+/* Fecha LOCAL de un ISO. `slice(0,10)` toma la fecha UTC, y una salida de las
+   20:00 en Chile cae al día siguiente en UTC: la tarjeta mostraba un día más
+   que la lista de Movimientos. */
+function _helFechaLocal(iso){
+  if(!iso) return '';
+  try{
+    var d=new Date(iso);
+    if(isNaN(d.getTime())) return String(iso).slice(0,10);
+    return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  }catch(e){ return String(iso).slice(0,10); }
+}
+
+/* Consumos de diésel de las torres.
+   La FUENTE es el movimiento de salida del producto diésel, no el store
+   `combustible`. Ese store solo lo crea el formulario de combustible; una
+   salida hecha desde el módulo Inventario no genera registro y quedaba
+   invisible aquí, descuadrando la comparación con el saldo de estanques.
+   El registro de `combustible`, cuando existe, aporta la torre y el horómetro. */
 function _helConsumosDiesel(){
   var torres=_helTorres();
   var cods=_helCodigosDiesel();
+  // Índice de metadatos por número de movimiento
+  var meta={};
   var base=(typeof getCombustibleReal==='function')
     ? getCombustibleReal()
     : (STATE.cache.combustible||[]);
-  return base.filter(function(r){
-    return r && torres.indexOf(r.equipo)>=0;
-  }).map(function(r){
-    return {
-      fecha:String(r.fecha||'').slice(0,10),
-      torre:r.equipo||'—',
-      producto:r.producto||r.codigoProducto||'',
-      codigoProducto:r.codigoProducto||'',
-      // Salida cargada a una torre pero con un producto distinto al de heladas:
-      // se muestra igual (el consumo existe) pero marcada, para poder corregirla.
-      otroProducto: !!(r.codigoProducto && cods.indexOf(r.codigoProducto)<0),
-      cantidad:Number(r.cantidad)||0,
-      costoUnit:Number(r.costoUnit)||0,
-      neto:(Number(r.costoUnit)||0)*(Number(r.cantidad)||0),
-      km:r.km,
-      movNumero:r.movNumero||''
-    };
-  }).sort(function(a,b){ return String(b.fecha).localeCompare(String(a.fecha)); });
+  base.forEach(function(r){ if(r && r.movNumero) meta[r.movNumero]=r; });
+
+  var out=[];
+  (STATE.cache.movements||[]).forEach(function(m){
+    if(!m || m.tipo!=='SAL' || m.anulado) return;
+    if(m.tipoMovimiento==='TRASPASO BODEGA') return;      // no es consumo
+    (m.detalles||[]).forEach(function(d){
+      if(cods.indexOf(d.codigoInterno)<0) return;         // solo diésel de heladas
+      var cant=Number(d.cantidad)||0;
+      if(cant<=0) return;
+      var r=meta[m.numero];
+      // Si el movimiento se cargó contra un equipo que NO es torre, no es
+      // consumo de control de heladas aunque use el mismo producto.
+      if(r && r.equipo && torres.indexOf(r.equipo)<0) return;
+      var cu=Number(d.costo)||0;
+      var prod=(STATE.cache.products||[]).find(function(p){ return p.codigoInterno===d.codigoInterno; });
+      out.push({
+        fecha:_helFechaLocal(m.fecha),
+        torre:(r&&r.equipo)?r.equipo:'Sin torre asignada',
+        sinTorre:!(r&&r.equipo),
+        producto:(prod&&prod.descripcion)||d.codigoInterno,
+        codigoProducto:d.codigoInterno,
+        cantidad:cant,
+        costoUnit:cu,
+        neto:cu*cant,
+        km:(r?r.km:null),
+        movNumero:m.numero||''
+      });
+    });
+  });
+  return out.sort(function(a,b){ return String(b.fecha).localeCompare(String(a.fecha)); });
 }
 
 function _helMon(n){
@@ -932,19 +965,19 @@ function _helRenderDiesel(){
 
   // ── Tarjeta 2: CONSUMOS ──
   var filasK=consumos.map(function(c){
-    return '<tr style="border-bottom:1px solid #eee'+(c.otroProducto?';background:#fffbeb':'')+'">'+
+    return '<tr style="border-bottom:1px solid #eee'+(c.sinTorre?';background:#fffbeb':'')+'">'+
       '<td style="padding:7px 9px;white-space:nowrap;font-weight:700">'+_helFmtFecha(c.fecha)+'</td>'+
       '<td style="padding:7px 9px">'+_helEsc(c.torre)+
         (c.movNumero?'<div style="font-size:10px;color:#888">'+_helEsc(c.movNumero)+'</div>':'')+'</td>'+
       '<td style="padding:7px 9px;font-size:11px;color:#475569">'+_helEsc(c.producto)+
-        (c.otroProducto?'<div style="font-size:9.5px;color:#92600a;font-weight:700">⚠ otro código</div>':'')+'</td>'+
+        '</td>'+
       '<td style="padding:7px 9px;text-align:right;white-space:nowrap">'+(c.km?_helFmtH(c.km):'—')+'</td>'+
       '<td style="padding:7px 9px;text-align:right;white-space:nowrap;font-weight:700">'+_helFmtH(c.cantidad)+' L</td>'+
       '<td style="padding:7px 9px;text-align:right;white-space:nowrap">'+_helMon2(c.costoUnit)+'</td>'+
       '<td style="padding:7px 9px;text-align:right;white-space:nowrap;font-weight:700">'+_helMon(c.neto)+'</td>'+
     '</tr>';
   }).join('');
-  var nOtro=consumos.filter(function(c){ return c.otroProducto; }).length;
+  var nOtro=consumos.filter(function(c){ return c.sinTorre; }).length;
 
   var cardConsumos=
     '<div style="border:1px solid #e3e8ee;border-radius:10px;padding:14px;background:#fff">'+
@@ -953,7 +986,7 @@ function _helRenderDiesel(){
         (consumos.length?'<button class="btn btn-secondary" onclick="helExportarDiesel(1)" style="font-size:12px;padding:5px 10px">📊 CSV</button>':'')+
       '</div>'+
       '<div style="font-size:11px;color:#7a8794;margin-bottom:10px">Salidas de combustible registradas contra una torre de control. Valorizadas al costo promedio ponderado del momento del consumo.'+
-        (nOtro?(' <span style="color:#92600a;font-weight:700">'+nOtro+' consumo(s) con un código de producto distinto al de heladas.</span>'):'')+'</div>'+
+        (nOtro?(' <span style="color:#92600a;font-weight:700">'+nOtro+' salida(s) sin torre asignada: se registraron desde Inventario y no desde el formulario de combustible, por lo que no tienen equipo ni horómetro.</span>'):'')+'</div>'+
       _helCuadratura(consumoCalc, litCons)+
       (consumos.length
         ? '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12.5px;min-width:720px">'+
