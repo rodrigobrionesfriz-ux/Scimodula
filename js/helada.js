@@ -305,9 +305,14 @@ function _helCardEstanque(ultPorTorre, nTorres){
 }
 
 function _helCard(titulo,valor,sub,color){
-  return '<div style="border:1px solid #e3e8ee;border-radius:9px;padding:10px 12px;background:#fff">'+
+  // El valor no debe partirse: sin `nowrap`, en móvil el "$" y la "L" caían a
+  // una línea aparte del número. Como no puede quebrarse, se reduce el tamaño
+  // cuando el texto es largo para que igual entre en la columna.
+  var txt=String(valor==null?'':valor);
+  var fs = (txt.length<=9) ? 20 : (txt.length<=13 ? 17 : 15);
+  return '<div style="border:1px solid #e3e8ee;border-radius:9px;padding:10px 12px;background:#fff;min-width:0">'+
     '<div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.4px">'+_helEsc(titulo)+'</div>'+
-    '<div style="font-size:20px;font-weight:800;color:'+color+';margin:2px 0">'+_helEsc(valor)+'</div>'+
+    '<div style="font-size:'+fs+'px;font-weight:800;color:'+color+';margin:2px 0;white-space:nowrap">'+_helEsc(valor)+'</div>'+
     '<div style="font-size:10px;color:#94a3b8">'+_helEsc(sub)+'</div></div>';
 }
 function helFiltrar(){
@@ -870,7 +875,7 @@ function _helRenderDiesel(){
       _helCard('Litros comprados', _helFmtH(litComp)+' L', compras.length+' compra(s)', '#0a6ed1')+
       _helCard('Costo de compras', _helMon(totCosto), 'neto + específico no recup.', '#7c3aed')+
       _helCard('Saldo en estanques', _helFmtH(saldo.total)+' L', detSaldo, '#c2831a')+
-      _helCard('Consumo (compras − saldo)', _helFmtH(consumoCalc)+' L',
+      _helCard('Consumo del período', _helFmtH(consumoCalc)+' L',
                _helFmtH(litComp)+' comprados − '+_helFmtH(saldo.total)+' en estanque', '#b45309')+
       _helCard('Costo del consumo', _helMon(costoCalc),
                'a '+_helMon2(costoLitroProm)+'/L promedio de compra', '#15803d')+
