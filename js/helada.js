@@ -1681,6 +1681,153 @@ function helExportarHistorico(){
   if(typeof toast==='function') toast('Exportado',dias.length+' día(s)','success');
 }
 
+/* ════════════════ CHIP DE CLIMA DEL DASHBOARD ════════════════
+   Pronóstico de 7 días según el GPS del DISPOSITIVO que abre la app, no según
+   las coordenadas del huerto: sirve a quien esté en terreno, en otro predio o
+   en la oficina. Siempre Open-Meteo (sin clave) y siempre en localStorage: es
+   un dato por dispositivo y no tiene sentido sincronizarlo ni guardarlo en el
+   store `clima`, que es el histórico del huerto.                              */
+
+var _dcCargando=false;
+
+function _dcCache(){
+  try{ return JSON.parse(localStorage.getItem('sci_dash_clima')||'null'); }catch(e){ return null; }
+}
+function _dcGuardar(o){
+  try{ localStorage.setItem('sci_dash_clima', JSON.stringify(o)); }catch(e){}
+}
+function _dcBox(){ return document.getElementById('dash-clima'); }
+
+// Obtiene la posición del dispositivo. Se envuelve en promesa porque la API
+// nativa es por callbacks y aquí conviene poder esperarla.
+function _dcPosicion(){
+  return new Promise(function(res,rej){
+    if(!navigator.geolocation) return rej(new Error('El dispositivo no informa ubicación'));
+    navigator.geolocation.getCurrentPosition(
+      function(p){ res({lat:p.coords.latitude, lon:p.coords.longitude}); },
+      function(e){
+        var m = (e && e.code===1) ? 'Permiso de ubicación denegado'
+              : (e && e.code===3) ? 'La ubicación tardó demasiado'
+              : 'No se pudo obtener la ubicación';
+        rej(new Error(m));
+      },
+      { enableHighAccuracy:false, timeout:10000, maximumAge:30*60*1000 }
+    );
+  });
+}
+
+function renderDashClima(){
+  var box=_dcBox(); if(!box) return;
+  var c=_dcCache();
+  // Se dibuja de inmediato lo guardado y recién después se decide si refrescar:
+  // así el dashboard nunca queda en blanco esperando al GPS ni a la red.
+  _dcPintar(c);
+  var vencido = !c || !c.ts || (Date.now()-c.ts > 3*3600*1000);
+  if(!vencido || !navigator.onLine) return;
+  // La primera vez se espera un gesto del usuario: pedir el GPS al entrar al
+  // dashboard dispara un permiso inesperado y varios navegadores lo bloquean.
+  if(!c){ _dcPermisoConcedido().then(function(ok){ if(ok) dcActualizarClima(true); }); return; }
+  dcActualizarClima(true);
+}
+
+function _dcPermisoConcedido(){
+  try{
+    if(navigator.permissions && navigator.permissions.query){
+      return navigator.permissions.query({name:'geolocation'})
+        .then(function(st){ return st.state==='granted'; })
+        .catch(function(){ return false; });
+    }
+  }catch(e){}
+  return Promise.resolve(false);
+}
+
+async function dcActualizarClima(silencioso){
+  if(_dcCargando) return;
+  var box=_dcBox(); if(!box) return;
+  _dcCargando=true;
+  _dcPintar(_dcCache(), 'Obteniendo ubicación…');
+  try{
+    var pos=await _dcPosicion();
+    var url='https://api.open-meteo.com/v1/forecast'+
+      '?latitude='+encodeURIComponent(pos.lat)+'&longitude='+encodeURIComponent(pos.lon)+
+      '&daily=weathercode,temperature_2m_min,temperature_2m_max,precipitation_sum'+
+      '&current=temperature_2m,weathercode&timezone=auto&forecast_days=7';
+    var r=await fetch(url,{cache:'no-store'});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    var j=await r.json();
+    var d=j.daily||{}, cur=j.current||{};
+    var dias=(d.time||[]).map(function(f,i){
+      return { fecha:f, cod:(d.weathercode||[])[i],
+               min:(d.temperature_2m_min||[])[i], max:(d.temperature_2m_max||[])[i],
+               lluvia:(d.precipitation_sum||[])[i] };
+    });
+    _dcGuardar({ ts:Date.now(), lat:pos.lat, lon:pos.lon, tz:j.timezone||'',
+                 ahora:(cur.temperature_2m!=null?cur.temperature_2m:null),
+                 codAhora:(cur.weathercode!=null?cur.weathercode:null), dias:dias });
+    _dcPintar(_dcCache());
+  }catch(e){
+    console.warn('[SCI] Clima dashboard:', e);
+    _dcPintar(_dcCache(), null, String(e.message||e));
+    if(!silencioso && typeof toast==='function') toast('Clima no disponible', String(e.message||e),'info');
+  }finally{ _dcCargando=false; }
+}
+try{ window.dcActualizarClima=dcActualizarClima; window.renderDashClima=renderDashClima; }catch(e){}
+
+function _dcPintar(c, cargando, error){
+  var box=_dcBox(); if(!box) return;
+  var ico=(typeof _helIconoClima==='function')?_helIconoClima:function(){ return {i:'',t:''}; };
+  var fmtT=function(n){ return (n==null||isNaN(n))?'—':Number(n).toFixed(1).replace('.',',')+'°'; };
+  var corto=(typeof _helDiaCorto==='function')?_helDiaCorto:function(f){ return f; };
+
+  if(cargando){
+    box.innerHTML='<div style="border:1px solid #e3e8ee;border-radius:10px;padding:11px 14px;margin-bottom:14px;background:#fff;font-size:12.5px;color:#64748b">🛰️ '+cargando+'</div>';
+    return;
+  }
+  if(!c || !c.dias || !c.dias.length){
+    box.innerHTML='<div style="border:1px solid #e3e8ee;border-radius:10px;padding:11px 14px;margin-bottom:14px;background:#fff;display:flex;gap:10px;align-items:center;flex-wrap:wrap">'+
+      '<span style="font-size:12.5px;color:#475569">🌤️ Vea el pronóstico de 7 días para donde se encuentra.</span>'+
+      '<button onclick="dcActualizarClima()" style="background:#0a6ed1;color:#fff;border:none;border-radius:7px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer">📍 Usar mi ubicación</button>'+
+      (error?'<span style="font-size:11px;color:#92600a">'+_helEsc(error)+'</span>':'')+
+    '</div>';
+    return;
+  }
+
+  var icAhora=ico(c.codAhora);
+  var celdas=c.dias.map(function(d){
+    var i2=ico(d.cod);
+    // Se marcan las noches de posible helada con el mismo criterio del módulo
+    var frio=(d.min!=null && d.min<=2), hiela=(d.min!=null && d.min<=0);
+    var col=hiela?'#b91c1c':(frio?'#b45309':'#0f172a');
+    return '<div style="text-align:center;min-width:52px;flex:1'+
+        (frio?';background:'+(hiela?'#fef2f2':'#fffbeb')+';border-radius:7px':'')+'">'+
+      '<div style="font-size:10px;color:#94a3b8;white-space:nowrap">'+_helEsc(corto(d.fecha))+'</div>'+
+      '<div style="font-size:17px;line-height:1.2" title="'+_helEsc(i2.t)+'">'+(i2.i||'')+'</div>'+
+      '<div style="font-size:12px;font-weight:800;color:'+col+';white-space:nowrap">'+fmtT(d.min)+'</div>'+
+      '<div style="font-size:10px;color:#94a3b8;white-space:nowrap">'+fmtT(d.max)+'</div>'+
+    '</div>';
+  }).join('');
+
+  var hiela=c.dias.some(function(d){ return d.min!=null && d.min<=0; });
+  var frio =c.dias.some(function(d){ return d.min!=null && d.min<=2; });
+  var alerta = hiela ? '🚨 Helada pronosticada' : (frio ? '⚠️ Noches bajo 2°' : '');
+
+  box.innerHTML='<div style="border:1px solid '+(hiela?'#fecaca':(frio?'#fde68a':'#e3e8ee'))+
+      ';border-radius:10px;padding:11px 14px;margin-bottom:14px;background:#fff">'+
+    '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:8px">'+
+      '<div style="font-size:12.5px;color:#475569">'+
+        (icAhora.i?icAhora.i+' ':'🌤️')+' <strong>Mi ubicación</strong>'+
+        (c.ahora!=null?' · <strong style="font-size:15px;color:#0a6ed1">'+fmtT(c.ahora)+'</strong> ahora':'')+
+        (alerta?' · <strong style="color:'+(hiela?'#b91c1c':'#b45309')+'">'+alerta+'</strong>':'')+
+      '</div>'+
+      '<button onclick="dcActualizarClima()" title="Actualizar" style="background:#f1f5f9;border:none;border-radius:7px;padding:4px 9px;font-size:11px;cursor:pointer;color:#475569">↻ '+
+        ((typeof _helHace==='function')?_helHace(c.ts):'')+'</button>'+
+    '</div>'+
+    '<div style="display:flex;gap:4px;overflow-x:auto">'+celdas+'</div>'+
+    (error?'<div style="font-size:10.5px;color:#92600a;margin-top:5px">'+_helEsc(error)+'</div>':'')+
+    '<div style="font-size:10px;color:#cbd5e1;margin-top:5px">Open-Meteo · según la ubicación de este dispositivo</div>'+
+  '</div>';
+}
+
 /* ════════ EXPORTAR ════════ */
 function helExportar(){
   var regs=_helVista||[];

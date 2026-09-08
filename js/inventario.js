@@ -963,6 +963,8 @@ function renderDashboard(c){
 
     ${_cuHtml}
 
+    <div id="dash-clima"></div>
+
     <div class="stats-grid dash3">
       <div class="stat-card gold dash-wide">
         <div class="stat-label">Valor inventario</div>
@@ -1047,6 +1049,9 @@ function renderDashboard(c){
         </table></div>
       </div>`:''}
   `;
+  // El chip del clima se pinta aparte: depende de GPS y de red, y no debe
+  // retrasar ni romper el dashboard si algo de eso falla.
+  try{ if(typeof renderDashClima==='function') renderDashClima(); }catch(e){}
 }
 function tipoLabel(t){return {ENT:'Entrada',SAL:'Salida',TRA:'Traspaso',AJU:'Ajuste'}[t]||t}
 function tipoMovLabel(m){
