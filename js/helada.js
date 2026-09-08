@@ -632,22 +632,15 @@ function _helPctNoRecup(){
 var HEL_DIESEL_DEFAULT = ['P000161'];   // "DIESEL CONTROL HELADAS"
 
 // Códigos de producto considerados "diésel de control de heladas".
-// Configurable; si no hay configuración, usa el código dedicado y, solo si
-// ese código no existe en el catálogo, detecta por descripción.
+// SOLO P000161: es el código dedicado a las torres. Antes, si ese código no
+// aparecía, se caía a una detección por descripción que podía arrastrar el
+// diésel de tractores y otros equipos, mezclando consumos que no corresponden.
 function _helCodigosDiesel(){
   try{
     var cfg=(STATE.cache.config||{}).helDiesel;
     if(cfg && Array.isArray(cfg.codigos) && cfg.codigos.length) return cfg.codigos.slice();
   }catch(e){}
-  var prods=STATE.cache.products||[];
-  var dedicados=HEL_DIESEL_DEFAULT.filter(function(cod){
-    return prods.some(function(p){ return p.codigoInterno===cod; });
-  });
-  if(dedicados.length) return dedicados;
-  return prods.filter(function(p){
-    var d=(p.descripcion||'').toUpperCase();
-    return d.indexOf('DIESEL')>=0 || d.indexOf('DIÉSEL')>=0 || d.indexOf('PETROLEO')>=0 || d.indexOf('PETRÓLEO')>=0;
-  }).map(function(p){ return p.codigoInterno; });
+  return HEL_DIESEL_DEFAULT.slice();
 }
 async function _helGuardarCodigosDiesel(codigos){
   await dbPut('config',{key:'helDiesel', codigos:codigos});
@@ -741,15 +734,17 @@ function _helConsumosDiesel(){
       var cant=Number(d.cantidad)||0;
       if(cant<=0) return;
       var r=meta[m.numero];
-      // Si el movimiento se cargó contra un equipo que NO es torre, no es
-      // consumo de control de heladas aunque use el mismo producto.
-      if(r && r.equipo && torres.indexOf(r.equipo)<0) return;
       var cu=Number(d.costo)||0;
       var prod=(STATE.cache.products||[]).find(function(p){ return p.codigoInterno===d.codigoInterno; });
+      // Si se cargó contra un equipo que no es torre se muestra igual, marcado.
+      // Excluirlo en silencio hacía que el total no cuadrara con el estanque y
+      // no había forma de saber por qué faltaba.
+      var otroEquipo=!!(r && r.equipo && torres.indexOf(r.equipo)<0);
       out.push({
         fecha:_helFechaLocal(m.fecha),
         torre:(r&&r.equipo)?r.equipo:'Sin torre asignada',
         sinTorre:!(r&&r.equipo),
+        otroEquipo:otroEquipo,
         producto:(prod&&prod.descripcion)||d.codigoInterno,
         codigoProducto:d.codigoInterno,
         cantidad:cant,
@@ -965,9 +960,10 @@ function _helRenderDiesel(){
 
   // ── Tarjeta 2: CONSUMOS ──
   var filasK=consumos.map(function(c){
-    return '<tr style="border-bottom:1px solid #eee'+(c.sinTorre?';background:#fffbeb':'')+'">'+
+    return '<tr style="border-bottom:1px solid #eee'+((c.sinTorre||c.otroEquipo)?';background:#fffbeb':'')+'">'+
       '<td style="padding:7px 9px;white-space:nowrap;font-weight:700">'+_helFmtFecha(c.fecha)+'</td>'+
       '<td style="padding:7px 9px">'+_helEsc(c.torre)+
+        (c.otroEquipo?'<div style="font-size:9.5px;color:#92600a;font-weight:700">⚠ no es una torre</div>':'')+
         (c.movNumero?'<div style="font-size:10px;color:#888">'+_helEsc(c.movNumero)+'</div>':'')+'</td>'+
       '<td style="padding:7px 9px;font-size:11px;color:#475569">'+_helEsc(c.producto)+
         '</td>'+
@@ -978,6 +974,7 @@ function _helRenderDiesel(){
     '</tr>';
   }).join('');
   var nOtro=consumos.filter(function(c){ return c.sinTorre; }).length;
+  var nEquipo=consumos.filter(function(c){ return c.otroEquipo; }).length;
 
   var cardConsumos=
     '<div style="border:1px solid #e3e8ee;border-radius:10px;padding:14px;background:#fff">'+
@@ -986,7 +983,8 @@ function _helRenderDiesel(){
         (consumos.length?'<button class="btn btn-secondary" onclick="helExportarDiesel(1)" style="font-size:12px;padding:5px 10px">📊 CSV</button>':'')+
       '</div>'+
       '<div style="font-size:11px;color:#7a8794;margin-bottom:10px">Salidas de combustible registradas contra una torre de control. Valorizadas al costo promedio ponderado del momento del consumo.'+
-        (nOtro?(' <span style="color:#92600a;font-weight:700">'+nOtro+' salida(s) sin torre asignada: se registraron desde Inventario y no desde el formulario de combustible, por lo que no tienen equipo ni horómetro.</span>'):'')+'</div>'+
+        (nOtro?(' <span style="color:#92600a;font-weight:700">'+nOtro+' salida(s) sin torre asignada: se registraron desde Inventario y no desde el formulario de combustible, por lo que no tienen equipo ni horómetro.</span>'):'')+
+        (nEquipo?(' <span style="color:#92600a;font-weight:700">'+nEquipo+' salida(s) cargada(s) a un equipo que no es torre.</span>'):'')+'</div>'+
       _helCuadratura(consumoCalc, litCons)+
       (consumos.length
         ? '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12.5px;min-width:720px">'+
