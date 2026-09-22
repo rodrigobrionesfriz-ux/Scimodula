@@ -1959,37 +1959,42 @@ function ipMostrarMapaGeneral(preservarZoom){
         var pct = totalPlantas>0 ? Math.round((n/totalPlantas)*1000)/10 : 0;
         var clickable = n>0;
         var handler = clickable ? ('onclick="ipDetalleEstado(\''+k+'\')" ontouchend="event.preventDefault();ipDetalleEstado(\''+k+'\')" ') : '';
-        return '<div '+handler+'style="min-width:0;overflow:hidden;background:#f8fafb;border:1px solid #e3e8ee;border-left:4px solid '+e.color+';border-radius:8px;padding:10px 12px'+(clickable?';cursor:pointer;-webkit-tap-highlight-color:rgba(21,101,192,.2)':'')+'">'+
-          '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">'+
-            '<span style="width:11px;height:11px;border-radius:50%;background:'+e.color+';border:1px solid #999;display:inline-block"></span>'+
-            '<span style="font-size:12px;color:#3a4a5a;font-weight:600">'+e.label+'</span>'+
+        var detVar = (function(){
+          var pv = estadoPorVariedad[k];
+          if(!pv || n===0) return '';
+          return '<div style="flex:1 1 auto;min-width:0;text-align:right;align-self:center;font-size:10.5px;color:#5a6a78;line-height:1.45;border-left:1px dashed #e0e6ec;padding-left:10px">'+
+            Object.keys(pv).sort().map(function(v){ return '<div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+escapeHtml(v)+': <strong>'+pv[v].toLocaleString('es-CL')+'</strong></div>'; }).join('')+
+          '</div>';
+        })();
+        return '<div '+handler+'style="min-width:0;overflow:hidden;background:#f8fafb;border:1px solid #e3e8ee;border-left:4px solid '+e.color+';border-radius:8px;padding:9px 12px;display:flex;gap:10px;align-items:center'+(clickable?';cursor:pointer;-webkit-tap-highlight-color:rgba(21,101,192,.2)':'')+'">'+
+          '<div style="flex:0 0 auto;min-width:0">'+
+            '<div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">'+
+              '<span style="width:11px;height:11px;border-radius:50%;background:'+e.color+';border:1px solid #999;display:inline-block"></span>'+
+              '<span style="font-size:12px;color:#3a4a5a;font-weight:600">'+e.label+'</span>'+
+            '</div>'+
+            '<div style="font-size:22px;font-weight:800;color:#23303d;line-height:1.05">'+n.toLocaleString('es-CL')+'</div>'+
+            '<div style="font-size:10.5px;color:#7a8794">'+pct+'% del total'+(clickable?' · ver detalle ›':'')+'</div>'+
           '</div>'+
-          '<div style="font-size:22px;font-weight:800;color:#23303d;line-height:1.1">'+n.toLocaleString('es-CL')+'</div>'+
-          '<div style="font-size:11px;color:#7a8794">'+pct+'% del total'+(clickable?' · ver detalle ›':'')+'</div>'+
-          (function(){
-            var pv = estadoPorVariedad[k];
-            if(!pv || n===0) return '';
-            return '<div style="margin-top:5px;padding-top:5px;border-top:1px dashed #e0e6ec;font-size:10.5px;color:#5a6a78;line-height:1.5">'+
-              Object.keys(pv).sort().map(function(v){ return escapeHtml(v)+': <strong>'+pv[v].toLocaleString('es-CL')+'</strong>'; }).join('<br>')+
-            '</div>';
-          })()+
+          detVar+
         '</div>';
       }).join('')+
       (function(){
         var clickable = totalPoliniz>0;
         var handler = clickable ? 'onclick="ipDetallePoliniz()" ontouchend="event.preventDefault();ipDetallePoliniz()" ' : '';
         var pct = totalPlantas>0 ? Math.round((totalPoliniz/totalPlantas)*1000)/10 : 0;
-        var chips = Object.keys(conteoPoliniz).sort().map(function(v){
-          return '<span style="display:inline-flex;align-items:center;gap:3px;margin-right:6px"><span style="width:9px;height:9px;border-radius:50%;background:'+ipColorPoliniz(v)+';display:inline-block"></span>'+escapeHtml(v)+': '+conteoPoliniz[v]+'</span>';
+        var detVar = Object.keys(conteoPoliniz).sort().map(function(v){
+          return '<div style="display:flex;align-items:center;justify-content:flex-end;gap:4px;white-space:nowrap;overflow:hidden"><span style="width:9px;height:9px;border-radius:50%;background:'+ipColorPoliniz(v)+';display:inline-block;flex:0 0 auto"></span><span style="overflow:hidden;text-overflow:ellipsis">'+escapeHtml(v)+': <strong>'+conteoPoliniz[v].toLocaleString('es-CL')+'</strong></span></div>';
         }).join('');
-        return '<div '+handler+'style="min-width:0;overflow:hidden;background:#fff7ef;border:1px solid #e3e8ee;border-left:4px solid #e9730c;border-radius:8px;padding:10px 12px'+(clickable?';cursor:pointer;-webkit-tap-highlight-color:rgba(21,101,192,.2)':'')+'">'+
-          '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">'+
-            '<span style="font-size:12px">🐝</span>'+
-            '<span style="font-size:12px;color:#3a4a5a;font-weight:600">Polinizantes</span>'+
+        return '<div '+handler+'style="min-width:0;overflow:hidden;background:#fff7ef;border:1px solid #e3e8ee;border-left:4px solid #e9730c;border-radius:8px;padding:9px 12px;display:flex;gap:10px;align-items:center'+(clickable?';cursor:pointer;-webkit-tap-highlight-color:rgba(21,101,192,.2)':'')+'">'+
+          '<div style="flex:0 0 auto;min-width:0">'+
+            '<div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">'+
+              '<span style="font-size:12px">🐝</span>'+
+              '<span style="font-size:12px;color:#3a4a5a;font-weight:600">Polinizantes</span>'+
+            '</div>'+
+            '<div style="font-size:22px;font-weight:800;color:#23303d;line-height:1.05">'+totalPoliniz.toLocaleString('es-CL')+'</div>'+
+            '<div style="font-size:10.5px;color:#7a8794">'+pct+'% del total'+(clickable?' · ver detalle ›':'')+'</div>'+
           '</div>'+
-          '<div style="font-size:22px;font-weight:800;color:#23303d;line-height:1.1">'+totalPoliniz.toLocaleString('es-CL')+'</div>'+
-          '<div style="font-size:11px;color:#7a8794">'+pct+'% del total'+(clickable?' · ver detalle ›':'')+'</div>'+
-          (chips?'<div style="font-size:11px;color:#3a4a5a;margin-top:4px">'+chips+'</div>':'')+
+          (detVar?'<div style="flex:1 1 auto;min-width:0;text-align:right;align-self:center;font-size:10.5px;color:#5a6a78;line-height:1.45;border-left:1px dashed #f0d9c2;padding-left:10px">'+detVar+'</div>':'')+
         '</div>';
       })()+
     '</div>'+
