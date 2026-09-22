@@ -950,8 +950,8 @@ function renderDashboard(c){
     }
   }catch(e){}
   c.innerHTML=`
-    <div class="page-header">
-      <div>
+    <div class="page-header" style="align-items:flex-start">
+      <div style="flex:0 1 auto">
         <div class="page-title">Bienvenido, ${escapeHtml(STATE.user.nombre||STATE.user.id)}</div>
         <div class="page-subtitle">Resumen del estado actual del inventario</div>
         ${STATE.user.role==='admin'?`<div style="margin-top:6px;display:flex;align-items:center;gap:8px">
@@ -959,9 +959,8 @@ function renderDashboard(c){
           <button onclick="FBCOUNT.reset()" title="Reiniciar contador" style="font-size:11px;border:none;background:#eee;border-radius:10px;padding:3px 8px;cursor:pointer">↺</button>
         </div>`:''}
       </div>
+      <div id="dash-clima" style="flex:1 1 560px;min-width:300px;max-width:100%"></div>
     </div>
-
-    <div id="dash-clima"></div>
 
     ${_cuHtml}
 

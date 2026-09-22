@@ -1781,11 +1781,11 @@ function _dcPintar(c, cargando, error){
   var corto=(typeof _helDiaCorto==='function')?_helDiaCorto:function(f){ return f; };
 
   if(cargando){
-    box.innerHTML='<div style="border:1px solid #e3e8ee;border-radius:10px;padding:9px 12px;margin-bottom:10px;background:#fff;font-size:12.5px;color:#64748b">🛰️ '+cargando+'</div>';
+    box.innerHTML='<div style="border:1px solid #e3e8ee;border-radius:10px;padding:9px 12px;background:#fff;font-size:12.5px;color:#64748b">🛰️ '+cargando+'</div>';
     return;
   }
   if(!c || !c.dias || !c.dias.length){
-    box.innerHTML='<div style="border:1px solid #e3e8ee;border-radius:10px;padding:11px 14px;margin-bottom:14px;background:#fff;display:flex;gap:10px;align-items:center;flex-wrap:wrap">'+
+    box.innerHTML='<div style="border:1px solid #e3e8ee;border-radius:10px;padding:11px 14px;background:#fff;display:flex;gap:10px;align-items:center;flex-wrap:wrap">'+
       '<span style="font-size:12.5px;color:#475569">🌤️ Vea el pronóstico de 7 días para donde se encuentra.</span>'+
       '<button onclick="dcActualizarClima()" style="background:#0a6ed1;color:#fff;border:none;border-radius:7px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer">📍 Usar mi ubicación</button>'+
       (error?'<span style="font-size:11px;color:#92600a">'+_helEsc(error)+'</span>':'')+
@@ -1819,7 +1819,7 @@ function _dcPintar(c, cargando, error){
   var alerta = hiela ? '🚨 Helada pronosticada' : (frio ? '⚠️ Noches bajo 2°' : '');
 
   box.innerHTML='<div style="border:1px solid '+(hiela?'#fecaca':(frio?'#fde68a':'#e3e8ee'))+
-      ';border-radius:10px;padding:8px 12px;margin-bottom:10px;background:#fff">'+
+      ';border-radius:10px;padding:8px 12px;background:#fff">'+
     '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:5px">'+
       '<div style="font-size:12.5px;color:#475569">'+
         (icAhora.i?icAhora.i+' ':'🌤️')+' <strong>Mi ubicación</strong>'+
