@@ -990,31 +990,10 @@ function processExcel(file) {
       const mesesConReal = [...new Set(merged.filter(d => d['MONTO REAL'] > 0).map(d => d.MES))];
       const lastMes = mesesConReal.length ? mesesConReal[mesesConReal.length - 1] : '—';
 
-      // Extract TC of the last month with real data from raw rows
-      const lastMesReal = real.find(r =>
-        (r.MES || '').toString().toUpperCase() === lastMes &&
-        parseFloat(r['TC']) > 0
-      );
-      const lastTC = lastMesReal ? parseFloat(lastMesReal['TC']) : null;
-      if (lastTC) {
-        // El Excel manda: si trae TC, ese se usa.
-        const tcInput = document.getElementById('rb-tc');
-        if (tcInput) tcInput.value = lastTC.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-      } else {
-        // Respaldo: si el Excel no trae TC, usar el Valor USD del último mes con
-        // datos desde Indicadores Diarios (Configuración del SCI).
-        try{
-          if(typeof window.getIndicadorMes==='function'){
-            // Pasar el año del último mes con real para resolver la temporada.
-            var anioLast = lastMesReal ? lastMesReal['AÑO'] : null;
-            const indic = window.getIndicadorMes(lastMes, anioLast);
-            if(indic && indic.usd){
-              const tcInput = document.getElementById('rb-tc');
-              if(tcInput) tcInput.value = Number(indic.usd).toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-            }
-          }
-        }catch(e){}
-      }
+      // El Tipo de Cambio del ÚLTIMO mes cargado se fija de forma centralizada
+      // en refreshLastUpdate() (se llama más abajo tras la carga y también al
+      // cambiar de temporada), usando el orden correcto por año+mes. Así la
+      // tarjeta y "Última actualización" siempre coinciden.
 
       // ── Dataset paralelo con la clasificación GTT Nahuelbuta ──
       // Mismo merge, pero con dims GTT: Tipo GTT / CUENTAGTT / FAMILIAGTT.
@@ -1390,18 +1369,52 @@ function refreshLastUpdate() {
     document.getElementById('last-update').textContent = '—';
     return;
   }
-  // Ordenar por MES_ORDER y tomar el último
-  var sorted = conReal.slice().sort(function(a, b) {
-    var oa = (a['MES_ORDER'] != null) ? a['MES_ORDER'] : 99;
-    var ob = (b['MES_ORDER'] != null) ? b['MES_ORDER'] : 99;
-    return oa - ob;
-  });
+  // Ordenar cronológicamente por FECHA CALENDARIO real (año + mes calendario) y
+  // tomar el último. Ojo: MES_ORDER es orden de temporada (Mayo→Abril), que NO
+  // es cronológico dentro de un mismo año calendario (Marzo 2025 va antes que
+  // Mayo 2025). Por eso aquí se usa el número de mes calendario, no MES_ORDER.
+  // Así funciona con una temporada filtrada y con varias temporadas cargadas.
+  var _MES_CAL = { ENERO:1, FEBRERO:2, MARZO:3, ABRIL:4, MAYO:5, JUNIO:6, JULIO:7, AGOSTO:8, SEPTIEMBRE:9, OCTUBRE:10, NOVIEMBRE:11, DICIEMBRE:12 };
+  var _cronoKey = function(d){
+    var y = parseInt(d['AÑO']) || 0;
+    var m = _MES_CAL[(d['MES'] || '').toString().toUpperCase()] || 0;
+    return y * 12 + m;
+  };
+  var sorted = conReal.slice().sort(function(a, b){ return _cronoKey(a) - _cronoKey(b); });
   var last = sorted[sorted.length - 1];
   var mes = (last['MES'] || '').toString();
   var año = last['AÑO'] || '';
   // Title case: "FEBRERO" → "Febrero"
   var label = mes.charAt(0).toUpperCase() + mes.slice(1).toLowerCase() + (año ? ' ' + año : '');
   document.getElementById('last-update').textContent = label;
+
+  // ── Tipo de Cambio: mostrar el del ÚLTIMO mes cargado ──
+  // Se toma el TC implícito (suma REAL_CLP / suma REAL_USD) de las filas reales
+  // de ese mes/año, mismo criterio que usan los gráficos. Si no hay USD para
+  // derivarlo, se cae al Valor USD del mes en Indicadores Diarios. La tarjeta
+  // queda siempre en sintonía con "Última actualización" y con la temporada
+  // seleccionada. Sólo se toca cuando hay datos reales (arriba hay early-return
+  // si no los hay), así el TC manual sin Excel no se pisa.
+  try {
+    var mesU = mes.toUpperCase();
+    var filasMes = conReal.filter(function(d){
+      return (d['MES'] || '').toString().toUpperCase() === mesU && String(d['AÑO']) === String(año);
+    });
+    var sClp = filasMes.reduce(function(s, d){ return s + (parseFloat(d['REAL_CLP']) || 0); }, 0);
+    var sUsd = filasMes.reduce(function(s, d){ return s + (parseFloat(d['REAL_USD']) || 0); }, 0);
+    var tcInput = document.getElementById('rb-tc');
+    if (tcInput) {
+      var tcVal = (sUsd > 0) ? (sClp / sUsd) : null;
+      if (tcVal && tcVal > 0) {
+        tcInput.value = tcVal.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      } else if (typeof window.getIndicadorMes === 'function') {
+        var indic = window.getIndicadorMes(mesU, año);
+        if (indic && indic.usd) {
+          tcInput.value = Number(indic.usd).toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        }
+      }
+    }
+  } catch(e){}
 }
 
 function render() {
@@ -2390,30 +2403,9 @@ function pzInit(){
       var _btn = document.getElementById('pz-btn-upload');
       if(_btn){ _btn.style.display = (typeof can==='function' && can('presupuesto.editar')) ? '' : 'none'; }
     }catch(e){}
-    // Tipo de Cambio por defecto desde Indicadores Diarios (respaldo): si existe
-    // un Valor USD para el último mes con datos reales, usarlo como referencia
-    // cuando el dashboard arranca sin un TC traído por Excel en esta sesión.
-    try{
-      if(typeof window.getIndicadorMes==='function'){
-        var mesesReales = (window.MONTHS_WITH_REAL || (typeof MONTHS_WITH_REAL!=='undefined'?MONTHS_WITH_REAL:[])) || [];
-        var ultimoMes = mesesReales.length ? mesesReales[mesesReales.length-1] : null;
-        // Buscar el año de ese mes en los datos para resolver la temporada.
-        var anioUlt = null;
-        try{
-          var fuente = (typeof ACTIVE_DATA!=='undefined' && ACTIVE_DATA) ? ACTIVE_DATA : RAW;
-          var fila = ultimoMes ? fuente.find(function(d){ return d.MES===ultimoMes; }) : null;
-          anioUlt = fila ? fila['AÑO'] : null;
-        }catch(e){}
-        var indic = ultimoMes ? window.getIndicadorMes(ultimoMes, anioUlt) : null;
-        var tcInput = document.getElementById('rb-tc');
-        if(indic && indic.usd && tcInput){
-          // Solo si el usuario no ha modificado manualmente (heurística: marcar).
-          if(!tcInput.dataset.pzUserEdited){
-            tcInput.value = Number(indic.usd).toLocaleString('es-CL',{minimumFractionDigits:2,maximumFractionDigits:2});
-          }
-        }
-      }
-    }catch(e){}
+    // El Tipo de Cambio del último mes cargado ya lo fija render()→refreshLastUpdate()
+    // (TC implícito del Excel, con respaldo al Valor USD de Indicadores Diarios para
+    // ese mismo mes). No se vuelve a tocar aquí para no pisarlo con un mes mal ordenado.
     // Superficie del huerto activo: suma de hectáreas de los paños de esa
     // Plantación (Cuaderno de Campo). Si no hay, queda editable manualmente.
     try{ pzAplicarSuperficieHuerto(); }catch(e){}
