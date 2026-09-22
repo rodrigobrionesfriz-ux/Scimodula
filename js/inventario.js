@@ -4369,7 +4369,37 @@ async function anularMovimiento(numero){
 let movDraft={lineas:[],tipo:'ENT',editId:null};
 
 /* ═══════════════ SALIDAS: selector normal vs combustible ═══════════════ */
-const CB_EQUIPOS=['Tractor 1','Tractor 2','Camioneta adm.','Torre Control Helada 1','Torre Control Helada 2','Maq. Auxiliares','Otro (especificar)'];
+/* Semilla histórica: se usa solo la primera vez para poblar el catálogo de
+   equipos (config → store `equipos`) si aún no existe ninguno. */
+const CB_EQUIPOS_SEED=['Tractor 1','Tractor 2','Camioneta adm.','Torre Control Helada 1','Torre Control Helada 2','Maq. Auxiliares'];
+const EQUIPO_OTRO='Otro (especificar)';
+/* Catálogo de tipos y medidores para el alta de equipos. */
+const EQUIPO_TIPOS=['Tractor','Camioneta','Camión','Torre de helada','Generador','Motobomba','Maquinaria','Otro'];
+const EQUIPO_MEDIDORES=[['km','Kilómetros (odómetro)'],['horometro','Horómetro (horas)'],['ninguno','Sin medidor']];
+
+/* Lista de equipos desde config.equipos (o semilla la primera vez, en memoria). */
+function getEquipos(){
+  try{
+    const cfg=(STATE.cache.config||{}).equipos;
+    if(cfg && Array.isArray(cfg.lista)) return cfg.lista.slice();
+  }catch(e){}
+  // Sin catálogo aún: devolver la semilla como equipos activos de tipo genérico.
+  return CB_EQUIPOS_SEED.map(n=>({id:'seed-'+n,nombre:n,tipo:'',medidor:/torre/i.test(n)?'horometro':'km',estado:'activo'}));
+}
+function getEquiposActivos(){
+  return getEquipos().filter(e=>e.estado!=='inactivo')
+    .sort((a,b)=>String(a.nombre||'').localeCompare(String(b.nombre||'')));
+}
+function getEquipoByNombre(nom){
+  return getEquipos().find(e=>String(e.nombre||'')===String(nom||''))||null;
+}
+/* Persiste el catálogo completo de equipos en config (se sincroniza). */
+async function saveEquiposLista(lista){
+  const obj={key:'equipos',lista:lista};
+  await dbPut('config',obj);
+  STATE.cache.config=STATE.cache.config||{};
+  STATE.cache.config.equipos=obj;
+}
 
 /* Registros de combustible reconciliados contra sus movimientos.
    El store `combustible` guarda una COPIA de cantidad y fecha; el movimiento es
@@ -4404,6 +4434,11 @@ try{ window.getCombustibleReal=getCombustibleReal; }catch(e){}
    entre sí, y mostrar el de vehículo en una torre daba cifras como "0,02" que
    no significan nada operativamente. */
 function _cbUsaHorometro(equipo){
+  // 1) Catálogo de equipos: el medidor definido en el alta manda.
+  try{
+    const eq=getEquipoByNombre(equipo);
+    if(eq && eq.medidor){ return eq.medidor==='horometro'; }
+  }catch(e){}
   try{
     const cfg=(STATE.cache.config||{}).cbEquiposHora;
     if(cfg && Array.isArray(cfg.lista) && cfg.lista.length) return cfg.lista.indexOf(equipo)>=0;
@@ -4883,27 +4918,53 @@ function renderCombustibleForm(c){
     const t=((p.descripcion||'')+' '+(p.grupo||'')+' '+(p.subGrupo||'')).toLowerCase();
     return /gasolina|diesel|di[eé]sel|petr[oó]leo|bencina/.test(t);
   });
-  const bodegas=STATE.cache.warehouses||[];
+  const bodegasAll=STATE.cache.warehouses||[];
+  // Solo la bodega de combustibles y lubricantes puede ser origen de una salida de combustible.
+  const bodegas=bodegasAll.filter(b=>/combustible/i.test(b.nombre||''));
+  const bodegaUnica = bodegas.length===1 ? bodegas[0] : null;
   const centros=STATE.cache.costCenters||[];
+  const equipos=getEquiposActivos();
   cbDraft={fecha:today};
   c.innerHTML=`
     <div class="page-header"><div><div class="page-title">⛽ Salida de combustible</div>
       <div class="page-subtitle">Registro de consumo por equipo</div></div>
       <button class="btn btn-secondary" onclick="navigate('salidas')">← Volver</button></div>
-    <div class="card" style="max-width:640px;margin:0 auto">
-      <div class="form-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+    <div class="card" style="max-width:760px;margin:24px auto;padding:24px 26px">
+      <div class="form-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:18px 20px">
         <div class="form-field"><label>Fecha</label>
           <input type="date" id="cb-fecha" value="${today}"></div>
         <div class="form-field"><label>Bodega origen</label>
-          <select id="cb-bodega" onchange="cbStockHint()"><option value="">— Seleccione —</option>
-            ${bodegas.map(b=>`<option value="${b.id}">${escapeHtml(b.nombre)}</option>`).join('')}</select></div>
+          <select id="cb-bodega" onchange="cbStockHint()">
+            ${bodegas.length===0?'<option value="">— Sin bodega de combustible —</option>':
+              (bodegaUnica?`<option value="${bodegaUnica.id}" selected>${escapeHtml(bodegaUnica.nombre)}</option>`:
+               '<option value="">— Seleccione —</option>'+bodegas.map(b=>`<option value="${b.id}">${escapeHtml(b.nombre)}</option>`).join(''))}
+          </select>
+          ${bodegas.length===0?'<div class="hint" style="color:#c0392b">No existe una bodega de combustibles y lubricantes. Créela en Bodegas.</div>':''}</div>
         <div class="form-field"><label>Equipo</label>
           <select id="cb-equipo" onchange="cbToggleOtro()">
             <option value="">— Seleccione —</option>
-            ${CB_EQUIPOS.map(e=>`<option value="${escapeHtml(e)}">${escapeHtml(e)}</option>`).join('')}</select></div>
-        <div class="form-field" id="cb-otro-wrap" style="display:none"><label>Especifique equipo</label>
-          <input type="text" id="cb-otro" placeholder="Nombre del equipo"></div>
-        <div class="form-field"><label>Kilometraje / Horómetro</label>
+            ${equipos.map(e=>`<option value="${escapeHtml(e.nombre)}">${escapeHtml(e.nombre)}</option>`).join('')}
+            <option value="${EQUIPO_OTRO}">➕ ${EQUIPO_OTRO}</option></select></div>
+        <div class="span-2" id="cb-otro-wrap" style="display:none;grid-column:1/-1">
+          <div style="border:1px dashed var(--bo);border-radius:10px;padding:16px 18px;background:var(--gs)">
+            <div style="font-weight:700;color:var(--gd);font-size:13px;margin-bottom:12px">➕ Nuevo equipo</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px 16px">
+              <div class="form-field"><label>Nombre / identificador</label>
+                <input type="text" id="cbeq-nombre" placeholder="Ej: TRACTOR JOHN DEERE 5090"></div>
+              <div class="form-field"><label>Tipo</label>
+                <select id="cbeq-tipo">${EQUIPO_TIPOS.map(t=>`<option value="${t}">${t}</option>`).join('')}</select></div>
+              <div class="form-field"><label>Medidor</label>
+                <select id="cbeq-medidor">${EQUIPO_MEDIDORES.map(m=>`<option value="${m[0]}">${m[1]}</option>`).join('')}</select></div>
+              <div class="form-field"><label>Patente / código (opcional)</label>
+                <input type="text" id="cbeq-patente" placeholder="Ej: ABCD-12"></div>
+            </div>
+            <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px">
+              <button type="button" class="btn btn-primary btn-sm" onclick="cbCrearEquipoInline()">Crear y usar</button>
+            </div>
+            <div class="hint" id="cbeq-err" style="color:#c0392b;display:none;margin-top:6px"></div>
+          </div>
+        </div>
+        <div class="form-field"><label id="cb-km-label">Kilometraje / Horómetro</label>
           <input type="number" id="cb-km" step="0.1" min="0" placeholder="Ej: 1250.5">
           <div class="hint" id="cb-km-hint" style="display:none;color:#0a6ed1"></div></div>
         <div class="form-field"><label>Usuario / Operador</label>
@@ -4932,18 +4993,57 @@ function renderCombustibleForm(c){
 function cbToggleOtro(){
   const sel=document.getElementById('cb-equipo').value;
   const w=document.getElementById('cb-otro-wrap');
-  if(w) w.style.display = sel==='Otro (especificar)' ? 'block' : 'none';
+  if(w) w.style.display = sel===EQUIPO_OTRO ? 'block' : 'none';
+  // Ajustar la etiqueta del medidor según el equipo elegido.
+  const lbl=document.getElementById('cb-km-label');
+  if(lbl){
+    const eq=(sel && sel!==EQUIPO_OTRO)?getEquipoByNombre(sel):null;
+    lbl.textContent = eq&&eq.medidor==='horometro' ? 'Horómetro (horas)'
+      : eq&&eq.medidor==='km' ? 'Kilometraje (km)'
+      : eq&&eq.medidor==='ninguno' ? 'Lectura (opcional)'
+      : 'Kilometraje / Horómetro';
+  }
   // Mostrar último horómetro/km registrado para el equipo elegido
   const hint=document.getElementById('cb-km-hint');
   if(hint){
     const previos=getCombustibleReal().filter(r=>r.equipo===sel && (r.km||0)>0)
       .sort((a,b)=>new Date(b.fecha)-new Date(a.fecha));
-    if(sel && sel!=='Otro (especificar)' && previos.length>0){
+    if(sel && sel!==EQUIPO_OTRO && previos.length>0){
       const u=previos[0];
       hint.textContent=`Último registrado: ${u.km} (${new Date(u.fecha).toLocaleDateString('es-CL')})`;
       hint.style.display='block';
     } else { hint.style.display='none'; }
   }
+}
+/* Alta rápida de equipo desde el propio formulario de salida (opción "Otro"). */
+async function cbCrearEquipoInline(){
+  const errEl=document.getElementById('cbeq-err');
+  const setE=(m)=>{ if(errEl){errEl.textContent=m;errEl.style.display='block';} };
+  const nombre=(document.getElementById('cbeq-nombre').value||'').trim();
+  const tipo=document.getElementById('cbeq-tipo').value||'';
+  const medidor=document.getElementById('cbeq-medidor').value||'km';
+  const patente=(document.getElementById('cbeq-patente').value||'').trim();
+  if(!nombre) return setE('Ingrese el nombre del equipo.');
+  // Materializar la semilla a registros reales si el catálogo aún no existe.
+  let lista=getEquipos().map(e=>String(e.id||'').startsWith('seed-')
+    ? {id:'eq-'+Date.now().toString(36)+Math.random().toString(36).slice(2,6),nombre:e.nombre,tipo:e.tipo||'',medidor:e.medidor||'km',patente:'',estado:'activo',creado:new Date().toISOString()}
+    : e);
+  if(lista.some(e=>String(e.nombre||'').toLowerCase()===nombre.toLowerCase())) return setE('Ya existe un equipo con ese nombre.');
+  lista.push({id:'eq-'+Date.now().toString(36)+Math.random().toString(36).slice(2,7),nombre,tipo,medidor,patente,estado:'activo',creado:new Date().toISOString()});
+  try{
+    await saveEquiposLista(lista);
+    try{ await audit('equipo.crear','Alta de equipo desde salida de combustible',nombre); }catch(e){}
+  }catch(e){ return setE('No se pudo guardar el equipo.'); }
+  const sel=document.getElementById('cb-equipo');
+  if(sel){
+    sel.innerHTML='<option value="">— Seleccione —</option>'+
+      getEquiposActivos().map(e=>`<option value="${escapeHtml(e.nombre)}">${escapeHtml(e.nombre)}</option>`).join('')+
+      `<option value="${EQUIPO_OTRO}">➕ ${EQUIPO_OTRO}</option>`;
+    sel.value=nombre;
+  }
+  const w=document.getElementById('cb-otro-wrap'); if(w) w.style.display='none';
+  cbToggleOtro();
+  toast('Equipo creado',`${nombre} agregado al catálogo`);
 }
 /* Muestra el saldo disponible del combustible EN LA BODEGA seleccionada
    y avisa en el acto si la cantidad pedida lo supera. */
@@ -4970,7 +5070,7 @@ function cbStockHint(){
       (cant>0?` · queda ${fmtNum(disp-cant,2)} LT`:'');
   }
 }
-try{ window.renderCombustibleForm=renderCombustibleForm; window.cbToggleOtro=cbToggleOtro; window.cbStockHint=cbStockHint; }catch(e){}
+try{ window.renderCombustibleForm=renderCombustibleForm; window.cbToggleOtro=cbToggleOtro; window.cbStockHint=cbStockHint; window.cbCrearEquipoInline=cbCrearEquipoInline; }catch(e){}
 
 async function guardarCombustible(){
   if(!can('combustible.registrar')){ toast('Sin permiso','No tiene permiso para registrar salidas de combustible','error'); return; }
@@ -4979,7 +5079,6 @@ async function guardarCombustible(){
   const fecha=document.getElementById('cb-fecha').value;
   const bodegaId=document.getElementById('cb-bodega').value;
   let equipo=document.getElementById('cb-equipo').value;
-  const otro=(document.getElementById('cb-otro')?.value||'').trim();
   const km=parseFloat(document.getElementById('cb-km').value)||0;
   const usuario=(document.getElementById('cb-usuario').value||'').trim();
   const codigo=document.getElementById('cb-producto').value;
@@ -4990,7 +5089,7 @@ async function guardarCombustible(){
   if(!fecha) return setErr('Ingrese la fecha.');
   if(!bodegaId) return setErr('Seleccione la bodega de origen.');
   if(!equipo) return setErr('Seleccione el equipo.');
-  if(equipo==='Otro (especificar)'){ if(!otro) return setErr('Especifique el nombre del equipo.'); equipo=otro; }
+  if(equipo===EQUIPO_OTRO) return setErr('Complete los datos del equipo nuevo y presione «Crear y usar».');
   if(!usuario) return setErr('Ingrese el usuario/operador.');
   if(!codigo) return setErr('Seleccione el producto.');
   if(cantidad<=0) return setErr('Ingrese una cantidad válida.');
@@ -6718,6 +6817,87 @@ window.getIndicadorMes = getIndicadorMes;
 window.getIndicadores = getIndicadores;
 window.temporadaActual = temporadaActual;
 
+/* ─── EQUIPOS (catálogo para salida de combustible) ─── */
+function _eqFindById(id){ return getEquipos().find(e=>String(e.id||e.nombre)===String(id))||null; }
+/* Convierte los equipos-semilla en registros reales conservando el orden. */
+function _eqMaterializar(raw){
+  return raw.map(e=>String(e.id||'').startsWith('seed-')
+    ? {id:'eq-'+Date.now().toString(36)+Math.random().toString(36).slice(2,8),nombre:e.nombre,tipo:e.tipo||'',medidor:e.medidor||'km',patente:'',obs:'',estado:'activo',creado:new Date().toISOString()}
+    : Object.assign({},e));
+}
+function _eqFormBody(e){
+  e=e||{};
+  return `<div class="form-grid">
+      <div class="form-field span-2 required"><label>Nombre / identificador</label><input type="text" id="eqNom" value="${escapeHtml(e.nombre||'')}" placeholder="Ej: TRACTOR JOHN DEERE 5090" autofocus></div>
+      <div class="form-field"><label>Tipo</label><select id="eqTipo">${EQUIPO_TIPOS.map(t=>`<option value="${t}" ${e.tipo===t?'selected':''}>${t}</option>`).join('')}</select></div>
+      <div class="form-field"><label>Medidor</label><select id="eqMed">${EQUIPO_MEDIDORES.map(m=>`<option value="${m[0]}" ${(e.medidor||'km')===m[0]?'selected':''}>${m[1]}</option>`).join('')}</select></div>
+      <div class="form-field span-2"><label>Patente / código interno (opcional)</label><input type="text" id="eqPat" value="${escapeHtml(e.patente||'')}" placeholder="Ej: ABCD-12"></div>
+      <div class="form-field span-2"><label>Observaciones (opcional)</label><input type="text" id="eqObs" value="${escapeHtml(e.obs||'')}" placeholder="Notas del equipo"></div>
+    </div>`;
+}
+function addEquipoForm(){
+  if(!can('config.editar')) return;
+  showModal('Nuevo equipo', _eqFormBody({medidor:'km'}),
+    `<button class="btn btn-secondary" onclick="closeModal()">Cancelar</button><button class="btn btn-primary" onclick="saveEquipo()">Crear</button>`,'md');
+}
+function editEquipoForm(id){
+  if(!can('config.editar')) return;
+  const e=_eqFindById(id); if(!e) return;
+  const body=_eqFormBody(e)+`
+    <div class="form-field span-2" style="margin-top:2px">
+      <label style="display:flex;align-items:center;gap:10px;padding:9px 11px;background:var(--gs);border:1px solid var(--bo);border-radius:6px;cursor:pointer;font-size:13px;text-transform:none;letter-spacing:0;font-weight:400;color:var(--tx)">
+        <span class="switch"><input type="checkbox" id="eqAct" ${e.estado!=='inactivo'?'checked':''}><span class="switch-slider"></span></span>
+        <span>Activo — visible en el formulario de combustible</span>
+      </label>
+    </div>`;
+  showModal(`Editar equipo · ${e.nombre}`, body,
+    `<button class="btn btn-danger" onclick="deleteEquipo('${escapeHtml(String(id))}')">Eliminar</button>
+     <button class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
+     <button class="btn btn-primary" onclick="saveEquipo('${escapeHtml(String(id))}')">Guardar</button>`,'md');
+}
+async function saveEquipo(id){
+  const nombre=(document.getElementById('eqNom').value||'').trim();
+  if(!nombre){ toast('Falta nombre','El nombre del equipo es obligatorio','error'); return; }
+  const tipo=document.getElementById('eqTipo').value||'';
+  const medidor=document.getElementById('eqMed').value||'km';
+  const patente=(document.getElementById('eqPat').value||'').trim();
+  const obs=(document.getElementById('eqObs').value||'').trim();
+  const actEl=document.getElementById('eqAct');
+  const raw=getEquipos();
+  let idx=-1;
+  if(id){ idx=raw.findIndex(e=>String(e.id||e.nombre)===String(id)); }
+  const lista=_eqMaterializar(raw); // conserva el orden y el índice
+  if(lista.some((e,i)=>i!==idx && String(e.nombre||'').toLowerCase()===nombre.toLowerCase())){
+    toast('Equipo duplicado','Ya existe un equipo con ese nombre','error'); return;
+  }
+  if(idx>=0){
+    lista[idx]=Object.assign({},lista[idx],{nombre,tipo,medidor,patente,obs,
+      estado:actEl&&!actEl.checked?'inactivo':'activo',modificado:new Date().toISOString()});
+  }else{
+    lista.push({id:'eq-'+Date.now().toString(36)+Math.random().toString(36).slice(2,8),nombre,tipo,medidor,patente,obs,estado:'activo',creado:new Date().toISOString()});
+  }
+  try{
+    await saveEquiposLista(lista);
+    await audit(id?'equipo.editar':'equipo.crear',`${id?'Edición':'Creación'} de equipo`,nombre);
+  }catch(e){ toast('Error','No se pudo guardar el equipo','error'); return; }
+  closeModal(); toast(id?'Equipo actualizado':'Equipo creado');
+  renderConfig(document.getElementById('mainContent'));
+}
+async function deleteEquipo(id){
+  const e=_eqFindById(id); if(!e) return;
+  if(!confirm(`¿Eliminar el equipo "${e.nombre}"?\n\nLos registros de combustible ya guardados no se modifican.`)) return;
+  const raw=getEquipos();
+  const idx=raw.findIndex(x=>String(x.id||x.nombre)===String(id));
+  const lista=_eqMaterializar(raw);
+  if(idx>=0) lista.splice(idx,1);
+  try{
+    await saveEquiposLista(lista);
+    await audit('equipo.eliminar','Eliminación de equipo',e.nombre);
+  }catch(err){ toast('Error','No se pudo eliminar el equipo','error'); return; }
+  closeModal(); toast('Equipo eliminado');
+  renderConfig(document.getElementById('mainContent'));
+}
+
 function renderConfig(c){
   const groups=STATE.cache.groups;
   const tipos=(STATE.cache.productTypes||[]).slice().sort((a,b)=>a.nombre.localeCompare(b.nombre));
@@ -6833,6 +7013,29 @@ function renderConfig(c){
               </div>`;
             }).join('')}
         </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><div class="card-title">🚜 Equipos</div>${can('config.editar')?`<button class="btn btn-secondary btn-sm" onclick="addEquipoForm()">+ Equipo</button>`:''}</div>
+        <div style="padding:10px 0">
+          ${(()=>{
+            const eqs=getEquipos().slice().sort((a,b)=>String(a.nombre||'').localeCompare(String(b.nombre||'')));
+            if(eqs.length===0) return '<div class="empty-state"><div class="empty-state-text">Sin equipos</div></div>';
+            const medLbl={km:'Kilómetros',horometro:'Horómetro',ninguno:'Sin medidor'};
+            return eqs.map(e=>`<div style="padding:12px 18px;border-bottom:1px solid var(--bo);display:flex;align-items:center;justify-content:space-between;gap:10px">
+                <div style="flex:1;min-width:0">
+                  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                    <strong style="color:var(--gd)">${escapeHtml(e.nombre)}</strong>
+                    ${e.estado==='inactivo'?'<span class="badge badge-gray">inactivo</span>':''}
+                    ${e.tipo?`<span class="badge badge-blue">${escapeHtml(e.tipo)}</span>`:''}
+                    <span style="color:var(--mu);font-size:12px">${medLbl[e.medidor]||'Kilometraje / Horómetro'}${e.patente?(' · '+escapeHtml(e.patente)):''}</span>
+                  </div>
+                </div>
+                ${can('config.editar')?`<button class="btn btn-secondary btn-sm" onclick="editEquipoForm('${escapeHtml(e.id||e.nombre)}')">Editar</button>`:''}
+              </div>`).join('');
+          })()}
+        </div>
+        <div class="hint" style="padding:0 18px 12px">Estos equipos aparecen en la casilla <strong>Equipo</strong> de la salida de combustible. El medidor define si el rendimiento se calcula en km/L o L/hora.</div>
       </div>
 
       ${STATE.user.role==='admin'?`<div class="card">
