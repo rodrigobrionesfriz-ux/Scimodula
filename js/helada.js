@@ -1777,10 +1777,11 @@ function _dcPintar(c, cargando, error){
   var box=_dcBox(); if(!box) return;
   var ico=(typeof _helIconoClima==='function')?_helIconoClima:function(){ return {i:'',t:''}; };
   var fmtT=function(n){ return (n==null||isNaN(n))?'—':Number(n).toFixed(1).replace('.',',')+'°'; };
+  var fmtMM=function(n){ return (n==null||isNaN(n))?'—':Number(n).toFixed(1).replace('.',','); };
   var corto=(typeof _helDiaCorto==='function')?_helDiaCorto:function(f){ return f; };
 
   if(cargando){
-    box.innerHTML='<div style="border:1px solid #e3e8ee;border-radius:10px;padding:11px 14px;margin-bottom:14px;background:#fff;font-size:12.5px;color:#64748b">🛰️ '+cargando+'</div>';
+    box.innerHTML='<div style="border:1px solid #e3e8ee;border-radius:10px;padding:9px 12px;margin-bottom:10px;background:#fff;font-size:12.5px;color:#64748b">🛰️ '+cargando+'</div>';
     return;
   }
   if(!c || !c.dias || !c.dias.length){
@@ -1793,17 +1794,23 @@ function _dcPintar(c, cargando, error){
   }
 
   var icAhora=ico(c.codAhora);
+  // Cada día es un bloque HORIZONTAL compacto: aprovecha el ancho para que el
+  // widget ocupe la mitad del alto. Muestra icono, mínima/máxima y mm de lluvia.
   var celdas=c.dias.map(function(d){
     var i2=ico(d.cod);
     // Se marcan las noches de posible helada con el mismo criterio del módulo
     var frio=(d.min!=null && d.min<=2), hiela=(d.min!=null && d.min<=0);
     var col=hiela?'#b91c1c':(frio?'#b45309':'#0f172a');
-    return '<div style="text-align:center;min-width:52px;flex:1'+
+    var mm=(d.lluvia!=null && !isNaN(d.lluvia))?Number(d.lluvia):0;
+    return '<div style="flex:1;min-width:96px;display:flex;align-items:center;gap:7px;padding:3px 6px'+
         (frio?';background:'+(hiela?'#fef2f2':'#fffbeb')+';border-radius:7px':'')+'">'+
-      '<div style="font-size:10px;color:#94a3b8;white-space:nowrap">'+_helEsc(corto(d.fecha))+'</div>'+
-      '<div style="font-size:17px;line-height:1.2" title="'+_helEsc(i2.t)+'">'+(i2.i||'')+'</div>'+
-      '<div style="font-size:12px;font-weight:800;color:'+col+';white-space:nowrap">'+fmtT(d.min)+'</div>'+
-      '<div style="font-size:10px;color:#94a3b8;white-space:nowrap">'+fmtT(d.max)+'</div>'+
+      '<div style="font-size:18px;line-height:1" title="'+_helEsc(i2.t)+'">'+(i2.i||'🌤️')+'</div>'+
+      '<div style="line-height:1.25;min-width:0">'+
+        '<div style="font-size:10px;color:#94a3b8;white-space:nowrap">'+_helEsc(corto(d.fecha))+'</div>'+
+        '<div style="white-space:nowrap"><span style="font-size:13px;font-weight:800;color:'+col+'">'+fmtT(d.min)+'</span>'+
+          '<span style="font-size:10px;color:#94a3b8"> / '+fmtT(d.max)+'</span></div>'+
+        '<div style="font-size:10px;color:'+(mm>0?'#0a6ed1':'#cbd5e1')+';white-space:nowrap">💧 '+fmtMM(d.lluvia)+' mm</div>'+
+      '</div>'+
     '</div>';
   }).join('');
 
@@ -1812,19 +1819,19 @@ function _dcPintar(c, cargando, error){
   var alerta = hiela ? '🚨 Helada pronosticada' : (frio ? '⚠️ Noches bajo 2°' : '');
 
   box.innerHTML='<div style="border:1px solid '+(hiela?'#fecaca':(frio?'#fde68a':'#e3e8ee'))+
-      ';border-radius:10px;padding:11px 14px;margin-bottom:14px;background:#fff">'+
-    '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:8px">'+
+      ';border-radius:10px;padding:8px 12px;margin-bottom:10px;background:#fff">'+
+    '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:5px">'+
       '<div style="font-size:12.5px;color:#475569">'+
         (icAhora.i?icAhora.i+' ':'🌤️')+' <strong>Mi ubicación</strong>'+
         (c.ahora!=null?' · <strong style="font-size:15px;color:#0a6ed1">'+fmtT(c.ahora)+'</strong> ahora':'')+
         (alerta?' · <strong style="color:'+(hiela?'#b91c1c':'#b45309')+'">'+alerta+'</strong>':'')+
+        '<span style="font-size:10px;color:#cbd5e1"> · Open-Meteo</span>'+
       '</div>'+
       '<button onclick="dcActualizarClima()" title="Actualizar" style="background:#f1f5f9;border:none;border-radius:7px;padding:4px 9px;font-size:11px;cursor:pointer;color:#475569">↻ '+
         ((typeof _helHace==='function')?_helHace(c.ts):'')+'</button>'+
     '</div>'+
-    '<div style="display:flex;gap:4px;overflow-x:auto">'+celdas+'</div>'+
-    (error?'<div style="font-size:10.5px;color:#92600a;margin-top:5px">'+_helEsc(error)+'</div>':'')+
-    '<div style="font-size:10px;color:#cbd5e1;margin-top:5px">Open-Meteo · según la ubicación de este dispositivo</div>'+
+    '<div style="display:flex;gap:2px;overflow-x:auto">'+celdas+'</div>'+
+    (error?'<div style="font-size:10.5px;color:#92600a;margin-top:4px">'+_helEsc(error)+'</div>':'')+
   '</div>';
 }
 

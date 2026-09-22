@@ -961,9 +961,9 @@ function renderDashboard(c){
       </div>
     </div>
 
-    ${_cuHtml}
-
     <div id="dash-clima"></div>
+
+    ${_cuHtml}
 
     <div class="stats-grid dash3">
       <div class="stat-card gold dash-wide">
