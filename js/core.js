@@ -201,6 +201,57 @@ function sciFbDocRef(){
   return firebase.firestore().collection('sci').doc('main');
 }
 
+/* ─── Particionado del payload (v141) ─────────────────────────────────────
+   Firestore limita cada documento a ~1 MB. El payload del SCI ya superaba ese
+   tope, así que se divide en trozos: sci/main_p0, sci/main_p1, ... y el doc
+   sci/main solo guarda metadatos (_version, _chunks). Todo se escribe en un
+   batch atómico: los trozos y el doc principal cambian juntos o no cambia
+   nada. Cada trozo lleva el _version para detectar lecturas a medio camino.
+   Compatibilidad: si sci/main aún trae 'payload' (formato antiguo) se usa. */
+var SCI_CHUNK_CHARS = 300000;   // 300k unidades UTF-16 ≤ ~900 KB en UTF-8
+function sciFbChunkRef(i){
+  return firebase.firestore().collection('sci').doc('main_p'+i);
+}
+async function _sciFbLeerRemoto(data){
+  if(!data) return null;
+  if(data.payload){
+    return (typeof data.payload==='string') ? JSON.parse(data.payload) : data.payload;
+  }
+  var n = data._chunks|0;
+  if(!n) return null;
+  var snaps = [];
+  for(var i=0;i<n;i++){ snaps.push(sciFbChunkRef(i).get()); }
+  snaps = await Promise.all(snaps);
+  try{ for(var r=0;r<n;r++) FBCOUNT.read(); }catch(e){}
+  var partes = [];
+  for(var k=0;k<n;k++){
+    var d = snaps[k] && snaps[k].exists ? snaps[k].data() : null;
+    if(!d || d._version !== data._version){
+      throw new Error('Trozo '+k+' desalineado (escritura en curso)');
+    }
+    partes.push(d.data||'');
+  }
+  return JSON.parse(partes.join(''));
+}
+/* Diagnóstico: peso de cada store en KB (ordenado de mayor a menor). */
+function _sciFbTamanos(obj){
+  var out = [];
+  Object.keys(obj||{}).forEach(function(k){
+    var kb = 0; try{ kb = Math.round(JSON.stringify(obj[k]).length/1024); }catch(e){}
+    out.push({store:k, registros:Array.isArray(obj[k])?obj[k].length:'-', kb:kb});
+  });
+  out.sort(function(a,b){ return b.kb-a.kb; });
+  return out;
+}
+async function sciFbDiagnosticoTamano(){
+  var obj = {};
+  for(var i=0;i<SCIFB.stores.length;i++){ obj[SCIFB.stores[i]] = await dbAll(SCIFB.stores[i]); }
+  var t = _sciFbTamanos(obj);
+  try{ console.table(t); }catch(e){ console.log(t); }
+  return t;
+}
+try{ window.sciFbDiagnosticoTamano = sciFbDiagnosticoTamano; }catch(e){}
+
 // Inicializa la sincronización del SCI (Firebase ya debe estar inicializado por el Cuaderno)
 function sciFbInit(){
   try {
@@ -321,8 +372,15 @@ async function sciFbApplyRemote(data){
   var llegaronMovimientos = false;
   try {
     SCIFB.applyingRemote = true;
-    if(data.payload){
-      var remote = (typeof data.payload === 'string') ? JSON.parse(data.payload) : data.payload;
+    var remote = null;
+    try{ remote = await _sciFbLeerRemoto(data); }
+    catch(e){
+      // Trozos aún no alineados: reintentar una vez en 2 s.
+      console.warn('[SCI-Firebase]', e && e.message, '→ reintento');
+      await new Promise(function(r){ setTimeout(r, 2000); });
+      remote = await _sciFbLeerRemoto(data);
+    }
+    if(remote){
       // Stores acumulativos: fusión por clave (definido globalmente en
       // SCI_STORES_ACUMULATIVOS) para que ningún dispositivo borre datos de otro.
       for(var i=0;i<SCIFB.stores.length;i++){
@@ -494,12 +552,9 @@ async function sciFbPush(immediate){
       try{
         var snap = await ref.get(); try{FBCOUNT.read();}catch(e){}
         if(snap && snap.exists){
-          var rdata = snap.data();
-          if(rdata && rdata.payload){
-            remoteObj = (typeof rdata.payload==='string') ? JSON.parse(rdata.payload) : rdata.payload;
-          }
+          remoteObj = await _sciFbLeerRemoto(snap.data());
         }
-      }catch(e){ /* si no se puede leer, se sube lo local */ }
+      }catch(e){ console.warn('[SCI-Firebase] No se pudo leer remoto antes de subir:', e && e.message); /* se sube lo local */ }
 
       var newVersion = Date.now();
       SCIFB.lastVersion = newVersion;
@@ -524,23 +579,33 @@ async function sciFbPush(immediate){
         }
       }
       var payload = JSON.stringify(payloadObj);
-      // Guarda de tamaño: Firestore limita cada documento a ~1 MB. Si el payload
-      // se acerca, avisar (el guardado fallaría y no se sincronizaría nada).
-      if(payload.length > 950000){
-        try{ sciFbIndicator('error','Datos demasiado grandes para la nube'); }catch(e){}
-        try{ toast('⚠ Sincronización en riesgo','Los datos se acercan al límite de la nube (1 MB). Contacte al administrador para depurar registros antiguos.','warning'); }catch(e){}
-        console.warn('Payload SCI cercano al límite:', payload.length, 'bytes');
+      // Partir el payload en trozos (ver SCI_CHUNK_CHARS). El batch de
+      // Firestore admite hasta 10 MB y 500 operaciones: avisar al pasar 8 MB.
+      var chunks = [];
+      for(var c=0;c<payload.length;c+=SCI_CHUNK_CHARS){ chunks.push(payload.slice(c, c+SCI_CHUNK_CHARS)); }
+      if(!chunks.length) chunks.push('');
+      if(payload.length > 8000000){
+        try{ toast('⚠ Sincronización en riesgo','Los datos del inventario superan 8 MB. Contacte al administrador para depurar registros antiguos.','warning'); }catch(e){}
+        try{ console.warn('Payload SCI grande:', payload.length); console.table(_sciFbTamanos(payloadObj)); }catch(e){}
       }
       var userName = '';
       try { if(STATE && STATE.user){ userName = STATE.user.nombre || STATE.user.id || ''; } }catch(e){}
-      try{FBCOUNT.write();}catch(e){}
-      await ref.set({
-        payload: payload,
+      var batch = firebase.firestore().batch();
+      for(var q=0;q<chunks.length;q++){
+        batch.set(sciFbChunkRef(q), { data: chunks[q], _version: newVersion });
+        try{FBCOUNT.write();}catch(e){}
+      }
+      // set() sin merge reemplaza el doc principal: elimina el 'payload' antiguo.
+      batch.set(ref, {
+        _chunks: chunks.length,
+        _size: payload.length,
         _version: newVersion,
         _clientId: SCIFB.clientId,
         _updatedBy: userName,
         _updatedAt: firebase.firestore.FieldValue.serverTimestamp()
       });
+      try{FBCOUNT.write();}catch(e){}
+      await batch.commit();
       SCIFB.online = true;
       SCIFB.pendiente = false;
       try{ localStorage.removeItem('SCI_SYNC_PENDIENTE'); }catch(e){}
