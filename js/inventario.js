@@ -300,6 +300,10 @@ async function _ejecutarRecalculoStock(){
   };
 
   // 3. Procesar movimientos vigentes en orden cronológico (fecha asc, luego numero asc)
+  //    Se leen SIEMPRE desde IndexedDB: si el llamador acaba de guardar un
+  //    movimiento y no refrescó el cache, el recálculo lo omitía y el saldo
+  //    no bajaba hasta reabrir la app (bug de consumos de combustible, v142).
+  try{ STATE.cache.movements=await dbAll('movements'); }catch(e){}
   const mov=STATE.cache.movements.filter(m=>!m.anulado).slice().sort((a,b)=>{
     const fa=(a.fecha||'')+(a.creado||'')+(a.numero||'');
     const fb=(b.fecha||'')+(b.creado||'')+(b.numero||'');
@@ -3393,7 +3397,6 @@ async function _aplicarAjustesToma(t){
       anulado:false
     };
     await dbPut('movements',m);
-    await applyMovementToStock(m,false);
     movimientosGenerados.push(numero);
     await audit('movimiento.crear',`Ajuste por toma: ${numero} (${sobrantes.length} línea(s))`,numero);
   }
@@ -3430,10 +3433,12 @@ async function _aplicarAjustesToma(t){
       anulado:false
     };
     await dbPut('movements',m);
-    await applyMovementToStock(m,false);
     movimientosGenerados.push(numero);
     await audit('movimiento.crear',`Ajuste por toma: ${numero} (${faltantes.length} línea(s))`,numero);
   }
+
+  // Saldos: recálculo completo desde movimientos (regla general del SCI).
+  if(movimientosGenerados.length) await _ejecutarRecalculoStock();
 
   // Marcar la toma como aplicada
   t.estado='APLICADA';

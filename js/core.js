@@ -559,6 +559,7 @@ async function sciFbPush(immediate){
       var newVersion = Date.now();
       SCIFB.lastVersion = newVersion;
       var payloadObj = {};
+      var _movCambiaron = false;
       for(var i=0;i<SCIFB.stores.length;i++){
         var store = SCIFB.stores[i];
         var localData = await dbAll(store);
@@ -568,6 +569,7 @@ async function sciFbPush(immediate){
           // Reflejar la fusión también en la base local, para quedar consistentes.
           try{
             if(payloadObj[store].length !== localData.length){
+              if(store==='movements' && _sigMovimientos(localData)!==_sigMovimientos(payloadObj[store])) _movCambiaron = true;
               SCIFB.applyingRemote = true;
               await dbClear(store);
               for(var m=0;m<payloadObj[store].length;m++){ try{ await dbPutLocal(store, payloadObj[store][m]); }catch(e){} }
@@ -612,6 +614,12 @@ async function sciFbPush(immediate){
       sciFbIndicator('online', 'Inventario guardado en la nube');
       // Si fusionamos algo nuevo desde la nube, refrescar el cache y la vista.
       try{ if(typeof reloadCache==='function'){ await reloadCache(); } }catch(e){}
+      // Si la fusión trajo movimientos de otro dispositivo, los saldos locales
+      // quedan desfasados: recalcular y redibujar sin esperar a reabrir la app.
+      if(_movCambiaron && typeof _ejecutarRecalculoStock==='function'){
+        try{ await _ejecutarRecalculoStock(); _refrescarVistaSegura(); }
+        catch(e){ console.error('[SCI-Firebase] Recálculo tras fusión falló:', e); }
+      }
     } catch(err){
       SCIFB.online = false;
       SCIFB.pendiente = true;
