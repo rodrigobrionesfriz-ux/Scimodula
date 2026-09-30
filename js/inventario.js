@@ -1614,7 +1614,7 @@ async function aplicarLimpiezaProductos(){
   }
 }
 
-function viewProduct(codigo){
+function viewProduct(codigo, verTodos){
   const p=getProduct(codigo);if(!p)return;
   const stocks=STATE.cache.stock.filter(s=>s.codigoInterno===codigo&&s.cantidad>0);
   const lots=(function(){
@@ -1638,12 +1638,18 @@ function viewProduct(codigo){
   const movsAll=STATE.cache.movements.filter(m=>!m.anulado&&(m.detalles||[]).some(d=>d.codigoInterno===codigo))
     .sort((a,b)=>(a.fecha||'').localeCompare(b.fecha||'')||String(a.numero).localeCompare(String(b.numero)));
   let saldoAcum=0;
-  const movRows=movsAll.map(m=>{
+  const movRowsAll=movsAll.map(m=>{
     const cant=(m.detalles||[]).filter(d=>d.codigoInterno===codigo).reduce((s,d)=>s+(Number(d.cantidad)||0),0);
     const delta=m.tipo==='ENT'?cant:(m.tipo==='SAL'?-cant:0);
     saldoAcum+=delta;
     return {m, delta, saldo:saldoAcum};
-  }).slice(-15);
+  });
+  // Por defecto se muestran los últimos 15; los anteriores se resumen en una
+  // fila "Saldo anterior" para que la tabla cuadre con los informes (v143).
+  const LIM_MOV=15;
+  const ocultos=(!verTodos && movRowsAll.length>LIM_MOV)?movRowsAll.length-LIM_MOV:0;
+  const movRows=ocultos?movRowsAll.slice(-LIM_MOV):movRowsAll;
+  const saldoAnterior=ocultos?movRowsAll[ocultos-1].saldo:0;
   const saldoFinal=getStockTotal(codigo);
   showModal(`Producto · ${p.codigoInterno}`,
     `<div class="form-grid">
@@ -1664,10 +1670,13 @@ function viewProduct(codigo){
       <table class="detalle-table"><thead><tr><th>Bodega</th><th>Lote</th><th>Vence</th><th class="num">Cantidad</th><th class="num">Costo</th></tr></thead>
       <tbody>${lots.map(l=>{const b=getWarehouse(l.bodegaId);const venc=l.fechaVenc?new Date(l.fechaVenc):null;const venceClass=venc&&venc<new Date(Date.now()+30*86400000)?'badge-amber':'';
         return `<tr><td>${escapeHtml(b?b.nombre:l.bodegaId)}</td><td class="mono">${escapeHtml(l.lote)}</td><td><span class="badge ${venceClass}">${fmtDateOnly(l.fechaVenc)}</span></td><td class="num">${fmtNum(l.cantidad,2)}</td><td class="num">${fmtMon(l.costo)}</td></tr>`}).join('')}</tbody></table>`:''}
-    <h4 style="margin:18px 0 8px;color:var(--gd);font-size:13px">Movimientos (últimos ${movRows.length})</h4>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin:18px 0 8px">
+      <h4 style="margin:0;color:var(--gd);font-size:13px">Movimientos (${ocultos?`últimos ${movRows.length} de ${movRowsAll.length}`:`${movRows.length}`})</h4>
+      ${movRowsAll.length>LIM_MOV?`<button class="btn btn-secondary btn-sm" onclick="viewProduct('${codigo}',${ocultos?'true':'false'})">${ocultos?`Ver todos (${movRowsAll.length})`:`Ver solo últimos ${LIM_MOV}`}</button>`:''}
+    </div>
     ${movRows.length===0?'<div style="color:var(--mu);font-size:13px">Sin movimientos</div>':
       `<table class="detalle-table"><thead><tr><th>N°</th><th>Tipo</th><th>Fecha</th><th class="num">Cantidad</th><th class="num">Saldo</th></tr></thead>
-      <tbody>${movRows.map(r=>`<tr class="row-link" onclick="closeModal();viewMovimiento('${r.m.numero}')">
+      <tbody>${ocultos?`<tr style="background:var(--bg2,#f4f6f8)"><td colspan="4" style="color:var(--mu);font-style:italic">Saldo anterior · ${ocultos} movimiento(s) previo(s) no mostrados</td><td class="num"><strong>${fmtNum(saldoAnterior,2)}</strong></td></tr>`:''}${movRows.map(r=>`<tr class="row-link" onclick="closeModal();viewMovimiento('${r.m.numero}')">
         <td class="mono">${r.m.numero}</td>
         <td><span class="badge ${r.m.tipo==='ENT'?'badge-green':(r.m.tipo==='SAL'?'badge-amber':'badge-blue')}">${tipoMovLabel(r.m)}</span></td>
         <td>${fmtDate(r.m.fecha)}</td>
