@@ -269,6 +269,44 @@ function _helSaldoEstanques(temporada){
   return {porTorre:porTorre, total:total, nTorres:n};
 }
 
+/* Consumo por hora de una torre (v148).
+   Regla: cada salida de diésel registrada en SCI es una carga a la torre y
+   todo lo cargado se quema. Por lo tanto:
+     L/h = suma de cargas ÷ (horómetro final − horómetro inicial)
+   Las lecturas de horómetro salen de las cargas y de los registros de helada.
+   El saldo declarado en el último registro de helada NO entra al cálculo:
+   solo se informa como validador (cargas posteriores a esa lectura deberían
+   cuadrar con lo que queda en el estanque).
+   cargas: [{fecha:'YYYY-MM-DD', litros:n, horom:n}]                        */
+function helConsumoHoraTorre(torre, cargas, temporada){
+  var k=_helNorm(torre), lect=[], litros=0;
+  (cargas||[]).forEach(function(c){
+    litros+=(Number(c.litros)||0);
+    var h=Number(c.horom); if(h>0) lect.push(h);
+  });
+  var ult=null;
+  _helRegs().forEach(function(r){
+    if(_helNorm(r.torre)!==k) return;
+    if(temporada && r.temporada!==temporada) return;
+    var hi=parseFloat(r.horometroInicial), hf=parseFloat(r.horometroFinal);
+    if(hi>0) lect.push(hi);
+    if(hf>0) lect.push(hf);
+    if(!isNaN(parseFloat(r.litrosEstanque)) && (!ult || _helEsPosterior(r, ult))) ult=r;
+  });
+  var hIni=lect.length?Math.min.apply(null,lect):0;
+  var hFin=lect.length?Math.max.apply(null,lect):0;
+  var horas=hFin-hIni;
+  var val=null;
+  if(ult){
+    var fu=String(ult.fecha||''), post=0;
+    (cargas||[]).forEach(function(c){ if(String(c.fecha||'').slice(0,10)>fu) post+=(Number(c.litros)||0); });
+    val={fecha:fu, saldo:parseFloat(ult.litrosEstanque), cargasPost:post};
+  }
+  return {litros:litros, horas:horas, lh:(horas>0&&litros>0)?litros/horas:null,
+          hIni:hIni, hFin:hFin, validador:val};
+}
+try{ window.helConsumoHoraTorre=helConsumoHoraTorre; }catch(e){}
+
 /* ¿El registro a es posterior a b? Compara fecha (ISO, comparable como texto)
    y desempata por hora de término y por marca de creación. */
 function _helEsPosterior(a,b){
@@ -885,6 +923,14 @@ function _helRenderDiesel(){
     var k=_helNorm(c.torre)||'—';
     litrosPorTorre[k]=(litrosPorTorre[k]||0)+c.cantidad;
     costoPorTorre[k]=(costoPorTorre[k]||0)+c.neto;
+  });
+  // v148: horas = horómetro final − inicial de la torre (mismo cálculo que
+  // Rendimiento de combustible); litros = suma de cargas registradas.
+  Object.keys(litrosPorTorre).forEach(function(k){
+    var cargas=consumos.filter(function(c){ return _helNorm(c.torre)===k; })
+                       .map(function(c){ return {fecha:c.fecha, litros:c.cantidad, horom:c.km}; });
+    var r=helConsumoHoraTorre(k, cargas, _helFTemp||null);
+    if(r.horas>0) horasPorTorre[k]=r.horas;
   });
 
   var temporadas=[];

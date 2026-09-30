@@ -4574,44 +4574,31 @@ function renderReporteCombustible(c){
       </tr>`;
     }
     // Promedio del bloque.
-    // Horómetro (v145): litros TOTALES / (horómetro final − inicial). No
-    // depende de que cada tramo esté bien registrado: una lectura repetida o
-    // faltante en medio no altera el resultado.
-    // Odómetro: se mantiene km de los tramos / litros de la carga anterior.
-    const lecturas=lista.map(r=>Number(r.km)||0).filter(v=>v>0);
-    const horIni=lecturas.length?Math.min(...lecturas):0;
-    const horFin=lecturas.length?Math.max(...lecturas):0;
-    let horasTot=horFin-horIni;
-    // v146: si hay lectura de estanque (registro de helada), el consumo real
-    // es lo cargado HASTA esa lectura menos el saldo que quedaba, y las horas
-    // llegan hasta el horómetro final de ese evento. Cargas posteriores a la
-    // lectura aún no se queman y quedan fuera. Supone estanque vacío antes de
-    // la primera carga registrada.
-    let litrosCalc=totalLitros, horFinCalc=horFin, detProm='';
+    // Horómetro (v148): suma de cargas ÷ (horómetro final − inicial). Cada
+    // salida es una carga a la torre y todo lo cargado se quema; el saldo de
+    // estanque solo se muestra como validador.
+    // Odómetro: km de los tramos / litros de la carga anterior.
+    let horasTot=0, detProm='', detVal='';
     if(porHora){
-      try{
-        const sal=(typeof _helSaldoEstanques==='function')?_helSaldoEstanques(null).porTorre[normEquipo(eq)]:null;
-        const fLoc=r=>(typeof _helFechaLocal==='function')?_helFechaLocal(r.fecha):String(r.fecha||'').slice(0,10);
-        const primera=lista.length?fLoc(lista[0]):'';
-        if(sal && String(sal.fecha)>=primera){
-          const hasta=lista.filter(r=>fLoc(r)<=String(sal.fecha));
-          const cargado=hasta.reduce((a,r)=>a+(Number(r.cantidad)||0),0);
-          const hfEv=parseFloat(sal.reg&&sal.reg.horometroFinal);
-          const hfCargas=Math.max(0,...hasta.map(r=>Number(r.km)||0));
-          const hf=Math.max(isNaN(hfEv)?0:hfEv, hfCargas);
-          const cons=cargado-sal.litros;
-          if(cons>0 && hf-horIni>0){
-            litrosCalc=cons; horFinCalc=hf; horasTot=hf-horIni;
-            detProm=`(${fmtNum(cargado,1)} L cargados − ${fmtNum(sal.litros,1)} L en estanque al ${new Date(sal.fecha+'T12:00:00').toLocaleDateString('es-CL')}) = ${fmtNum(cons,1)} L ÷ ${fmtNum(horasTot,1)} h (horómetro ${fmtNum(horIni,1)} → ${fmtNum(hf,1)})`;
-          }
-        }
-      }catch(e){ console.warn('[Rendimiento] saldo estanque:',e); }
-      if(!detProm && horasTot>0){
-        detProm=`${fmtNum(totalLitros,1)} L ÷ ${fmtNum(horasTot,1)} h (horómetro ${fmtNum(horIni,1)} → ${fmtNum(horFin,1)}) · sin lectura de estanque, incluye combustible aún sin consumir`;
+      const fL=r=>(typeof _helFechaLocal==='function')?_helFechaLocal(r.fecha):String(r.fecha||'').slice(0,10);
+      const cargas=lista.map(r=>({fecha:fL(r), litros:Number(r.cantidad)||0, horom:Number(r.km)||0}));
+      let res=null;
+      try{ if(typeof helConsumoHoraTorre==='function') res=helConsumoHoraTorre(eq, cargas, null); }catch(e){ console.warn('[Rendimiento]',e); }
+      if(!res){
+        const lect=cargas.map(c=>c.horom).filter(v=>v>0);
+        const hi=lect.length?Math.min(...lect):0, hf=lect.length?Math.max(...lect):0;
+        res={horas:hf-hi,hIni:hi,hFin:hf,validador:null};
+      }
+      horasTot=res.horas;
+      if(horasTot>0) detProm=`${fmtNum(totalLitros,1)} L cargados ÷ ${fmtNum(horasTot,1)} h (horómetro ${fmtNum(res.hIni,1)} → ${fmtNum(res.hFin,1)})`;
+      if(res.validador){
+        const v=res.validador;
+        detVal=`Validador: saldo declarado ${fmtNum(v.saldo,1)} L al ${new Date(v.fecha+'T12:00:00').toLocaleDateString('es-CL')}`+
+               (v.cargasPost>0?` · cargas posteriores ${fmtNum(v.cargasPost,1)} L`:'');
       }
     }
     const rendProm = porHora
-      ? (horasTot>0 ? litrosCalc/horasTot : 0)
+      ? (horasTot>0 ? totalLitros/horasTot : 0)
       : (litrosEnTramos>0 ? totalRecorrido/litrosEnTramos : 0);
     const hayProm = porHora ? horasTot>0 : totalRecorrido>0;
     const unidadProm = porHora ? 'L por hora' : 'km por litro';
@@ -4626,6 +4613,7 @@ function renderReporteCombustible(c){
           ${lista.length} carga(s) · ${fmtNum(totalLitros,1)} L total
           ${hayProm?` · ${porHora?'Consumo':'Rend.'} prom: <strong style="color:var(--gd)">${fmtNum(rendProm,2)}</strong> ${unidadProm}`:''}
           ${porHora&&hayProm&&detProm?`<div style="font-size:11px;margin-top:2px;text-align:right">${detProm}</div>`:''}
+          ${porHora&&detVal?`<div style="font-size:11px;margin-top:1px;text-align:right;color:#92600a">${detVal}</div>`:''}
         </div>
       </div>
       <div class="table-wrap"><table class="data" style="width:100%">
@@ -4640,7 +4628,7 @@ function renderReporteCombustible(c){
     <div class="page-header"><div><div class="page-title">⛽ Rendimiento de combustible</div>
       <div class="page-subtitle">Consumo y rendimiento por equipo entre cargas</div></div>
       <button class="btn btn-secondary" onclick="exportarReporteCombustible()">📥 Exportar Excel</button></div>
-    <div class="hint" style="margin-bottom:14px">Los equipos con <strong>horómetro</strong> (🗼 torres, generadores) se miden en <strong>litros por hora</strong> de funcionamiento; los que llevan <strong>odómetro</strong> (🚜 tractores, vehículos) en <strong>km por litro</strong>. En cada fila se usan los litros de la carga anterior, que son los que alimentaron ese tramo. El <strong>consumo promedio por hora</strong> es (litros cargados − saldo del estanque en la última lectura de helada) dividido por las horas entre el horómetro inicial y el de esa lectura. Si no hay lectura de estanque, se usa el total cargado. Requiere al menos 2 lecturas distintas de horómetro.</div>
+    <div class="hint" style="margin-bottom:14px">Los equipos con <strong>horómetro</strong> (🗼 torres, generadores) se miden en <strong>litros por hora</strong> de funcionamiento; los que llevan <strong>odómetro</strong> (🚜 tractores, vehículos) en <strong>km por litro</strong>. En cada fila se usan los litros de la carga anterior, que son los que alimentaron ese tramo. El <strong>consumo promedio por hora</strong> de las torres es la suma de todas las cargas dividida por las horas entre el horómetro inicial y el final. El saldo declarado en el último registro de helada se muestra solo como validador.</div>
     ${bloques}`;
 }
 function exportarReporteCombustible(){
