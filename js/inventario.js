@@ -4573,10 +4573,19 @@ function renderReporteCombustible(c){
         <td>${escapeHtml(r.centroCosto||'')}</td>
       </tr>`;
     }
-    // Promedio del bloque, coherente con el indicador de cada fila
+    // Promedio del bloque.
+    // Horómetro (v145): litros TOTALES / (horómetro final − inicial). No
+    // depende de que cada tramo esté bien registrado: una lectura repetida o
+    // faltante en medio no altera el resultado.
+    // Odómetro: se mantiene km de los tramos / litros de la carga anterior.
+    const lecturas=lista.map(r=>Number(r.km)||0).filter(v=>v>0);
+    const horIni=lecturas.length?Math.min(...lecturas):0;
+    const horFin=lecturas.length?Math.max(...lecturas):0;
+    const horasTot=horFin-horIni;
     const rendProm = porHora
-      ? (totalRecorrido>0 ? litrosEnTramos/totalRecorrido : 0)
+      ? (horasTot>0 ? totalLitros/horasTot : 0)
       : (litrosEnTramos>0 ? totalRecorrido/litrosEnTramos : 0);
+    const hayProm = porHora ? horasTot>0 : totalRecorrido>0;
     const unidadProm = porHora ? 'L por hora' : 'km por litro';
     const colRend    = porHora ? 'L/Hora' : 'Rend/L';
     const colRec     = porHora ? 'Horas'  : 'Recorrido';
@@ -4587,7 +4596,8 @@ function renderReporteCombustible(c){
         <div style="font-weight:800;font-size:16px">${icono} ${escapeHtml(eq)}</div>
         <div style="font-size:13px;color:var(--mu)">
           ${lista.length} carga(s) · ${fmtNum(totalLitros,1)} L total
-          ${totalRecorrido>0?` · ${porHora?'Consumo':'Rend.'} prom: <strong style="color:var(--gd)">${fmtNum(rendProm,2)}</strong> ${unidadProm}`:''}
+          ${hayProm?` · ${porHora?'Consumo':'Rend.'} prom: <strong style="color:var(--gd)">${fmtNum(rendProm,2)}</strong> ${unidadProm}`:''}
+          ${porHora&&hayProm?`<div style="font-size:11px;margin-top:2px;text-align:right">${fmtNum(totalLitros,1)} L ÷ ${fmtNum(horasTot,1)} h (horómetro ${fmtNum(horIni,1)} → ${fmtNum(horFin,1)})</div>`:''}
         </div>
       </div>
       <div class="table-wrap"><table class="data" style="width:100%">
@@ -4602,7 +4612,7 @@ function renderReporteCombustible(c){
     <div class="page-header"><div><div class="page-title">⛽ Rendimiento de combustible</div>
       <div class="page-subtitle">Consumo y rendimiento por equipo entre cargas</div></div>
       <button class="btn btn-secondary" onclick="exportarReporteCombustible()">📥 Exportar Excel</button></div>
-    <div class="hint" style="margin-bottom:14px">Los equipos con <strong>horómetro</strong> (🗼 torres, generadores) se miden en <strong>litros por hora</strong> de funcionamiento; los que llevan <strong>odómetro</strong> (🚜 tractores, vehículos) en <strong>km por litro</strong>. En ambos casos se usan los litros de la carga anterior, que son los que alimentaron ese tramo. Requiere al menos 2 cargas con lectura para calcularse.</div>
+    <div class="hint" style="margin-bottom:14px">Los equipos con <strong>horómetro</strong> (🗼 torres, generadores) se miden en <strong>litros por hora</strong> de funcionamiento; los que llevan <strong>odómetro</strong> (🚜 tractores, vehículos) en <strong>km por litro</strong>. En cada fila se usan los litros de la carga anterior, que son los que alimentaron ese tramo. El <strong>consumo promedio por hora</strong> de cada equipo es el total de litros cargados dividido por las horas entre el horómetro inicial y el final. Requiere al menos 2 lecturas distintas de horómetro.</div>
     ${bloques}`;
 }
 function exportarReporteCombustible(){
