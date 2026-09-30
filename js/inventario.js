@@ -4384,7 +4384,12 @@ let movDraft={lineas:[],tipo:'ENT',editId:null};
 /* ═══════════════ SALIDAS: selector normal vs combustible ═══════════════ */
 /* Semilla histórica: se usa solo la primera vez para poblar el catálogo de
    equipos (config → store `equipos`) si aún no existe ninguno. */
-const CB_EQUIPOS_SEED=['Tractor 1','Tractor 2','Camioneta adm.','Torre Control Helada 1','Torre Control Helada 2','Maq. Auxiliares'];
+const CB_EQUIPOS_SEED=['TRACTOR 1','TRACTOR 2','CAMIONETA ADM.','TORRE CONTROL HELADA 1','TORRE CONTROL HELADA 2','MAQ. AUXILIARES'];
+/* Nombre canónico de equipo/torre: MAYÚSCULAS, sin espacios dobles (v144).
+   El normalizador global de mayúsculas hizo que convivieran "Torre Control
+   Helada 1" y "TORRE CONTROL HELADA 1", y los informes las separaban. */
+function normEquipo(n){ return String(n==null?'':n).replace(/\s+/g,' ').trim().toUpperCase(); }
+try{ window.normEquipo=normEquipo; }catch(e){}
 const EQUIPO_OTRO='Otro (especificar)';
 /* Catálogo de tipos y medidores para el alta de equipos. */
 const EQUIPO_TIPOS=['Tractor','Camioneta','Camión','Torre de helada','Generador','Motobomba','Maquinaria','Otro'];
@@ -4404,8 +4409,75 @@ function getEquiposActivos(){
     .sort((a,b)=>String(a.nombre||'').localeCompare(String(b.nombre||'')));
 }
 function getEquipoByNombre(nom){
-  return getEquipos().find(e=>String(e.nombre||'')===String(nom||''))||null;
+  const k=normEquipo(nom);
+  return getEquipos().find(e=>normEquipo(e.nombre)===k)||null;
 }
+
+/* Migración idempotente (v144): lleva a nombre canónico los equipos y torres
+   en catálogos (config.equipos, helTorres, cbEquiposHora), registros de
+   combustible, registros de helada y movimientos de consumo de combustible.
+   Solo escribe lo que cambia; se ejecuta en cada arranque tras la sync. Sella
+   _mod para que la fusión con la nube prefiera la versión normalizada. */
+async function sciNormalizarNombresEquipos(){
+  let cambios=0; const ahora=Date.now();
+  const dedup=(arr)=>{ const vistos={}, out=[]; (arr||[]).forEach(n=>{ const k=normEquipo(n); if(k && !vistos[k]){ vistos[k]=1; out.push(k); } }); return out; };
+  const cfg=STATE.cache.config||{};
+  try{
+    const eq=cfg.equipos;
+    if(eq && Array.isArray(eq.lista)){
+      const mapa={}, orden=[];
+      eq.lista.forEach(e=>{
+        const k=normEquipo(e.nombre); if(!k) return;
+        if(!mapa[k]){ mapa[k]=Object.assign({},e,{nombre:k}); orden.push(k); }
+        else{
+          const t=mapa[k];
+          if(e.estado!=='inactivo') t.estado=e.estado||'activo';
+          if(!t.tipo && e.tipo) t.tipo=e.tipo;
+          if(!t.medidor && e.medidor) t.medidor=e.medidor;
+        }
+      });
+      const nueva=orden.map(k=>mapa[k]);
+      if(JSON.stringify(nueva)!==JSON.stringify(eq.lista)){ await saveEquiposLista(nueva); cambios++; }
+    }
+  }catch(e){ console.error('[normEquipo] catálogo equipos:',e); }
+  for(const key of ['helTorres','cbEquiposHora']){
+    try{
+      const o=cfg[key];
+      if(o && Array.isArray(o.lista)){
+        const nueva=dedup(o.lista);
+        if(JSON.stringify(nueva)!==JSON.stringify(o.lista)){
+          const obj=Object.assign({},o,{key:key,lista:nueva});
+          await dbPut('config',obj); STATE.cache.config[key]=obj; cambios++;
+        }
+      }
+    }catch(e){ console.error('[normEquipo] '+key+':',e); }
+  }
+  for(const r of (await dbAll('combustible'))){
+    const k=normEquipo(r.equipo);
+    if(r.equipo && r.equipo!==k){ r.equipo=k; r._mod=ahora; await dbPut('combustible',r); cambios++; }
+  }
+  for(const r of (await dbAll('heladas'))){
+    const k=normEquipo(r.torre);
+    if(r.torre && r.torre!==k){ r.torre=k; r.updatedAt=new Date().toISOString(); await dbPut('heladas',r); cambios++; }
+  }
+  for(const m of (await dbAll('movements'))){
+    if(m.tipoMovimiento!=='CONSUMO COMBUSTIBLE') continue;
+    let mod=false;
+    const k=normEquipo(m.destino);
+    if(m.destino && m.destino!==k){ m.destino=k; mod=true; }
+    if(m.observaciones){
+      const obs=m.observaciones.replace(/^Equipo: ([^·]+?)( ·|$)/,(x,n,t)=>'Equipo: '+normEquipo(n)+t);
+      if(obs!==m.observaciones){ m.observaciones=obs; mod=true; }
+    }
+    if(mod){ await dbPut('movements',m); cambios++; }
+  }
+  if(cambios){
+    await reloadCache();
+    console.log('[normEquipo] '+cambios+' registro(s) normalizados');
+  }
+  return cambios;
+}
+try{ window.sciNormalizarNombresEquipos=sciNormalizarNombresEquipos; }catch(e){}
 /* Persiste el catálogo completo de equipos en config (se sincroniza). */
 async function saveEquiposLista(lista){
   const obj={key:'equipos',lista:lista};
@@ -4466,7 +4538,7 @@ function renderReporteCombustible(c){
   const regs=getCombustibleReal().sort((a,b)=>new Date(a.fecha)-new Date(b.fecha));
   // Agrupar por equipo
   const porEquipo={};
-  regs.forEach(r=>{ (porEquipo[r.equipo]=porEquipo[r.equipo]||[]).push(r); });
+  regs.forEach(r=>{ const k=normEquipo(r.equipo); (porEquipo[k]=porEquipo[k]||[]).push(r); });
 
   let bloques='';
   Object.keys(porEquipo).sort().forEach(eq=>{
@@ -4537,7 +4609,7 @@ function exportarReporteCombustible(){
   const regs=getCombustibleReal().sort((a,b)=>a.equipo.localeCompare(b.equipo)||new Date(a.fecha)-new Date(b.fecha));
   const rows=[['Equipo','Medicion','Fecha','Km/Horometro','Recorrido u horas','Litros','Km por litro','Litros por hora','Operador','Producto','Centro Costo','N Movimiento']];
   const porEquipo={};
-  regs.forEach(r=>{ (porEquipo[r.equipo]=porEquipo[r.equipo]||[]).push(r); });
+  regs.forEach(r=>{ const k=normEquipo(r.equipo); (porEquipo[k]=porEquipo[k]||[]).push(r); });
   Object.keys(porEquipo).forEach(eq=>{
     const lista=porEquipo[eq];
     const porHora=_cbUsaHorometro(eq);

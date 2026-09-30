@@ -69,7 +69,7 @@ function dbPut(store,obj){
     // el mismo registro. No se aplica al aplicar un cambio remoto (para no
     // re-sellar lo que ya viene de la nube).
     try{
-      var ACUM = {'invplantas':1,'conteos':1,'estimaciones':1,'movements':1,'mantenciones':1,'inventoryCounts':1,'lots':1,'aihprop':1,'heladas':1,'clima':1};
+      var ACUM = {'invplantas':1,'conteos':1,'estimaciones':1,'movements':1,'mantenciones':1,'inventoryCounts':1,'lots':1,'aihprop':1,'heladas':1,'clima':1,'combustible':1};
       if(ACUM[store] && obj && typeof obj==='object' && !(typeof SCIFB!=='undefined' && SCIFB.applyingRemote)){
         obj._mod = Date.now();
       }
@@ -1090,6 +1090,8 @@ async function doLogin(){
         }
         await new Promise(r=>setTimeout(r,2000)); // margen tras el primer snapshot
         try{ if(typeof reloadCache==='function') await reloadCache(); }catch(e){}
+        // Nombres de equipos/torres a forma canónica (idempotente, v144)
+        try{ if(typeof sciNormalizarNombresEquipos==='function' && STATE.user && STATE.user.role==='admin') await sciNormalizarNombresEquipos(); }catch(e){ console.error('Normalización de equipos falló:',e); }
         await new Promise(r=>setTimeout(r,1000));
         const check=await detectarInconsistenciaStock();
         if(!check.ok&&check.diferencias.length>0){

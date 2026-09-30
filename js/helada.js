@@ -12,7 +12,8 @@ var _helEditId   = null;      // id del registro en edición (null = nuevo)
 var _helFTemp    = '';        // filtro temporada
 var _helFTorre   = '';        // filtro torre
 
-var HEL_TORRES_DEFAULT = ['Torre Control Helada 1','Torre Control Helada 2'];
+var HEL_TORRES_DEFAULT = ['TORRE CONTROL HELADA 1','TORRE CONTROL HELADA 2'];
+function _helNorm(n){ return (typeof normEquipo==='function') ? normEquipo(n) : String(n==null?'':n).replace(/\s+/g,' ').trim().toUpperCase(); }
 
 /* ─────────────── Datos ─────────────── */
 function _helRegs(){ return (STATE.cache.heladas||[]).slice(); }
@@ -260,7 +261,7 @@ function _helSaldoEstanques(temporada){
     if(temporada && r.temporada!==temporada) return;
     var l=parseFloat(r.litrosEstanque);
     if(isNaN(l)) return;
-    var k=r.torre||'—', prev=porTorre[k];
+    var k=_helNorm(r.torre)||'—', prev=porTorre[k];
     if(!prev || _helEsPosterior(r, prev.reg)) porTorre[k]={litros:l, fecha:r.fecha, reg:r};
   });
   var total=0, n=0;
@@ -739,10 +740,10 @@ function _helConsumosDiesel(){
       // Si se cargó contra un equipo que no es torre se muestra igual, marcado.
       // Excluirlo en silencio hacía que el total no cuadrara con el estanque y
       // no había forma de saber por qué faltaba.
-      var otroEquipo=!!(r && r.equipo && torres.indexOf(r.equipo)<0);
+      var otroEquipo=!!(r && r.equipo && torres.map(_helNorm).indexOf(_helNorm(r.equipo))<0);
       out.push({
         fecha:_helFechaLocal(m.fecha),
-        torre:(r&&r.equipo)?r.equipo:'Sin torre asignada',
+        torre:(r&&r.equipo)?_helNorm(r.equipo):'Sin torre asignada',
         sinTorre:!(r&&r.equipo),
         otroEquipo:otroEquipo,
         producto:(prod&&prod.descripcion)||d.codigoInterno,
@@ -876,12 +877,12 @@ function _helRenderDiesel(){
     if(_helFTemp && r.temporada!==_helFTemp) return;
     var h=_helHorasHorom(r);
     if(h!==null && h>0){
-      var k=r.torre||'—';
+      var k=_helNorm(r.torre)||'—';
       horasPorTorre[k]=(horasPorTorre[k]||0)+h;
     }
   });
   consumos.forEach(function(c){
-    var k=c.torre||'—';
+    var k=_helNorm(c.torre)||'—';
     litrosPorTorre[k]=(litrosPorTorre[k]||0)+c.cantidad;
     costoPorTorre[k]=(costoPorTorre[k]||0)+c.neto;
   });
