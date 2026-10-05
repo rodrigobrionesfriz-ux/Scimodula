@@ -4588,7 +4588,8 @@ function renderReporteCombustible(c){
   regs.forEach(r=>{ const k=normEquipo(r.equipo); (porEquipo[k]=porEquipo[k]||[]).push(r); });
 
   let bloques='';
-  Object.keys(porEquipo).sort().forEach(eq=>{
+  Object.keys(porEquipo).sort().forEach((eq,_eqIdx)=>{
+    const _id='cbEq'+_eqIdx;
     const lista=porEquipo[eq];
     const porHora=_cbUsaHorometro(eq);
     let filas=''; let totalLitros=0, totalRecorrido=0, litrosEnTramos=0;
@@ -4653,31 +4654,48 @@ function renderReporteCombustible(c){
     const colRec     = porHora ? 'Horas'  : 'Recorrido';
     const colMedida  = porHora ? 'Horómetro' : 'Km';
     const icono      = porHora ? '🗼' : '🚜';
-    bloques+=`<div class="card" style="margin-bottom:16px">
-      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px">
-        <div style="font-weight:800;font-size:16px">${icono} ${escapeHtml(eq)}</div>
-        <div style="font-size:13px;color:var(--mu)">
-          ${lista.length} carga(s) · ${fmtNum(totalLitros,1)} L total
-          ${hayProm?` · ${porHora?'Consumo':'Rend.'} prom: <strong style="color:var(--gd)">${fmtNum(rendProm,2)}</strong> ${unidadProm}`:''}
-          ${porHora&&hayProm&&detProm?`<div style="font-size:11px;margin-top:2px;text-align:right">${detProm}</div>`:''}
-          ${porHora&&detVal?`<div style="font-size:11px;margin-top:1px;text-align:right;color:#92600a">${detVal}</div>`:''}
+    const promBadge = hayProm
+      ? `<span style="font-size:15px;font-weight:800;color:var(--gd)">${fmtNum(rendProm,2)}</span> <span style="font-size:11px;color:var(--mu)">${unidadProm}</span>`
+      : `<span style="font-size:12px;color:var(--mu)">sin promedio</span>`;
+    bloques+=`<div class="card" style="margin-bottom:10px;padding:0;overflow:hidden">
+      <div onclick="cbToggleEquipo('${_id}')" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;padding:14px 16px;cursor:pointer;user-select:none">
+        <div style="display:flex;align-items:center;gap:10px">
+          <span id="${_id}-chev" style="font-size:12px;color:var(--mu);transition:transform .15s">▸</span>
+          <span style="font-weight:800;font-size:16px">${icono} ${escapeHtml(eq)}</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+          <span style="font-size:12px;color:var(--mu)">${lista.length} carga(s) · ${fmtNum(totalLitros,1)} L</span>
+          <span style="text-align:right">${promBadge}</span>
         </div>
       </div>
-      <div class="table-wrap"><table class="data" style="width:100%">
-        <thead><tr><th>Fecha</th><th class="num">${colMedida}</th><th class="num">${colRec}</th><th class="num">Litros</th><th class="num">${colRend}</th><th>Operador</th><th>C.Costo</th></tr></thead>
-        <tbody>${filas}</tbody>
-      </table></div>
+      <div id="${_id}-det" style="display:none;padding:0 16px 16px">
+        ${porHora&&hayProm&&detProm?`<div style="font-size:11px;margin-bottom:4px;color:var(--mu)">${detProm}</div>`:''}
+        ${porHora&&detVal?`<div style="font-size:11px;margin-bottom:6px;color:#92600a">${detVal}</div>`:''}
+        <div class="table-wrap"><table class="data" style="width:100%">
+          <thead><tr><th>Fecha</th><th class="num">${colMedida}</th><th class="num">${colRec}</th><th class="num">Litros</th><th class="num">${colRend}</th><th>Operador</th><th>C.Costo</th></tr></thead>
+          <tbody>${filas}</tbody>
+        </table></div>
+      </div>
     </div>`;
   });
   if(!bloques) bloques='<div class="empty-state">Aún no hay registros de combustible.</div>';
 
   c.innerHTML=`
     <div class="page-header"><div><div class="page-title">⛽ Rendimiento de combustible</div>
-      <div class="page-subtitle">Consumo y rendimiento por equipo entre cargas</div></div>
+      <div class="page-subtitle">Consumo y rendimiento por equipo · haz clic en un equipo para ver el detalle</div></div>
       <button class="btn btn-secondary" onclick="exportarReporteCombustible()">📥 Exportar Excel</button></div>
     <div class="hint" style="margin-bottom:14px">Los equipos con <strong>horómetro</strong> (🗼 torres, generadores) se miden en <strong>litros por hora</strong> de funcionamiento; los que llevan <strong>odómetro</strong> (🚜 tractores, vehículos) en <strong>km por litro</strong>. En cada fila se usan los litros de la carga anterior, que son los que alimentaron ese tramo. El <strong>consumo promedio por hora</strong> de las torres es la suma de todas las cargas dividida por las horas entre el horómetro inicial y el final. El saldo declarado en el último registro de helada se muestra solo como validador.</div>
     ${bloques}`;
 }
+/* Expande/colapsa el detalle de un equipo en el reporte de combustible. */
+function cbToggleEquipo(id){
+  var det=document.getElementById(id+'-det'); if(!det) return;
+  var chev=document.getElementById(id+'-chev');
+  var abierto=det.style.display!=='none';
+  det.style.display=abierto?'none':'block';
+  if(chev) chev.textContent=abierto?'▸':'▾';
+}
+try{ window.cbToggleEquipo=cbToggleEquipo; }catch(e){}
 function exportarReporteCombustible(){
   const regs=getCombustibleReal().sort((a,b)=>a.equipo.localeCompare(b.equipo)||new Date(a.fecha)-new Date(b.fecha));
   const rows=[['Equipo','Medicion','Fecha','Km/Horometro','Recorrido u horas','Litros','Km por litro','Litros por hora','Operador','Producto','Centro Costo','N Movimiento']];
