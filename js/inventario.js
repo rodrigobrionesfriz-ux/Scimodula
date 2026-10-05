@@ -4400,14 +4400,20 @@ async function eliminarMovimiento(numero){
   try{
     const m=await dbGet('movements',numero);
     if(!m){hideLoading();closeModal();toast('Error','Movimiento no encontrado','error');return}
+    // Lápida ANTES de borrar: movements y combustible son stores acumulativos;
+    // sin la lápida, el merge con Firebase los vuelve a agregar (reaparecían en
+    // el informe de combustible tras eliminarlos).
+    await sciMarcarEliminado('movements', numero);
     await dbDel('movements',numero);
     // Borrar registros de combustible vinculados (por N° de movimiento) para
     // que no queden huérfanos en el informe de rendimiento.
     let cbDel=0;
     const cbs=(STATE.cache.combustible||[]).filter(r=>r.movNumero===numero);
-    for(const r of cbs){ await dbDel('combustible', r.id); cbDel++; }
+    for(const r of cbs){ await sciMarcarEliminado('combustible', r.id); await dbDel('combustible', r.id); cbDel++; }
     await reloadCache();
     await _ejecutarRecalculoStock();
+    // Subida INMEDIATA para que el listener remoto no restaure lo eliminado.
+    try{ if(typeof sciFbPush==='function') sciFbPush(true); }catch(e){}
     await audit('movimiento.eliminar',`Eliminación definitiva${cbDel?(' · '+cbDel+' reg. combustible'):''}`,numero);
     hideLoading();closeModal();
     toast('Movimiento eliminado',`${numero} · Stock recalculado`);
@@ -4534,7 +4540,10 @@ function getCombustibleReal(){
   const movs=STATE.cache.movements||[];
   return (STATE.cache.combustible||[]).map(r=>{
     const mov=movs.find(m=>m.numero===r.movNumero);
-    if(!mov) return Object.assign({},r);
+    // Huérfano: el registro apuntaba a un movimiento que ya no existe (fue
+    // eliminado) → se descarta. Los registros sin movNumero (legado real) se
+    // conservan.
+    if(!mov) return Object.assign({},r,{_orphan: !!r.movNumero});
     let det=(mov.detalles||[]).find(d=>d.codigoInterno===r.codigoProducto);
     if(!det) det=(mov.detalles||[])[0];
     return Object.assign({},r,{
@@ -4545,7 +4554,7 @@ function getCombustibleReal(){
       bodegaId: mov.bodegaId||r.bodegaId,
       _anulado: !!mov.anulado
     });
-  }).filter(r=>!r._anulado);
+  }).filter(r=>!r._anulado && !r._orphan);
 }
 try{ window.getCombustibleReal=getCombustibleReal; }catch(e){}
 
