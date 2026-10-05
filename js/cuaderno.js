@@ -406,8 +406,6 @@ function fbApplyRemote(data){
       if(remote.pctExport !== undefined) S.pctExport = remote.pctExport;
       if(remote.oCounter !== undefined) S.oCounter = remote.oCounter;
       if(remote.comprasUrgentes !== undefined) S.comprasUrgentes = remote.comprasUrgentes;
-      if(remote.vinculosSCI !== undefined) S.vinculosSCI = remote.vinculosSCI;
-      if(!S.vinculosSCI || typeof S.vinculosSCI!=='object') S.vinculosSCI = {};
       if(!Array.isArray(S.comprasUrgentes)) S.comprasUrgentes = [];
       if(!Array.isArray(S.confirmaciones)) S.confirmaciones = [];
       // Guardar en localStorage como respaldo
@@ -462,7 +460,6 @@ function fbPush(immediate){
       panos: S.panos, registros: S.registros, productos: S.productos,
       ordenes: S.ordenes, confirmaciones: S.confirmaciones, oCounter: S.oCounter,
       equipos: S.equipos, comprasUrgentes: S.comprasUrgentes,
-      vinculosSCI: S.vinculosSCI,
       fertirriego: S.fertirriego, prodPorEstado: S.prodPorEstado,
       versionesEstim: S.versionesEstim,
       pctExport: S.pctExport
@@ -559,10 +556,9 @@ function _migrarPanos(){
 function load(){
   try{
     var d = localStorage.getItem('cc_v2');
-    if(d){ var p=JSON.parse(d); ['panos','registros','productos','ordenes','confirmaciones','fertirriego','equipos','comprasUrgentes','versionesEstim','pctExport','vinculosSCI'].forEach(function(k){ if(p[k]) S[k]=p[k]; }); if(p.oCounter) S.oCounter=p.oCounter;
+    if(d){ var p=JSON.parse(d); ['panos','registros','productos','ordenes','confirmaciones','fertirriego','equipos','comprasUrgentes','versionesEstim','pctExport'].forEach(function(k){ if(p[k]) S[k]=p[k]; }); if(p.oCounter) S.oCounter=p.oCounter;
       if(!Array.isArray(S.confirmaciones)) S.confirmaciones = [];
       if(!Array.isArray(S.comprasUrgentes)) S.comprasUrgentes = [];
-      if(!S.vinculosSCI || typeof S.vinculosSCI!=='object') S.vinculosSCI = {};
       if(!Array.isArray(S.equipos)) S.equipos = [];
       // Normalizar equipos (nebulizadoras) a objetos {nombre,capacidad}
       S.equipos = S.equipos.map(function(e){ return (typeof e==='string')?{nombre:e,capacidad:0}:{nombre:(e&&e.nombre)||'',capacidad:(e&&parseFloat(e.capacidad))||0}; }).filter(function(e){ return e.nombre; });
@@ -1053,10 +1049,7 @@ function renderHeader(){
   var tHas=S.panos.reduce(function(s,p){ return s+p.hectareas; },0);
   document.getElementById('cc-h-has').textContent=tHas.toFixed(1);
   document.getElementById('cc-h-panos').textContent=S.panos.length;
-  // Las aplicaciones reales son las CONFIRMACIONES, no S.registros (que es el
-  // registro manual antiguo y hoy queda vacío). Mismo criterio que la tarjeta
-  // "Aplicaciones confirmadas" del resumen, que sí mostraba el número correcto.
-  document.getElementById('cc-h-regs').textContent=(S.confirmaciones||[]).length;
+  document.getElementById('cc-h-regs').textContent=S.registros.length;
   renderCompraUrgente();
 }
 
@@ -1082,8 +1075,6 @@ function renderCompraUrgente(){
       '<span style="font-size:22px;font-weight:700;background:rgba(255,255,255,.2);border-radius:8px;padding:4px 12px">'+nProd+'</span>'+
     '</div>';
 }
-// Claves de producto de la última apertura del detalle de compra urgente.
-var _ccUrgKeys=[];
 function abrirCompraUrgente(){
   var lista=Array.isArray(S.comprasUrgentes)?S.comprasUrgentes:[];
   var vigentes=lista.filter(function(e){ return S.ordenes.some(function(o){ return String(o.id)===String(e.ordenId); }); });
@@ -1099,11 +1090,7 @@ function abrirCompraUrgente(){
       porProd[k].ordenes.push({ numero:e.numero, fecha:e.fecha, requerido:it.requerido, disponible:it.disponible, falta:it.falta, unit:it.unit, encontrado:it.encontrado });
     });
   });
-  var esAdmin=(typeof can==='function') && can('config.editar');
-  // Claves en el mismo orden que las tarjetas: la casilla envía el índice,
-  // así los nombres con comillas o & no rompen el atributo onchange.
-  _ccUrgKeys=Object.keys(porProd);
-  var bodyRows=_ccUrgKeys.map(function(k,ki){
+  var bodyRows=Object.keys(porProd).map(function(k){
     var p=porProd[k];
     var detOrdenes=p.ordenes.map(function(o){
       return '<div style="font-size:12px;color:#475569;padding:3px 0;border-top:1px dashed #e2e8f0">'+
@@ -1112,18 +1099,11 @@ function abrirCompraUrgente(){
         ' · <span style="color:#b91c1c;font-weight:700">falta '+fmtN(o.falta,2)+' '+(o.unit||'')+'</span></div>';
     }).join('');
     var badge=p.encontrado?('Comprar ≈ '+fmtN(p.totalFalta,2)+' '+(p.unit||'')):'No está en bodega';
-    // Casilla admin: descarta la alerta cuando la compra o la baja ya se resolvió a mano.
-    var chk = esAdmin
-      ? '<label style="display:flex;align-items:center;gap:6px;margin-top:8px;padding-top:8px;border-top:1px solid #f1f5f9;font-size:11px;color:#475569;cursor:pointer" '+
-        'title="Quita este producto de la alerta. Úselo si ya lo compró o si la salida se registró manualmente.">'+
-        '<input type="checkbox" onchange="descartarCompraUrgente('+ki+')" style="width:15px;height:15px;cursor:pointer">'+
-        'Resuelto — quitar de la alerta</label>'
-      : '';
     return '<div style="border:1px solid #e2e8f0;border-radius:9px;padding:12px 14px;margin-bottom:10px">'+
       '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">'+
         '<div style="font-weight:800;color:#1f2d3d;font-size:14px">'+escapeHtml(p.nombre)+'</div>'+
         '<div style="background:#fef2f2;color:#b91c1c;font-weight:700;font-size:12px;padding:4px 10px;border-radius:8px">'+badge+'</div>'+
-      '</div>'+detOrdenes+chk+
+      '</div>'+detOrdenes+
     '</div>';
   }).join('');
   var html='<div style="max-height:60vh;overflow-y:auto">'+
@@ -1134,40 +1114,6 @@ function abrirCompraUrgente(){
       '<button class="btn btn-secondary" onclick="closeModal()">Cerrar</button>', 'lg');
   }
 }
-
-// Quita un producto de la alerta de compra urgente: se usa cuando la compra ya
-// se hizo o cuando la baja de bodega se registró manualmente desde Salidas.
-// Reservado a administradores (permiso config.editar).
-function descartarCompraUrgente(ki){
-  if(typeof can!=='function' || !can('config.editar')){
-    if(typeof toast==='function') toast('Sin permiso','Solo un administrador puede descartar alertas','error');
-    return;
-  }
-  var claveProd=(_ccUrgKeys||[])[ki];
-  if(!claveProd){ if(typeof toast==='function') toast('No encontrado','No se pudo ubicar el producto','error'); return; }
-  var lista=Array.isArray(S.comprasUrgentes)?S.comprasUrgentes:[];
-  var k=String(claveProd).toUpperCase();
-  var quitados=0;
-  lista.forEach(function(e){
-    var antes=(e.items||[]).length;
-    e.items=(e.items||[]).filter(function(it){ return (it.nombre||'').toUpperCase()!==k; });
-    quitados += antes-e.items.length;
-  });
-  // Descartar las entradas que quedaron sin productos pendientes
-  S.comprasUrgentes=lista.filter(function(e){ return (e.items||[]).length>0; });
-  if(typeof save==='function') save();
-  if(typeof renderCompraUrgente==='function') renderCompraUrgente();
-  if(typeof closeModal==='function') closeModal();
-  if(typeof toast==='function'){
-    toast('Alerta descartada', claveProd+' · '+quitados+' orden(es) actualizada(s)','success');
-  }
-  // Reabrir el detalle solo si aún quedan pendientes
-  var quedan=(S.comprasUrgentes||[]).filter(function(e){
-    return (S.ordenes||[]).some(function(o){ return String(o.id)===String(e.ordenId); });
-  });
-  if(quedan.length) setTimeout(abrirCompraUrgente,250);
-}
-try{ window.descartarCompraUrgente=descartarCompraUrgente; }catch(e){}
 
 // ══ TAB NAV ══
 function showTab(name,btn){
@@ -2938,75 +2884,44 @@ function abrirResumenBajaConfirmaciones(){
     return;
   }
   function fmtN(n,d){ n=parseFloat(n)||0; return n.toLocaleString('es-CL',{minimumFractionDigits:d||0,maximumFractionDigits:d||0}); }
-  var esAdmin=(typeof can==='function') && can('config.editar');
   var confs=(S.confirmaciones||[]).slice().sort(function(a,b){ return String(b.fechaApp||'').localeCompare(String(a.fechaApp||'')); });
 
   var filas='';
   confs.forEach(function(c,idx){
-    // Índice REAL en S.confirmaciones (confs está ordenado, no sirve su índice)
-    var realIdx=(S.confirmaciones||[]).indexOf(c);
     var orden=(S.ordenes||[]).find(function(o){ return String(o.id)===String(c.ordenId); });
     var nro=orden?(orden.numero||orden.id||''):(c.numero||c.ordenId||('#'+(idx+1)));
     var panosTxt=(c.panoIds||[]).map(function(pid){ var p=getPano(pid); return p?p.nombre:pid; });
     // Cuarteles únicos
     var cuarteles=[]; panosTxt.forEach(function(n){ if(cuarteles.indexOf(n)<0) cuarteles.push(n); });
-    var prodRows=(c.productosReales||[]).map(function(pr,prIdx){
+    var prodRows=(c.productosReales||[]).map(function(pr){
       var nombre=pr.nombre||'';
-      // Resolución por vínculo manual → descripción exacta → descripción normalizada
-      var prodSCI=_resolverProdSCI(nombre);
+      // Buscar el producto en el catálogo del SCI por descripción
+      var prodSCI=(STATE.cache.products||[]).find(function(x){ return (x.descripcion||'').toLowerCase()===nombre.toLowerCase(); });
       var codigoSCI=prodSCI?prodSCI.codigoInterno:'';
-      var vinculado=!!_getVinculoSCI(nombre);
       var qty=parseFloat(pr.qtyAplicada)||0;
       var unit=pr.unitS||'';
-      // ¿Ya se dio de baja esta confirmación+producto? (marca en la confirmación)
-      var yaBaja=(c.bajasBodega && c.bajasBodega[nombre]) ? c.bajasBodega[nombre] : null;
-      // Baja registrada MANUALMENTE fuera de este flujo (marcada por un admin)
-      var manual=(c.bajasManual && c.bajasManual[nombre]) ? c.bajasManual[nombre] : null;
-      var resuelto=!!(yaBaja||manual);
       // Saldo disponible en bodega (todas las bodegas) para este producto.
       var saldo = (codigoSCI && typeof getStockTotal==='function') ? getStockTotal(codigoSCI) : null;
-      // Si la baja ya está resuelta, el faltante deja de ser una alerta.
-      var insuf = (!resuelto && saldo!=null && saldo < qty);
+      var insuf = (saldo!=null && saldo < qty);
       var saldoCell = (saldo==null)
         ? '<span style="color:#999;font-size:11px">—</span>'
         : '<span style="font-size:11px;font-weight:700;color:'+(insuf?'#b91c1c':'#15803d')+'">'+fmtN(saldo,3)+(insuf?' ⚠':'')+'</span>'+(insuf?'<div style="font-size:9px;color:#b91c1c">insuficiente</div>':'');
-      // Casilla de baja manual (solo administrador). Permite silenciar la alerta
-      // cuando la salida ya se registró a mano desde el módulo de Salidas.
-      var chk='';
-      if(esAdmin && !yaBaja){
-        chk='<label style="display:flex;align-items:center;gap:5px;justify-content:center;margin-top:5px;font-size:10px;color:#475569;cursor:pointer" '+
-            'title="Marcar si la salida ya se registró manualmente en el módulo de Salidas">'+
-            '<input type="checkbox" '+(manual?'checked':'')+' onchange="marcarBajaManual('+realIdx+','+prIdx+',this.checked)" '+
-            'style="width:14px;height:14px;cursor:pointer">Baja manual</label>';
-      }
+      // ¿Ya se dio de baja esta confirmación+producto? (marca en la confirmación)
+      var yaBaja=(c.bajasBodega && c.bajasBodega[nombre]) ? c.bajasBodega[nombre] : null;
       var accion;
       if(yaBaja){
         accion='<span style="color:#15803d;font-weight:700;font-size:11px">✓ Baja '+escapeHtml(yaBaja)+'</span>';
-      } else if(manual){
-        accion='<span style="color:#15803d;font-weight:700;font-size:11px" title="Marcada por '+escapeHtml(manual.usuario||'')+'">✓ Baja manual'+
-               (manual.fecha?('<div style="font-size:9px;font-weight:400;color:#64748b">'+escapeHtml(manual.fecha)+'</div>'):'')+'</span>';
       } else if(codigoSCI){
         accion='<button onclick="bajaConfirmacionEnBodega(\''+String(c.ordenId||idx)+'\',\''+String(idx)+'\',\''+codigoSCI+'\','+qty+')" '+
           'style="background:'+(insuf?'#b91c1c':'#1565c0')+';color:#fff;border:none;border-radius:6px;padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer">📤 Dar de baja</button>';
       } else {
-        accion='<span style="color:#b91c1c;font-size:11px" title="No existe en el catálogo del SCI">⚠ Sin correspondencia</span>';
-        if(esAdmin){
-          accion+='<div style="margin-top:5px"><button onclick="abrirVinculoSCI('+realIdx+','+prIdx+')" '+
-            'style="background:#7c3aed;color:#fff;border:none;border-radius:6px;padding:4px 9px;font-size:10px;font-weight:700;cursor:pointer" '+
-            'title="Enlazar este nombre con un producto del catálogo del SCI">🔗 Vincular</button></div>';
-        }
+        accion='<span style="color:#b91c1c;font-size:11px" title="No existe en el catálogo del SCI">⚠ Crear en SCI</span>';
       }
-      // Indicador de vínculo manual activo, con opción de deshacerlo
-      var vinc='';
-      if(vinculado && codigoSCI){
-        vinc='<div style="font-size:9px;color:#7c3aed;margin-top:3px">🔗 vinculado'+
-             (esAdmin?(' · <a href="#" onclick="desvincularSCI('+realIdx+','+prIdx+');return false;" style="color:#7c3aed">quitar</a>'):'')+'</div>';
-      }
-      return '<tr style="border-bottom:1px solid #eee'+(resuelto?';background:#f6fdf8':'')+'">'+
-        '<td style="padding:6px 10px">'+escapeHtml(nombre)+(codigoSCI?'<div style="font-size:10px;color:#888">'+escapeHtml(codigoSCI)+'</div>':'')+vinc+'</td>'+
+      return '<tr style="border-bottom:1px solid #eee">'+
+        '<td style="padding:6px 10px">'+escapeHtml(nombre)+(codigoSCI?'<div style="font-size:10px;color:#888">'+escapeHtml(codigoSCI)+'</div>':'')+'</td>'+
         '<td style="padding:6px 10px;text-align:right;font-weight:700">'+fmtN(qty,3)+' '+escapeHtml(unit)+'</td>'+
         '<td style="padding:6px 10px;text-align:right">'+saldoCell+'</td>'+
-        '<td style="padding:6px 10px;text-align:center">'+accion+chk+'</td>'+
+        '<td style="padding:6px 10px;text-align:center">'+accion+'</td>'+
       '</tr>';
     }).join('');
     if(!prodRows) return;
@@ -3030,8 +2945,7 @@ function abrirResumenBajaConfirmaciones(){
   modal.innerHTML='<div style="background:#fff;border-radius:12px;max-width:720px;width:100%;max-height:90vh;display:flex;flex-direction:column;overflow:hidden">'+
     '<div style="background:#23303d;color:#fff;padding:14px 18px;display:flex;justify-content:space-between;align-items:center">'+
       '<div><div style="font-size:16px;font-weight:800">📦 Resumen de confirmaciones · Baja de bodega</div>'+
-        '<div style="font-size:12px;opacity:.85">Producto usado por confirmación. Pulse «Dar de baja» para registrar la salida en el SCI.'+
-        (esAdmin?' Si ya la registró a mano, marque «Baja manual» para silenciar la alerta.':'')+'</div></div>'+
+        '<div style="font-size:12px;opacity:.85">Producto usado por confirmación. Pulse «Dar de baja» para registrar la salida en el SCI.</div></div>'+
       '<button onclick="document.getElementById(\'cc-baja-resumen-modal\').remove()" style="background:rgba(255,255,255,.2);border:none;color:#fff;font-size:24px;cursor:pointer;width:40px;height:40px;border-radius:8px">×</button>'+
     '</div>'+
     '<div style="padding:18px;overflow:auto;flex:1">'+filas+'</div>'+
@@ -3041,137 +2955,8 @@ function abrirResumenBajaConfirmaciones(){
   document.body.appendChild(modal);
 }
 
-// Marca (o desmarca) un producto de una confirmación como "dado de baja
-// manualmente", cuando la salida se registró a mano desde el módulo de Salidas.
-// Silencia la alerta de saldo insuficiente sin generar ningún movimiento.
-// Reservado a administradores (permiso config.editar).
-function marcarBajaManual(idx, prIdx, marcar){
-  if(typeof can!=='function' || !can('config.editar')){
-    if(typeof toast==='function') toast('Sin permiso','Solo un administrador puede marcar bajas manuales','error');
-    abrirResumenBajaConfirmaciones();
-    return;
-  }
-  var c=(S.confirmaciones||[])[idx];
-  if(!c){ if(typeof toast==='function') toast('No encontrada','No se pudo ubicar la confirmación','error'); return; }
-  var pr=(c.productosReales||[])[prIdx];
-  var nombreProd=pr?(pr.nombre||''):'';
-  if(!nombreProd){ if(typeof toast==='function') toast('No encontrado','No se pudo ubicar el producto','error'); return; }
-  if(c.bajasBodega && c.bajasBodega[nombreProd]){
-    if(typeof toast==='function') toast('Ya registrada','Esta baja tiene un movimiento asociado y no puede marcarse como manual','error');
-    abrirResumenBajaConfirmaciones();
-    return;
-  }
-  if(!c.bajasManual) c.bajasManual={};
-  if(marcar){
-    c.bajasManual[nombreProd]={
-      fecha:new Date().toISOString().slice(0,10),
-      usuario:(STATE.user&&(STATE.user.nombre||STATE.user.username))||'?'
-    };
-  } else {
-    delete c.bajasManual[nombreProd];
-  }
-  if(typeof save==='function') save();
-  if(typeof renderCompraUrgente==='function') renderCompraUrgente();
-  abrirResumenBajaConfirmaciones();
-  if(typeof toast==='function'){
-    toast(marcar?'Baja manual marcada':'Marca retirada',
-          marcar?(nombreProd+' · alerta silenciada'):(nombreProd+' · vuelve a alertar'),
-          marcar?'success':'info');
-  }
-}
-try{ window.marcarBajaManual=marcarBajaManual; }catch(e){}
-
-// ── Modal: vincular un nombre del Cuaderno con un producto del catálogo SCI ──
-// Sugiere el candidato más parecido, pero la decisión es siempre del usuario:
-// nunca se enlaza automáticamente por similitud.
-function abrirVinculoSCI(idx, prIdx){
-  if(typeof can!=='function' || !can('config.editar')){
-    if(typeof toast==='function') toast('Sin permiso','Solo un administrador puede vincular productos','error');
-    return;
-  }
-  var c=(S.confirmaciones||[])[idx];
-  var pr=c?((c.productosReales||[])[prIdx]):null;
-  var nombre=pr?(pr.nombre||''):'';
-  if(!nombre){ if(typeof toast==='function') toast('No encontrado','No se pudo ubicar el producto','error'); return; }
-
-  var prods=(STATE.cache.products||[]).filter(function(p){ return p && p.activo!==false; });
-  // Ordenar por similitud con el nombre del Cuaderno
-  var conSim=prods.map(function(p){ return {p:p, sim:_similitudNombre(nombre, p.descripcion||'')}; })
-                  .sort(function(a,b){ return b.sim-a.sim; });
-  var sugerido=(conSim[0] && conSim[0].sim>=0.6) ? conSim[0] : null;
-  var actual=_getVinculoSCI(nombre);
-
-  var opciones=conSim.map(function(x){
-    var sel=(actual && String(x.p.codigoInterno)===String(actual)) ? ' selected'
-          : ((!actual && sugerido && x.p.codigoInterno===sugerido.p.codigoInterno) ? ' selected' : '');
-    var pct=Math.round(x.sim*100);
-    return '<option value="'+escapeHtml(x.p.codigoInterno)+'"'+sel+'>'+
-           escapeHtml(x.p.descripcion||'')+' · '+escapeHtml(x.p.codigoInterno)+
-           (pct>=60?(' ('+pct+'% parecido)'):'')+'</option>';
-  }).join('');
-
-  var prev=document.getElementById('cc-vinculo-modal'); if(prev) prev.remove();
-  var modal=document.createElement('div');
-  modal.id='cc-vinculo-modal';
-  modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:10008;display:flex;align-items:center;justify-content:center;padding:16px';
-  modal.onclick=function(e){ if(e.target===modal) modal.remove(); };
-  modal.innerHTML='<div style="background:#fff;border-radius:12px;max-width:560px;width:100%;display:flex;flex-direction:column;overflow:hidden">'+
-    '<div style="background:#7c3aed;color:#fff;padding:14px 18px">'+
-      '<div style="font-size:16px;font-weight:800">🔗 Vincular con producto del SCI</div>'+
-      '<div style="font-size:12px;opacity:.9">El enlace se guarda por código, así sobrevive si luego se corrige la descripción.</div>'+
-    '</div>'+
-    '<div style="padding:18px">'+
-      '<div style="font-size:12px;color:#666;margin-bottom:4px">Nombre en el Cuaderno</div>'+
-      '<div style="background:#fef3c7;color:#92600a;padding:8px 12px;border-radius:7px;font-weight:700;font-size:14px;margin-bottom:14px">📒 '+escapeHtml(nombre)+'</div>'+
-      '<div style="font-size:12px;color:#666;margin-bottom:4px">Producto del SCI</div>'+
-      '<input type="text" id="cc-vinc-buscar" placeholder="Filtrar por nombre o código..." '+
-        'style="width:100%;padding:9px 11px;border:1px solid #cdd5df;border-radius:7px;font-size:13px;margin-bottom:8px;box-sizing:border-box">'+
-      '<select id="cc-vinc-sel" size="8" style="width:100%;padding:6px;border:1px solid #cdd5df;border-radius:7px;font-size:13px;box-sizing:border-box">'+opciones+'</select>'+
-      '<div style="font-size:11px;color:#888;margin-top:8px">Los porcentajes son solo una sugerencia. Verifique que sea realmente el mismo producto antes de guardar.</div>'+
-    '</div>'+
-    '<div style="padding:12px 18px;border-top:1px solid #e3e8ee;display:flex;gap:10px;justify-content:flex-end">'+
-      '<button onclick="document.getElementById(\'cc-vinculo-modal\').remove()" style="padding:10px 16px;border:none;border-radius:9px;background:#f0f0f0;cursor:pointer;font-size:14px;font-weight:700">Cancelar</button>'+
-      '<button id="cc-vinc-ok" style="padding:10px 18px;border:none;border-radius:9px;background:#7c3aed;color:#fff;cursor:pointer;font-size:14px;font-weight:700">Vincular</button>'+
-    '</div></div>';
-  document.body.appendChild(modal);
-
-  // Filtro en vivo del listado
-  var buscar=document.getElementById('cc-vinc-buscar');
-  var sel=document.getElementById('cc-vinc-sel');
-  if(buscar&&sel){
-    buscar.oninput=function(){
-      var q=(this.value||'').toLowerCase();
-      Array.prototype.forEach.call(sel.options,function(o){
-        o.style.display = (!q || o.textContent.toLowerCase().indexOf(q)>=0) ? '' : 'none';
-      });
-    };
-  }
-  document.getElementById('cc-vinc-ok').onclick=function(){
-    var cod=sel?sel.value:'';
-    if(!cod){ if(typeof toast==='function') toast('Seleccione','Elija un producto del SCI','error'); return; }
-    if(guardarVinculoSCI(nombre, cod)){
-      modal.remove();
-      if(typeof renderCompraUrgente==='function') renderCompraUrgente();
-      abrirResumenBajaConfirmaciones();
-      if(typeof toast==='function') toast('Vinculado', nombre+' → '+cod, 'success');
-    }
-  };
-}
-try{ window.abrirVinculoSCI=abrirVinculoSCI; }catch(e){}
-
-// Quita el vínculo manual y vuelve al emparejamiento por nombre.
-function desvincularSCI(idx, prIdx){
-  var c=(S.confirmaciones||[])[idx];
-  var pr=c?((c.productosReales||[])[prIdx]):null;
-  var nombre=pr?(pr.nombre||''):'';
-  if(!nombre) return;
-  if(guardarVinculoSCI(nombre, '')){
-    if(typeof renderCompraUrgente==='function') renderCompraUrgente();
-    abrirResumenBajaConfirmaciones();
-    if(typeof toast==='function') toast('Vínculo quitado', nombre, 'info');
-  }
-}
-try{ window.desvincularSCI=desvincularSCI; }catch(e){}
+// Abre el formulario de SALIDA del SCI (consumo por centro de costo) prellenado
+// con el producto y la cantidad de la confirmación.
 function bajaConfirmacionEnBodega(ordenId, idx, codigoSCI, cantidad){
   if(typeof can==='function' && !can('movimientos.crear')){
     if(typeof toast==='function') toast('Sin permiso','Necesita permiso para crear movimientos','error');
@@ -3939,75 +3724,21 @@ function renderOrdenChips(){
     el.appendChild(div);
   });
 }
-/* ══════════ VÍNCULO EXPLÍCITO CUADERNO → SCI ══════════
-   El emparejamiento por nombre exacto se rompía con cualquier diferencia de un
-   carácter (ej. "DORMEX 200 LT ALZ2" vs "DORMEX 200 LT ALZ"). Ahora el vínculo
-   se guarda como código en S.vinculosSCI, indexado por el nombre normalizado.
-   Se guarda el CÓDIGO, no el nombre, así el enlace sobrevive si en el SCI se
-   corrige la descripción del producto.                                        */
-
-function _claveVinculo(nombre){ return _normNombreProd(nombre); }
-
-// Devuelve el código SCI vinculado manualmente a ese nombre, o ''.
-function _getVinculoSCI(nombre){
-  try{
-    if(!S.vinculosSCI || typeof S.vinculosSCI!=='object') return '';
-    return S.vinculosSCI[_claveVinculo(nombre)] || '';
-  }catch(e){ return ''; }
-}
-
-// Resuelve la ficha del SCI para un nombre del Cuaderno.
-// Orden: 1) vínculo manual · 2) descripción exacta · 3) descripción normalizada.
-// La normalización solo ignora mayúsculas, acentos, signos y espacios: nunca
-// empareja nombres realmente distintos. Todo lo demás exige vínculo manual.
-function _resolverProdSCI(nombre){
-  var nom=(nombre||'').toString().trim();
-  if(!nom) return null;
-  var prods=(typeof STATE!=='undefined' && STATE.cache && Array.isArray(STATE.cache.products)) ? STATE.cache.products : [];
-  // 1) Vínculo manual guardado por un administrador
-  var cod=_getVinculoSCI(nom);
-  if(cod){
-    var byCod=prods.find(function(p){ return String(p.codigoInterno)===String(cod); });
-    if(byCod) return byCod;   // si el producto ya no existe, se sigue buscando
-  }
-  // 2) Coincidencia exacta de descripción
-  var low=nom.toLowerCase();
-  var exacto=prods.find(function(p){ return (p.descripcion||'').toLowerCase()===low; });
-  if(exacto) return exacto;
-  // 3) Coincidencia normalizada (acentos, espacios, signos, mayúsculas)
-  var norm=_normNombreProd(nom);
-  var porNorm=prods.find(function(p){ return _normNombreProd(p.descripcion)===norm; });
-  return porNorm||null;
-}
-try{ window._resolverProdSCI=_resolverProdSCI; }catch(e){}
-
-// Guarda o elimina el vínculo manual. Solo administradores.
-function guardarVinculoSCI(nombre, codigoSCI){
-  if(typeof can!=='function' || !can('config.editar')){
-    if(typeof toast==='function') toast('Sin permiso','Solo un administrador puede vincular productos','error');
-    return false;
-  }
-  if(!S.vinculosSCI || typeof S.vinculosSCI!=='object') S.vinculosSCI={};
-  var k=_claveVinculo(nombre);
-  if(!k) return false;
-  if(codigoSCI) S.vinculosSCI[k]=String(codigoSCI);
-  else delete S.vinculosSCI[k];
-  if(typeof save==='function') save();
-  return true;
-}
-try{ window.guardarVinculoSCI=guardarVinculoSCI; }catch(e){}
-
 // ─── Stock de un producto de la orden (por nombre) ───────────────────────
 // Mapea el nombre del producto (como aparece en la orden) a su ficha del
 // catálogo SCI para obtener el codigoInterno y el stock total en bodega.
 // Devuelve {cod, disponible, encontrado, unidadBodega}.
 function _stockProductoOrden(nombre){
-  var prodSCI=_resolverProdSCI(nombre);
-  if(!prodSCI || !prodSCI.codigoInterno){
+  var nom=(nombre||'').toString().trim().toUpperCase();
+  if(!nom) return {cod:'', disponible:0, encontrado:false, unidadBodega:''};
+  var cat=_getProductosCatalogo();
+  var ficha=cat.find(function(p){ return (p.nombre||'').toString().trim().toUpperCase()===nom; });
+  if(!ficha || !ficha.codigoInterno){
     return {cod:'', disponible:0, encontrado:false, unidadBodega:''};
   }
-  var disp = (typeof getStockTotal==='function') ? (getStockTotal(prodSCI.codigoInterno)||0) : 0;
-  return {cod:prodSCI.codigoInterno, disponible:disp, encontrado:true, unidadBodega:prodSCI.unidadMedida||''};
+  var disp = (typeof getStockTotal==='function') ? (getStockTotal(ficha.codigoInterno)||0) : 0;
+  var prod = (typeof getProduct==='function') ? getProduct(ficha.codigoInterno) : null;
+  return {cod:ficha.codigoInterno, disponible:disp, encontrado:true, unidadBodega:(prod&&prod.unidadMedida)||''};
 }
 // Faltantes de la orden en curso (se persisten al emitir). Cada item:
 // {nombre, cod, requerido, disponible, falta, unit, encontrado}
@@ -5277,9 +5008,6 @@ function cfGuardar(){
   S.confirmaciones.unshift(confirmacion);
   save();
   if(typeof showNotice==='function') showNotice('Confirmación registrada para '+o.numero+'.','ok');
-  // El contador de Aplicaciones del encabezado cuenta confirmaciones: refrescarlo
-  // aquí evita que quede desfasado hasta el próximo cambio de pestaña.
-  if(typeof renderHeader==='function') renderHeader();
 
   // Recargar la vista (estado puede haber cambiado de Pendiente→Parcial→Completa)
   cfCargarDetalle(o.id);
@@ -5664,131 +5392,50 @@ function rpGenerarExcel(){
     ];
     XLSX.utils.book_append_sheet(wb, wsDet, 'Detalle confirmaciones');
 
-    // ─── HOJA 3: Consumo por producto y cuartel (clave para bodega) ───
-    // Una línea por PRODUCTO × CUARTEL. La cantidad de cada confirmación se
-    // reparte entre sus paños de forma PROPORCIONAL A LAS HECTÁREAS (mismo
-    // criterio que la hoja "Consumo por paño"), no en partes iguales.
+    // ─── HOJA 3: Consumo por producto (clave para bodega) ───
     var prodRows = [[
-      'Producto','Unidad','Cuartel','Tipo','Hect\u00e1reas',
-      'Cantidad en el cuartel','Dosis (unidad/ha)','N\u00b0 aplicaciones',
-      'Primera aplicaci\u00f3n','\u00daltima aplicaci\u00f3n','Agua en el cuartel (L)',
-      '\u00d3rdenes','Cantidad total del producto'
+      'Producto','Unidad','Cantidad total','N\u00b0 aplicaciones',
+      'Primera aplicaci\u00f3n','\u00daltima aplicaci\u00f3n','Agua acumulada (L)','\u00d3rdenes'
     ]];
-    var prodWithExtras = {};   // producto -> totales (para el total y el orden)
-    var prodPorCuartel = {};   // producto + cuartel -> detalle de la línea
-
+    // Recolectar también agua por producto y órdenes en que aparece
+    var prodWithExtras = {};
     confs.forEach(function(c){
-      // Fracción de cada paño según sus hectáreas (si no hay há, reparto igual)
-      var ids = c.panoIds || [];
-      var hasPorPano = {}, haTotalConf = 0;
-      ids.forEach(function(pid){
-        var p = getPano(pid);
-        var ha = p ? (parseFloat(p.hectareas)||0) : 0;
-        hasPorPano[pid] = ha;
-        haTotalConf += ha;
-      });
-      var aguaRealConf = parseFloat(c.aguaReal||0)||0;
-
       (c.productosReales||[]).forEach(function(p){
         if(!p.nombre) return;
         var key = p.nombre + ' [' + (p.unitS||'') + ']';
-        var qtyTotal = parseFloat(p.qtyAplicada||0)||0;
-
-        // Totales del producto (suma de todos los cuarteles)
         if(!prodWithExtras[key]){
-          prodWithExtras[key] = {nombre:p.nombre, unitS:p.unitS||'', qty:0, aplicaciones:0};
+          prodWithExtras[key] = {
+            nombre:p.nombre, unitS:p.unitS||'',
+            qty:0, aplicaciones:0, fechaIni:c.fechaApp, fechaFin:c.fechaApp,
+            agua:0, ordenes:{}
+          };
         }
-        prodWithExtras[key].qty += qtyTotal;
-        prodWithExtras[key].aplicaciones++;
-
-        // Desglose por cuartel
-        if(!ids.length){
-          // Confirmación sin paños asociados: no se pierde, se marca aparte
-          var kSin = key + '||(sin cuartel)';
-          if(!prodPorCuartel[kSin]){
-            prodPorCuartel[kSin] = {
-              prodKey:key, nombre:p.nombre, unitS:p.unitS||'',
-              cuartel:'(sin cuartel asignado)', tipo:'', hectareas:0,
-              qty:0, agua:0, aplicaciones:0,
-              fechaIni:c.fechaApp, fechaFin:c.fechaApp, ordenes:{}
-            };
-          }
-          var dSin = prodPorCuartel[kSin];
-          dSin.qty += qtyTotal;
-          dSin.agua += aguaRealConf;
-          dSin.aplicaciones++;
-          if(c.ordenNumero) dSin.ordenes[c.ordenNumero] = true;
-          if(c.fechaApp){
-            if(!dSin.fechaIni || c.fechaApp < dSin.fechaIni) dSin.fechaIni = c.fechaApp;
-            if(!dSin.fechaFin || c.fechaApp > dSin.fechaFin) dSin.fechaFin = c.fechaApp;
-          }
-          return;
+        var pe = prodWithExtras[key];
+        pe.qty += parseFloat(p.qtyAplicada||0)||0;
+        pe.aplicaciones++;
+        pe.agua += parseFloat(c.aguaReal||0)||0;
+        if(c.ordenNumero) pe.ordenes[c.ordenNumero] = true;
+        if(c.fechaApp){
+          if(c.fechaApp < pe.fechaIni) pe.fechaIni = c.fechaApp;
+          if(c.fechaApp > pe.fechaFin) pe.fechaFin = c.fechaApp;
         }
-
-        ids.forEach(function(pid){
-          var pano = getPano(pid);
-          var ha = hasPorPano[pid] || 0;
-          var frac = (haTotalConf>0) ? (ha/haTotalConf) : (ids.length ? 1/ids.length : 0);
-          var kc = key + '||' + pid;
-          if(!prodPorCuartel[kc]){
-            prodPorCuartel[kc] = {
-              prodKey: key,
-              nombre: p.nombre,
-              unitS: p.unitS||'',
-              cuartel: pano ? pano.nombre : ('Pa\u00f1o '+pid),
-              tipo: pano ? (pano.tipo||'Productivo') : '',
-              hectareas: pano ? (parseFloat(pano.hectareas)||0) : 0,
-              qty:0, agua:0, aplicaciones:0,
-              fechaIni:c.fechaApp, fechaFin:c.fechaApp, ordenes:{}
-            };
-          }
-          var d = prodPorCuartel[kc];
-          d.qty  += qtyTotal * frac;
-          d.agua += aguaRealConf * frac;
-          d.aplicaciones++;
-          if(c.ordenNumero) d.ordenes[c.ordenNumero] = true;
-          if(c.fechaApp){
-            if(!d.fechaIni || c.fechaApp < d.fechaIni) d.fechaIni = c.fechaApp;
-            if(!d.fechaFin || c.fechaApp > d.fechaFin) d.fechaFin = c.fechaApp;
-          }
-        });
       });
     });
-
-    // Ordenar: producto de mayor consumo primero; dentro de cada producto,
-    // el cuartel que más recibió. Así las líneas de un producto quedan juntas.
-    Object.values(prodPorCuartel).sort(function(a,b){
-      var ta=(prodWithExtras[a.prodKey]||{}).qty||0;
-      var tb=(prodWithExtras[b.prodKey]||{}).qty||0;
-      if(tb!==ta) return tb-ta;
-      if(a.prodKey!==b.prodKey) return a.prodKey.localeCompare(b.prodKey);
-      return b.qty-a.qty;
-    }).forEach(function(d){
-      var total=(prodWithExtras[d.prodKey]||{}).qty||0;
-      var dosis=(d.hectareas>0) ? (d.qty/d.hectareas) : '';
+    // Ordenar por cantidad descendente
+    Object.values(prodWithExtras).sort(function(a,b){ return b.qty-a.qty; }).forEach(function(p){
       prodRows.push([
-        d.nombre,
-        d.unitS,
-        d.cuartel,
-        d.tipo,
-        d.hectareas?parseFloat(d.hectareas.toFixed(2)):'',
-        parseFloat(d.qty.toFixed(3)),
-        dosis===''?'':parseFloat(dosis.toFixed(3)),
-        d.aplicaciones,
-        d.fechaIni||'',
-        d.fechaFin||'',
-        Math.round(d.agua),
-        Object.keys(d.ordenes).join(', '),
-        parseFloat(total.toFixed(3))
+        p.nombre,
+        p.unitS,
+        parseFloat(p.qty.toFixed(3)),
+        p.aplicaciones,
+        p.fechaIni||'',
+        p.fechaFin||'',
+        Math.round(p.agua),
+        Object.keys(p.ordenes).join(', ')
       ]);
     });
     var wsProd = XLSX.utils.aoa_to_sheet(prodRows);
-    wsProd['!cols'] = [
-      {wch:30},{wch:8},{wch:20},{wch:12},{wch:11},
-      {wch:20},{wch:16},{wch:14},
-      {wch:14},{wch:14},{wch:19},
-      {wch:25},{wch:22}
-    ];
+    wsProd['!cols'] = [{wch:30},{wch:8},{wch:15},{wch:14},{wch:14},{wch:14},{wch:16},{wch:25}];
     XLSX.utils.book_append_sheet(wb, wsProd, 'Consumo por producto');
 
     // ─── HOJA 4: Consumo por paño ───
@@ -7180,7 +6827,7 @@ function startFromBackup(file){
 
 function startFresh(){
   // Clear everything
-  S = { panos:[], registros:[], productos:[], ordenes:[], oCounter:1, vinculosSCI:{} };
+  S = { panos:[], registros:[], productos:[], ordenes:[], oCounter:1 };
   save();
   closeStartupModal();
   document.getElementById('cc-panos-tbody').innerHTML='';
