@@ -4580,6 +4580,24 @@ function _cbUsaHorometro(equipo){
   return /torre|generador|motobomba|bomba|motor/i.test(equipo||'');
 }
 
+/* Iconos SVG por tipo de equipo para el reporte de combustible. */
+const _CB_ICONS={
+ torre:`<svg viewBox="0 0 24 24" width="22" height="22" style="vertical-align:-6px"><g stroke="#e6552e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"><path d="M8.5 21h7"/><path d="M10 21 11.3 9M14 21 12.7 9"/></g><g stroke="#e6552e" stroke-width="2" stroke-linecap="round"><path d="M12 7.5V4.3"/><path d="M12 7.5 8.8 9.4"/><path d="M12 7.5 15.2 9.4"/></g><circle cx="12" cy="7.5" r="1.9" fill="#e6552e"/></svg>`,
+ camioneta:`<svg viewBox="0 0 24 24" width="22" height="22" style="vertical-align:-6px"><path d="M2 14.5h8.5V9h4l3 3.2H21a1 1 0 0 1 1 1v2.3h-2.1a2.5 2.5 0 0 0-4.9 0h-5a2.5 2.5 0 0 0-4.9 0H2z" fill="#3f7d57"/><g fill="#1e293b"><circle cx="7.4" cy="17.3" r="2"/><circle cx="17.6" cy="17.3" r="2"/></g><g fill="#cde7d8"><circle cx="7.4" cy="17.3" r="0.8"/><circle cx="17.6" cy="17.3" r="0.8"/></g></svg>`,
+ tractor:`<svg viewBox="0 0 24 24" width="22" height="22" style="vertical-align:-6px"><path d="M4 7.5h5.5l1.6 4.2H15V7.5h3.5v6.2h-2a3.6 3.6 0 0 0-6.8.6A3 3 0 0 0 4.8 13V7.5z" fill="#2563eb"/><g fill="#1e293b"><circle cx="8" cy="16.3" r="3.6"/><circle cx="18" cy="16.6" r="2.5"/></g><g fill="#93c5fd"><circle cx="8" cy="16.3" r="1.5"/><circle cx="18" cy="16.6" r="1"/></g></svg>`,
+ generador:`<svg viewBox="0 0 24 24" width="22" height="22" style="vertical-align:-6px"><rect x="2.5" y="7" width="19" height="11" rx="2" fill="#475569"/><rect x="2.5" y="7" width="19" height="3.4" rx="2" fill="#64748b"/><path d="M13.2 9l-3.2 4.3h2.4l-.9 3.1 3.2-4.3h-2.4z" fill="#facc15"/><circle cx="6" cy="15.3" r="1.1" fill="#cbd5e1"/><path d="M17 14.5h2.5" stroke="#cbd5e1" stroke-width="1.4" stroke-linecap="round"/></svg>`
+};
+function _cbIconoEquipo(eq){
+  var tipo='';
+  try{ if(typeof getEquipoByNombre==='function'){ var e=getEquipoByNombre(eq); if(e&&e.tipo) tipo=String(e.tipo); } }catch(_){}
+  var s=(tipo+' '+(eq||'')).toLowerCase();
+  var key = /torre|helad/.test(s) ? 'torre'
+          : /tractor/.test(s) ? 'tractor'
+          : /camioneta|cami[oó]n|pick|veh[ií]culo/.test(s) ? 'camioneta'
+          : /generad|motobomba|bomba|auxiliar|maquin|motor/.test(s) ? 'generador'
+          : (typeof _cbUsaHorometro==='function' && _cbUsaHorometro(eq) ? 'torre' : 'camioneta');
+  return _CB_ICONS[key]||_CB_ICONS.camioneta;
+}
 function renderReporteCombustible(c){
   if(STATE.user.role!=='admin'){ c.innerHTML='<div class="empty-state">Solo disponible para administrador.</div>'; return; }
   const regs=getCombustibleReal().sort((a,b)=>new Date(a.fecha)-new Date(b.fecha));
@@ -4653,7 +4671,7 @@ function renderReporteCombustible(c){
     const colRend    = porHora ? 'L/Hora' : 'Rend/L';
     const colRec     = porHora ? 'Horas'  : 'Recorrido';
     const colMedida  = porHora ? 'Horómetro' : 'Km';
-    const icono      = porHora ? '🗼' : '🚜';
+    const icono      = _cbIconoEquipo(eq);
     const promBadge = hayProm
       ? `<span style="font-size:15px;font-weight:800;color:var(--gd)">${fmtNum(rendProm,2)}</span> <span style="font-size:11px;color:var(--mu)">${unidadProm}</span>`
       : `<span style="font-size:12px;color:var(--mu)">sin promedio</span>`;
