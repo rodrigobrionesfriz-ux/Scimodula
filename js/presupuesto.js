@@ -27,16 +27,41 @@ function setCurrency(cur) {
   updateBanner();
 }
 
-// Actualiza el subtítulo con la temporada seleccionada (o la actual por defecto).
-function actualizarSubtituloTemporada(){
-  var el=document.getElementById('subtitle-temporada'); if(!el) return;
+// Pestaña activa del módulo (define la etiqueta base del título).
+var PZ_TAB = 'dashboard';
+
+// Devuelve la temporada vigente: la del filtro global, o la actual del sistema.
+function pzTemporadaVigente(){
   var t=(document.getElementById('f-temporada')||{}).value||'';
-  if(!t){ // sin filtro: usar la temporada actual del sistema si está disponible
-    try{ if(typeof temporadaActual==='function') t=temporadaActual(); }catch(e){}
-  }
+  if(!t){ try{ if(typeof temporadaActual==='function') t=temporadaActual(); }catch(e){} }
+  return t;
+}
+
+// Compone el título: etiqueta de la pestaña + huerto + temporada.
+function pzActualizarTitulo(){
+  var h1=document.getElementById('pz-dash-title'); if(!h1) return;
+  var vista=(typeof PZ_VISTA!=='undefined')?PZ_VISTA:'STD';
+  var huerto=(typeof PZ_HUERTO!=='undefined')?PZ_HUERTO:'2018';
+  var base;
+  if(PZ_TAB==='criterios')      base='Criterios';
+  else if(PZ_TAB==='eerha')     base='Resultado por Hect\u00e1rea';
+  else if(vista==='GTT')        base='Formato GTT Nahuelbuta';
+  else                          base='Control Presupuesto';
+  var txt=base+' \u00b7 CZ '+huerto;
+  var t=pzTemporadaVigente();
+  txt += t ? (' \u00b7 Temporada '+t) : ' \u00b7 Todas las temporadas';
+  h1.textContent=txt;
+}
+try{ window.pzActualizarTitulo=pzActualizarTitulo; }catch(e){}
+
+// Subtítulo: rango de meses de la temporada (la temporada ya va en el título).
+function actualizarSubtituloTemporada(){
+  pzActualizarTitulo();
+  var el=document.getElementById('subtitle-temporada'); if(!el) return;
+  var t=pzTemporadaVigente();
   if(t && /^\d{4}-\d{4}$/.test(t)){
     var a1=t.split('-')[0], a2=t.split('-')[1];
-    el.textContent='Temporada '+t+' (Mayo '+a1+' – Abril '+a2+')';
+    el.textContent='Mayo '+a1+' \u2013 Abril '+a2;
   } else if(t){
     el.textContent='Temporada '+t;
   } else {
@@ -61,6 +86,10 @@ function fmtValK(v)   {
 // ===================== DETALLE GASTOS MODAL =====================
 let currentDetalleItems = [];
 let currentDetallePpto = 0;
+// Contexto activo cuando el detalle se abre DESDE el comparador de temporadas.
+// null = abierto desde el dashboard (referencia = presupuesto).
+let _detalleCtxCmp = null;
+let _detalleCtxPend = null;   // lo deja verDetalleComparado; se consume al abrir
 let currentDetalleTC = 0; // TC implícito del Excel para la familia (REAL_CLP/REAL_USD)
 
 /* _isSeasonDetalle(obj): true si el detalle ya está segmentado por temporada
@@ -133,6 +162,12 @@ function _getDetalleFamilia(familia, temporada){
   return acc;
 }
 function openDetalleModal(descripcion) {
+  // El contexto de comparación es de UN SOLO USO: lo deja `verDetalleComparado`
+  // en `_detalleCtxPend` justo antes de llamar aquí, y se consume al entrar.
+  // Así, si el detalle se abre desde un gráfico o desde Top Desviaciones, el pie
+  // vuelve a contrastar contra el presupuesto en vez de arrastrar la temporada.
+  _detalleCtxCmp = _detalleCtxPend;
+  _detalleCtxPend = null;
   const MONTH_ORDER = ['MAYO','JUNIO','JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE','ENERO','FEBRERO','MARZO','ABRIL'];
   // Detalle filtrado por la TEMPORADA seleccionada en el dashboard (o todas).
   const tempSel = (document.getElementById('f-temporada') || {}).value || '';
@@ -185,18 +220,81 @@ function openDetalleModal(descripcion) {
   document.body.style.overflow = 'hidden';
 }
 
-function closeDetalleModal(e) {
-  if (e && e.target !== document.getElementById('detalle-overlay')) return;
-  document.getElementById('detalle-overlay').classList.remove('active');
-  document.body.style.overflow = '';
+/* Detalle de gastos reales de un SUB-GRUPO completo.
+   La dona agrupa por sub-grupo, no por descripción, así que se reúnen los
+   detalles de todas las descripciones que caen en él. Reutiliza el mismo modal
+   que el detalle por descripción para no duplicar tabla, búsqueda ni pie. */
+function openDetalleSubgrupo(sub){
+  if(!sub) return;
+  _detalleCtxCmp = null; _detalleCtxPend = null;   // referencia = presupuesto
+  const MONTH_ORDER = ['MAYO','JUNIO','JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE','ENERO','FEBRERO','MARZO','ABRIL'];
+  const tempSel = (document.getElementById('f-temporada') || {}).value || '';
+  const mesesSel = getMesesSel();
+
+  var filas = (pzDataset() || []).filter(function(d){
+    if(String(d['SUB-GRUPO']||'').trim() !== String(sub).trim()) return false;
+    if(tempSel && _getTemporada(d) !== tempSel) return false;
+    if(mesesSel.length && mesesSel.indexOf(d.MES) < 0) return false;
+    return true;
+  });
+  if(!filas.length){
+    if(typeof toast==='function') toast('Sin detalle','No hay gastos registrados en '+sub+' para el período','info');
+    return;
+  }
+
+  // Descripciones únicas del sub-grupo
+  var descs=[];
+  filas.forEach(function(d){
+    var k=d.DESCRIPCION;
+    if(k && descs.indexOf(k)<0) descs.push(k);
+  });
+
+  var items=[];
+  descs.forEach(function(dsc){
+    var it=_getDetalleFamilia(dsc, tempSel) || [];
+    if(mesesSel.length) it=it.filter(function(x){ return mesesSel.indexOf(x.mes)>=0; });
+    items=items.concat(it);
+  });
+  items.sort(function(a,b){
+    var ai=MONTH_ORDER.indexOf(a.mes), bi=MONTH_ORDER.indexOf(b.mes);
+    return (ai===-1?99:ai)-(bi===-1?99:bi);
+  });
+  currentDetalleItems = items;
+
+  // Presupuesto y TC implícito del sub-grupo, con el mismo criterio que el
+  // detalle por descripción (para que el pie no descuadre al pasar a USD).
+  try{
+    currentDetallePpto = filas.reduce(function(s,d){ return s + (parseFloat(getPpto(d))||0); }, 0);
+    var sClp=filas.reduce(function(s,d){ return s+(parseFloat(d.REAL_CLP)||0); },0);
+    var sUsd=filas.reduce(function(s,d){ return s+(parseFloat(d.REAL_USD)||0); },0);
+    currentDetalleTC = (sUsd>0) ? (sClp/sUsd) : 0;
+  }catch(e){ currentDetallePpto = 0; currentDetalleTC = 0; }
+
+  document.getElementById('detalle-title').textContent = sub;
+  var mesLabel = mesesSel.length ? (' · '+mesesSel.join(', ')) : ' · Todos los meses';
+  document.getElementById('detalle-subtitle').textContent =
+    items.length+' registros · '+descs.length+' ítem(s) del sub-grupo'+mesLabel;
+  document.getElementById('detalle-search').value = '';
+  renderDetalleTable(items);
+  document.getElementById('detalle-overlay').classList.add('active');
+  document.body.style.overflow = 'hidden';
 }
 
-// Close on Escape key
+function closeDetalleModal() {
+  // Ya no se cierra al hacer clic fuera: solo con el botón o con Escape. Con el
+  // comparador detrás, el clic accidental fuera cerraba el detalle sin querer.
+  document.getElementById('detalle-overlay').classList.remove('active');
+  // Si el comparador sigue abierto detrás, el scroll del cuerpo debe seguir
+  // bloqueado: restituirlo aquí dejaba la página desplazándose bajo el modal.
+  if (!document.getElementById('pz-cmp-overlay')) document.body.style.overflow = '';
+}
+
+// Escape cierra SOLO la ventana de más arriba
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') {
-    document.getElementById('detalle-overlay').classList.remove('active');
-    document.body.style.overflow = '';
-  }
+  if (e.key !== 'Escape') return;
+  const det = document.getElementById('detalle-overlay');
+  if (det && det.classList.contains('active')) { closeDetalleModal(); return; }
+  if (document.getElementById('pz-cmp-overlay')) cerrarComparador();
 });
 
 function filterDetalleTable() {
@@ -234,18 +332,34 @@ function renderDetalleTable(items) {
   noData.style.display = 'none';
   const total = items.reduce((s, x) => s + convertVal(x.total), 0);
   countEl.textContent = `${items.length} registro${items.length !== 1 ? 's' : ''}`;
-  // Pie del modal: además del gasto real, mostrar el presupuesto de la
-  // descripción y el % de desviación (real vs presupuesto).
-  // currentDetallePpto se suma desde getPpto(), que YA devuelve el valor en la
-  // moneda activa (PPTO_USD en modo USD). No se debe volver a convertir.
-  var pptoConv = currentDetallePpto || 0;
-  var devPct = (pptoConv && pptoConv !== 0) ? ((total - pptoConv) / Math.abs(pptoConv)) * 100 : null;
-  var devColor = (devPct == null) ? '#64748b' : (devPct > 0 ? '#ef4444' : '#16a34a');
-  var devTxt = (devPct == null) ? 's/ppto' : ((devPct > 0 ? '+' : '') + devPct.toFixed(1) + '%');
-  totalEl.innerHTML =
-    '<span style="margin-right:14px">Gasto: <strong>' + fmtVal(total) + '</strong></span>' +
-    '<span style="margin-right:14px;color:#475569">Ppto: <strong>' + fmtVal(pptoConv) + '</strong></span>' +
-    '<span style="color:' + devColor + '">Desv: <strong>' + devTxt + '</strong></span>';
+  // Pie del modal. Hay dos contextos y cada uno pide una referencia distinta:
+  //  · Abierto desde el comparador de temporadas → contra el REAL de la
+  //    temporada anterior, que es lo que se está analizando.
+  //  · Abierto desde el dashboard → contra el PRESUPUESTO, como siempre.
+  if (_detalleCtxCmp) {
+    var refReal = _detalleCtxCmp.prev || 0;
+    var difR    = total - refReal;
+    var pctR    = (refReal > 0) ? (difR / refReal) * 100 : null;
+    var colR    = (pctR == null) ? '#64748b' : (pctR > 0 ? '#ef4444' : '#16a34a');
+    var txtR    = (pctR == null)
+      ? (refReal <= 0 && total > 0 ? 'nuevo' : 's/base')
+      : ((pctR > 0 ? '+' : '') + pctR.toFixed(1) + '%');
+    totalEl.innerHTML =
+      '<span style="margin-right:14px">Real ' + escapeHtml(_detalleCtxCmp.tAct) + ': <strong>' + fmtVal(total) + '</strong></span>' +
+      '<span style="margin-right:14px;color:#475569">Real ' + escapeHtml(_detalleCtxCmp.tPrev) + ': <strong>' + fmtVal(refReal) + '</strong></span>' +
+      '<span style="color:' + colR + '">Variación: <strong>' + txtR + '</strong></span>';
+  } else {
+    // currentDetallePpto se suma desde getPpto(), que YA devuelve el valor en la
+    // moneda activa (PPTO_USD en modo USD). No se debe volver a convertir.
+    var pptoConv = currentDetallePpto || 0;
+    var devPct = (pptoConv && pptoConv !== 0) ? ((total - pptoConv) / Math.abs(pptoConv)) * 100 : null;
+    var devColor = (devPct == null) ? '#64748b' : (devPct > 0 ? '#ef4444' : '#16a34a');
+    var devTxt = (devPct == null) ? 's/ppto' : ((devPct > 0 ? '+' : '') + devPct.toFixed(1) + '%');
+    totalEl.innerHTML =
+      '<span style="margin-right:14px">Gasto: <strong>' + fmtVal(total) + '</strong></span>' +
+      '<span style="margin-right:14px;color:#475569">Ppto: <strong>' + fmtVal(pptoConv) + '</strong></span>' +
+      '<span style="color:' + devColor + '">Desv: <strong>' + devTxt + '</strong></span>';
+  }
 
   tbody.innerHTML = items.map(x => {
     const converted = convertVal(x.total);
@@ -302,14 +416,22 @@ function updateBanner() {
   const fmtN = v => Math.round(v).toLocaleString('es-CL');          // plain number
   const fmtD = v => v.toFixed(2);                                    // 2 decimals
 
-  document.getElementById('rb-costo-real').textContent = fmtM(totalReal);
-  document.getElementById('rb-ppto-adj').textContent   = fmtM(totalPpto);
+  // Costo real, ppto y saldo se muestran en la fila KPI (Real Acumulado,
+  // Presupuesto Total y Desviación), que además responde a los filtros de tipo,
+  // sub-grupo y descripción. Aquí se mantienen los cálculos porque alimentan
+  // costo/Kg y $/Ha, pero ya no se pintan en el banner.
+  const costoRealEl = document.getElementById('rb-costo-real');
+  if (costoRealEl) costoRealEl.textContent = fmtM(totalReal);
+  const pptoAdjEl = document.getElementById('rb-ppto-adj');
+  if (pptoAdjEl) pptoAdjEl.textContent = fmtM(totalPpto);
 
   const saldoEl    = document.getElementById('rb-saldo');
   const saldoSubEl = document.getElementById('rb-saldo-sub');
-  saldoEl.textContent = (saldo >= 0 ? '+' : '') + fmtM(saldo);
-  saldoEl.className   = 'rb-value ' + (saldo >= 0 ? 'accent' : 'danger');
-  saldoSubEl.textContent = saldo >= 0 ? 'Bajo presupuesto ✓' : 'Sobre presupuesto ✗';
+  if (saldoEl) {
+    saldoEl.textContent = (saldo >= 0 ? '+' : '') + fmtM(saldo);
+    saldoEl.className   = 'rb-value ' + (saldo >= 0 ? 'accent' : 'danger');
+  }
+  if (saldoSubEl) saldoSubEl.textContent = saldo >= 0 ? 'Bajo presupuesto ✓' : 'Sobre presupuesto ✗';
 
   document.getElementById('rb-costo-kg').textContent = CURRENCY === 'USD'
     ? 'USD ' + costoKg.toFixed(2) + '/Kg'
@@ -333,9 +455,308 @@ let ACTIVE_DATA = null; // will hold current working dataset
 // pzDataset() como fuente.
 let ACTIVE_DATA_GTT = null;
 let PZ_VISTA = 'STD'; // 'STD' | 'GTT'
+
+// ── Multi-huerto (centro de costo) ──────────────────────────────────
+// El mismo dashboard sirve a varios huertos. PZ_HUERTO indica cuál está
+// activo; PZ_STORE guarda el estado completo de cada uno (filas, GTT,
+// detalle, meses con real y KPIs editables). Al cambiar de pestaña de
+// huerto se hace snapshot del activo y se restaura el destino, sin tocar
+// la logica de render (que sigue leyendo ACTIVE_DATA via pzDataset()).
+let PZ_HUERTO = '2018'; // '2018' | '2024'
+var PZ_STORE = {
+  '2018': { rows:null, rowsGtt:null, detalle:null, monthsWithReal:null, kpis:null },
+  '2024': { rows:null, rowsGtt:null, detalle:null, monthsWithReal:null, kpis:null }
+};
+function pzHuertoDocId(h){ return (h==='2024') ? 'huerto2024' : 'main'; }
+function pzLeerKpis(){
+  function num(id){ var el=document.getElementById(id); if(!el) return null;
+    var v=(el.value||'').toString().replace(/\./g,'').replace(',', '.').replace(/[^0-9.\-]/g,'');
+    var n=parseFloat(v); return isNaN(n)?null:n; }
+  return { kg:num('rb-kg'), tc:num('rb-tc'), ha:num('rb-ha'), kgEst:num('rb-kg-est') };
+}
+function pzEscribirKpis(k){
+  k = k || {};
+  var kg=document.getElementById('rb-kg');    if(kg)    kg.value = (k.kg!=null)    ? Math.round(k.kg).toLocaleString('es-CL') : '\u2014';
+  var tc=document.getElementById('rb-tc');    if(tc)    tc.value = (k.tc!=null)    ? k.tc.toLocaleString('es-CL',{minimumFractionDigits:2,maximumFractionDigits:2}) : '\u2014';
+  var ha=document.getElementById('rb-ha');    if(ha)    ha.value = (k.ha!=null)    ? k.ha.toLocaleString('es-CL',{minimumFractionDigits:2,maximumFractionDigits:2}) : '';
+  var ke=document.getElementById('rb-kg-est');if(ke)    ke.value = (k.kgEst!=null) ? Math.round(k.kgEst).toLocaleString('es-CL') : '\u2014';
+}
+function pzSnapshotHuerto(){
+  var s = PZ_STORE[PZ_HUERTO]; if(!s) return;
+  s.rows          = ACTIVE_DATA;
+  s.rowsGtt       = ACTIVE_DATA_GTT;
+  s.detalle       = window.DETALLE_GASTOS_LIVE || null;
+  s.monthsWithReal= window.MONTHS_WITH_REAL || null;
+  s.kpis          = pzLeerKpis();
+}
+function pzRestaurarHuerto(h){
+  var s = PZ_STORE[h]; if(!s) return;
+  ACTIVE_DATA                = s.rows || null;
+  ACTIVE_DATA_GTT            = s.rowsGtt || null;
+  window.DETALLE_GASTOS_LIVE = s.detalle || null;
+  window.MONTHS_WITH_REAL    = s.monthsWithReal || [];
+  pzEscribirKpis(s.kpis);
+}
+function pzStorePayload(h, obj){
+  var s = PZ_STORE[h]; if(!s || !obj) return;
+  if(Array.isArray(obj.rows))          s.rows = obj.rows;
+  if(Array.isArray(obj.rowsGtt))       s.rowsGtt = obj.rowsGtt.length ? obj.rowsGtt : null;
+  if(obj.detalle && typeof obj.detalle==='object') s.detalle = _toSeasonDetalle(obj.detalle);
+  if(Array.isArray(obj.monthsWithReal))s.monthsWithReal = obj.monthsWithReal;
+  if(obj.kpis)                         s.kpis = obj.kpis;
+}
+
 function pzDataset(){
   if(PZ_VISTA==='GTT' && ACTIVE_DATA_GTT && ACTIVE_DATA_GTT.length) return ACTIVE_DATA_GTT;
-  return ACTIVE_DATA || RAW;
+  if(ACTIVE_DATA) return ACTIVE_DATA;
+  // Solo el huerto 2018 tiene datos semilla (RAW); el 2024 arranca vacio.
+  return (PZ_HUERTO==='2018') ? RAW : [];
+}
+
+/* ══════════════ COMPARADOR DE TEMPORADAS ══════════════
+   Compara el REAL de la temporada seleccionada contra el de la anterior.
+   Agrupa por DESCRIPCIÓN (el mismo nivel que ya usa el detalle de gastos), de
+   modo que cada fila se puede abrir con openDetalleModal.
+   Trabaja siempre sobre el REAL: comparar presupuestos entre temporadas no dice
+   nada del gasto efectivo, que es lo que interesa al cerrar un año. */
+
+var _cmpFilas = [];      // filas de la comparación, en el orden mostrado
+var _cmpModo  = 'desv';  // 'desv' = mayor desviación absoluta · 'pct' = mayor variación %
+
+// Devuelve la temporada anterior a "2026-2027" → "2025-2026".
+function _tempAnterior(t){
+  var m=/^(\d{4})-(\d{4})$/.exec(String(t||''));
+  if(!m) return '';
+  return (parseInt(m[1],10)-1)+'-'+(parseInt(m[2],10)-1);
+}
+
+// Lista de temporadas presentes en el dataset, ordenadas descendente.
+function _pzTemporadas(){
+  var set={};
+  (pzDataset()||[]).forEach(function(d){ var t=_getTemporada(d); if(t) set[t]=1; });
+  return Object.keys(set).sort().reverse();
+}
+
+/* Construye la comparación. Respeta el filtro de MES para poder comparar
+   períodos equivalentes (ej. solo mayo-julio de cada temporada), pero ignora
+   los filtros de tipo/sub-grupo/descripción: el modal tiene sus propios. */
+function _cmpConstruir(tActual, tPrevia){
+  var mesesSel = getMesesSel();
+  var acc = {};
+  (pzDataset()||[]).forEach(function(d){
+    var t=_getTemporada(d);
+    if(t!==tActual && t!==tPrevia) return;
+    if(mesesSel.length && mesesSel.indexOf(d.MES)<0) return;
+    var desc=(d.DESCRIPCION||'(sin descripción)').trim();
+    if(!acc[desc]){
+      acc[desc]={desc:desc, tipo:(d['TIPO DE COSTO']||'').trim(),
+                 sub:(d['SUB-GRUPO']||'').trim(), act:0, prev:0};
+    }
+    var v=parseFloat(getReal(d))||0;
+    if(t===tActual) acc[desc].act+=v; else acc[desc].prev+=v;
+  });
+
+  var filas=Object.keys(acc).map(function(k){
+    var f=acc[k];
+    f.dif = f.act - f.prev;
+    // Sin base previa el porcentaje no existe: se marca como ítem nuevo en vez
+    // de inventar un 100% o dividir por cero.
+    f.pct = (f.prev>0) ? (f.dif/f.prev*100) : null;
+    f.nuevo    = (f.prev<=0 && f.act>0);
+    f.discontinuado = (f.act<=0 && f.prev>0);
+    return f;
+  }).filter(function(f){ return f.act!==0 || f.prev!==0; });
+
+  return filas;
+}
+
+function _cmpOrdenar(filas){
+  return filas.slice().sort(function(a,b){
+    if(_cmpModo==='pct'){
+      var pa=(a.pct===null)?-Infinity:Math.abs(a.pct);
+      var pb=(b.pct===null)?-Infinity:Math.abs(b.pct);
+      if(pb!==pa) return pb-pa;
+    }
+    return Math.abs(b.dif)-Math.abs(a.dif);
+  });
+}
+
+function _cmpPct(f){
+  if(f.nuevo) return '<span style="color:#7c3aed;font-weight:700">nuevo</span>';
+  if(f.discontinuado) return '<span style="color:#64748b;font-weight:700">sin gasto</span>';
+  if(f.pct===null) return '—';
+  var col=(f.pct>0)?'#b91c1c':'#15803d';
+  return '<span style="color:'+col+';font-weight:700">'+(f.pct>0?'+':'')+f.pct.toFixed(1)+'%</span>';
+}
+
+function openComparadorModal(){
+  var temporadas=_pzTemporadas();
+  var tActual=(document.getElementById('f-temporada')||{}).value || temporadas[0] || '';
+  if(!tActual){
+    if(typeof toast==='function') toast('Sin datos','No hay temporadas cargadas para comparar','error');
+    return;
+  }
+  var sugerida=_tempAnterior(tActual);
+  var tPrevia = (temporadas.indexOf(sugerida)>=0)
+    ? sugerida
+    : (temporadas.filter(function(t){ return t<tActual; })[0] || '');
+
+  var prev=document.getElementById('pz-cmp-overlay'); if(prev) prev.remove();
+  var ov=document.createElement('div');
+  ov.id='pz-cmp-overlay';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:10020;display:flex;align-items:center;justify-content:center;padding:16px';
+  // Sin cierre por clic fuera: desde aquí se abre el detalle y un clic
+  // accidental en el fondo hacía perder la comparación completa.
+  ov.innerHTML='<div style="background:#fff;border-radius:14px;max-width:1000px;width:100%;max-height:92vh;display:flex;flex-direction:column;overflow:hidden">'+
+    '<div style="background:#1a3a5c;color:#fff;padding:15px 20px;display:flex;justify-content:space-between;align-items:flex-start;gap:12px">'+
+      '<div><div style="font-size:17px;font-weight:800">📊 Comparación entre temporadas</div>'+
+        '<div style="font-size:12px;opacity:.85" id="pz-cmp-sub">Gasto real acumulado</div></div>'+
+      '<button onclick="PZ.cerrarComparador()" style="background:rgba(255,255,255,.15);color:#fff;border:none;border-radius:8px;width:32px;height:32px;font-size:18px;cursor:pointer;flex:0 0 auto">×</button>'+
+    '</div>'+
+    '<div style="padding:14px 20px;border-bottom:1px solid #e3e8ee;display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">'+
+      '<div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px">TEMPORADA ACTUAL</label>'+
+        '<select id="pz-cmp-act" onchange="PZ.refrescarComparador()" style="padding:7px 10px;border:1px solid #cdd5df;border-radius:7px;font-size:13px">'+
+        temporadas.map(function(t){ return '<option value="'+t+'"'+(t===tActual?' selected':'')+'>'+t+'</option>'; }).join('')+'</select></div>'+
+      '<div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px">COMPARAR CONTRA</label>'+
+        '<select id="pz-cmp-prev" onchange="PZ.refrescarComparador()" style="padding:7px 10px;border:1px solid #cdd5df;border-radius:7px;font-size:13px">'+
+        temporadas.map(function(t){ return '<option value="'+t+'"'+(t===tPrevia?' selected':'')+'>'+t+'</option>'; }).join('')+'</select></div>'+
+      '<div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px">ORDENAR POR</label>'+
+        '<select id="pz-cmp-modo" onchange="PZ.refrescarComparador()" style="padding:7px 10px;border:1px solid #cdd5df;border-radius:7px;font-size:13px">'+
+          '<option value="desv">Mayor diferencia ($)</option><option value="pct">Mayor variación (%)</option>'+
+        '</select></div>'+
+      '<div style="flex:1"></div>'+
+      '<button class="btn btn-secondary" onclick="PZ.exportarComparador()" style="font-size:12px;padding:7px 12px">📊 CSV</button>'+
+    '</div>'+
+    '<div id="pz-cmp-body" style="padding:16px 20px;overflow-y:auto;flex:1"></div>'+
+  '</div>';
+  document.body.appendChild(ov);
+  document.body.style.overflow='hidden';
+  refrescarComparador();
+}
+
+function cerrarComparador(){
+  var ov=document.getElementById('pz-cmp-overlay');
+  if(ov) ov.remove();
+  // Solo liberar el scroll si no queda otra ventana modal abierta encima
+  var det=document.getElementById('detalle-overlay');
+  if(!(det && det.classList.contains('active'))) document.body.style.overflow='';
+}
+
+function refrescarComparador(){
+  var body=document.getElementById('pz-cmp-body'); if(!body) return;
+  var tA=(document.getElementById('pz-cmp-act')||{}).value||'';
+  var tP=(document.getElementById('pz-cmp-prev')||{}).value||'';
+  _cmpModo=(document.getElementById('pz-cmp-modo')||{}).value||'desv';
+
+  if(tA===tP){
+    body.innerHTML='<div style="color:#92600a;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:14px;font-size:13px">Seleccione dos temporadas distintas para comparar.</div>';
+    return;
+  }
+
+  var filas=_cmpConstruir(tA,tP);
+  _cmpFilas=_cmpOrdenar(filas);
+
+  var totA=0,totP=0;
+  filas.forEach(function(f){ totA+=f.act; totP+=f.prev; });
+  var difT=totA-totP;
+  var pctT=(totP>0)?(difT/totP*100):null;
+
+  var mesesSel=getMesesSel();
+  var sub=document.getElementById('pz-cmp-sub');
+  if(sub) sub.textContent='Gasto real'+(mesesSel.length?(' · '+mesesSel.join(', ')):' · Todos los meses')+
+    ' · '+(CURRENCY==='CLP'?'Pesos':'Dólares');
+
+  if(!_cmpFilas.length){
+    body.innerHTML='<div style="color:#999;padding:26px;text-align:center;font-size:13px">No hay gasto real registrado en ninguna de las dos temporadas para el período seleccionado.</div>';
+    return;
+  }
+
+  var colT=(difT>0)?'#b91c1c':'#15803d';
+  var resumen=
+    '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:16px">'+
+      _cmpCard(tA, fmtVal(totA), 'real acumulado', '#0a6ed1')+
+      _cmpCard(tP, fmtVal(totP), 'real acumulado', '#64748b')+
+      _cmpCard('Diferencia', (difT>0?'+':'')+fmtVal(difT), (difT>0?'mayor gasto':'menor gasto')+' vs '+tP, colT)+
+      _cmpCard('Variación', (pctT===null?'—':((pctT>0?'+':'')+pctT.toFixed(1)+'%')), 'sobre '+tP, colT)+
+    '</div>';
+
+  var filasHTML=_cmpFilas.map(function(f,i){
+    var colD=(f.dif>0)?'#b91c1c':'#15803d';
+    return '<tr onclick="PZ.verDetalleComparado('+i+')" style="border-bottom:1px solid #eee;cursor:pointer" '+
+        'onmouseover="this.style.background=\'#f8fafc\'" onmouseout="this.style.background=\'\'">'+
+      '<td style="padding:8px 9px">'+escapeHtml(f.desc)+
+        (f.tipo?'<div style="font-size:10px;color:#94a3b8">'+escapeHtml(f.tipo)+(f.sub?(' · '+escapeHtml(f.sub)):'')+'</div>':'')+'</td>'+
+      '<td style="padding:8px 9px;text-align:right;white-space:nowrap">'+fmtVal(f.act)+'</td>'+
+      '<td style="padding:8px 9px;text-align:right;white-space:nowrap;color:#64748b">'+fmtVal(f.prev)+'</td>'+
+      '<td style="padding:8px 9px;text-align:right;white-space:nowrap;font-weight:700;color:'+colD+'">'+
+        (f.dif>0?'▲ +':'▼ ')+fmtVal(f.dif)+'</td>'+
+      '<td style="padding:8px 9px;text-align:right;white-space:nowrap">'+_cmpPct(f)+'</td>'+
+    '</tr>';
+  }).join('');
+
+  body.innerHTML=resumen+
+    '<div style="font-size:11px;color:#7a8794;margin-bottom:6px">Haga clic en una fila para ver el detalle de gastos de esa descripción.</div>'+
+    '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12.5px;min-width:660px">'+
+      '<thead><tr style="background:#f5f7fa;border-bottom:2px solid #e3e8ee">'+
+        '<th style="padding:8px 9px;text-align:left;font-size:11px;color:#64748b">DESCRIPCIÓN</th>'+
+        '<th style="padding:8px 9px;text-align:right;font-size:11px;color:#64748b">'+escapeHtml(tA)+'</th>'+
+        '<th style="padding:8px 9px;text-align:right;font-size:11px;color:#64748b">'+escapeHtml(tP)+'</th>'+
+        '<th style="padding:8px 9px;text-align:right;font-size:11px;color:#64748b">DIFERENCIA</th>'+
+        '<th style="padding:8px 9px;text-align:right;font-size:11px;color:#64748b">VARIACIÓN</th>'+
+      '</tr></thead><tbody>'+filasHTML+'</tbody>'+
+      '<tfoot><tr style="background:#f5f7fa;font-weight:800;border-top:2px solid #e3e8ee">'+
+        '<td style="padding:9px">Total '+_cmpFilas.length+' ítem(s)</td>'+
+        '<td style="padding:9px;text-align:right">'+fmtVal(totA)+'</td>'+
+        '<td style="padding:9px;text-align:right;color:#64748b">'+fmtVal(totP)+'</td>'+
+        '<td style="padding:9px;text-align:right;color:'+colT+'">'+(difT>0?'+':'')+fmtVal(difT)+'</td>'+
+        '<td style="padding:9px;text-align:right;color:'+colT+'">'+(pctT===null?'—':((pctT>0?'+':'')+pctT.toFixed(1)+'%'))+'</td>'+
+      '</tr></tfoot></table></div>';
+}
+
+function _cmpCard(titulo,valor,sub,color){
+  return '<div style="border:1px solid #e3e8ee;border-radius:9px;padding:10px 12px">'+
+    '<div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.4px">'+escapeHtml(titulo)+'</div>'+
+    '<div style="font-size:19px;font-weight:800;color:'+color+';margin:2px 0">'+valor+'</div>'+
+    '<div style="font-size:10px;color:#94a3b8">'+escapeHtml(sub)+'</div></div>';
+}
+
+/* Abre el detalle SOBRE el comparador, sin cerrarlo: al salir del detalle se
+   vuelve a la comparación en el mismo punto. Se alinea el filtro de temporada
+   del dashboard con la temporada ACTUAL de la comparación, porque
+   openDetalleModal lo lee y si no mostraría otra temporada. */
+function verDetalleComparado(i){
+  var f=_cmpFilas[i]; if(!f) return;
+  var tA=(document.getElementById('pz-cmp-act')||{}).value||'';
+  var tP=(document.getElementById('pz-cmp-prev')||{}).value||'';
+  var selTemp=document.getElementById('f-temporada');
+  if(selTemp && tA && selTemp.value!==tA){
+    selTemp.value=tA;
+    try{ if(typeof render==='function') render(); }catch(e){}
+  }
+  // El pie del detalle debe contrastar contra el REAL de la temporada anterior,
+  // no contra el presupuesto: es lo que se está analizando en el comparador.
+  _detalleCtxPend={ tAct:tA, tPrev:tP, prev:f.prev, act:f.act };
+  openDetalleModal(f.desc);
+}
+
+function exportarComparador(){
+  if(!_cmpFilas.length){ if(typeof toast==='function') toast('Sin datos','No hay filas para exportar','error'); return; }
+  var tA=(document.getElementById('pz-cmp-act')||{}).value||'';
+  var tP=(document.getElementById('pz-cmp-prev')||{}).value||'';
+  var q=function(v){ return '"'+String(v==null?'':v).replace(/"/g,'""')+'"'; };
+  var lineas=[['Descripcion','Tipo de costo','Sub-grupo','Real '+tA,'Real '+tP,'Diferencia','Variacion %','Nota'].map(q).join(';')];
+  _cmpFilas.forEach(function(f){
+    lineas.push([f.desc,f.tipo,f.sub,Math.round(f.act),Math.round(f.prev),Math.round(f.dif),
+      (f.pct===null?'':f.pct.toFixed(1)),
+      (f.nuevo?'Nuevo':(f.discontinuado?'Sin gasto':''))].map(q).join(';'));
+  });
+  var blob=new Blob(['\ufeff'+lineas.join('\r\n')],{type:'text/csv;charset=utf-8;'});
+  var a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='comparacion_'+tA+'_vs_'+tP+'.csv';
+  document.body.appendChild(a); a.click();
+  setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); },500);
+  if(typeof toast==='function') toast('Exportado',_cmpFilas.length+' ítem(s)','success');
 }
 
 function openUploadModal() {
@@ -569,31 +990,10 @@ function processExcel(file) {
       const mesesConReal = [...new Set(merged.filter(d => d['MONTO REAL'] > 0).map(d => d.MES))];
       const lastMes = mesesConReal.length ? mesesConReal[mesesConReal.length - 1] : '—';
 
-      // Extract TC of the last month with real data from raw rows
-      const lastMesReal = real.find(r =>
-        (r.MES || '').toString().toUpperCase() === lastMes &&
-        parseFloat(r['TC']) > 0
-      );
-      const lastTC = lastMesReal ? parseFloat(lastMesReal['TC']) : null;
-      if (lastTC) {
-        // El Excel manda: si trae TC, ese se usa.
-        const tcInput = document.getElementById('rb-tc');
-        if (tcInput) tcInput.value = lastTC.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-      } else {
-        // Respaldo: si el Excel no trae TC, usar el Valor USD del último mes con
-        // datos desde Indicadores Diarios (Configuración del SCI).
-        try{
-          if(typeof window.getIndicadorMes==='function'){
-            // Pasar el año del último mes con real para resolver la temporada.
-            var anioLast = lastMesReal ? lastMesReal['AÑO'] : null;
-            const indic = window.getIndicadorMes(lastMes, anioLast);
-            if(indic && indic.usd){
-              const tcInput = document.getElementById('rb-tc');
-              if(tcInput) tcInput.value = Number(indic.usd).toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-            }
-          }
-        }catch(e){}
-      }
+      // El Tipo de Cambio del ÚLTIMO mes cargado se fija de forma centralizada
+      // en refreshLastUpdate() (se llama más abajo tras la carga y también al
+      // cambiar de temporada), usando el orden correcto por año+mes. Así la
+      // tarjeta y "Última actualización" siempre coinciden.
 
       // ── Dataset paralelo con la clasificación GTT Nahuelbuta ──
       // Mismo merge, pero con dims GTT: Tipo GTT / CUENTAGTT / FAMILIAGTT.
@@ -969,18 +1369,52 @@ function refreshLastUpdate() {
     document.getElementById('last-update').textContent = '—';
     return;
   }
-  // Ordenar por MES_ORDER y tomar el último
-  var sorted = conReal.slice().sort(function(a, b) {
-    var oa = (a['MES_ORDER'] != null) ? a['MES_ORDER'] : 99;
-    var ob = (b['MES_ORDER'] != null) ? b['MES_ORDER'] : 99;
-    return oa - ob;
-  });
+  // Ordenar cronológicamente por FECHA CALENDARIO real (año + mes calendario) y
+  // tomar el último. Ojo: MES_ORDER es orden de temporada (Mayo→Abril), que NO
+  // es cronológico dentro de un mismo año calendario (Marzo 2025 va antes que
+  // Mayo 2025). Por eso aquí se usa el número de mes calendario, no MES_ORDER.
+  // Así funciona con una temporada filtrada y con varias temporadas cargadas.
+  var _MES_CAL = { ENERO:1, FEBRERO:2, MARZO:3, ABRIL:4, MAYO:5, JUNIO:6, JULIO:7, AGOSTO:8, SEPTIEMBRE:9, OCTUBRE:10, NOVIEMBRE:11, DICIEMBRE:12 };
+  var _cronoKey = function(d){
+    var y = parseInt(d['AÑO']) || 0;
+    var m = _MES_CAL[(d['MES'] || '').toString().toUpperCase()] || 0;
+    return y * 12 + m;
+  };
+  var sorted = conReal.slice().sort(function(a, b){ return _cronoKey(a) - _cronoKey(b); });
   var last = sorted[sorted.length - 1];
   var mes = (last['MES'] || '').toString();
   var año = last['AÑO'] || '';
   // Title case: "FEBRERO" → "Febrero"
   var label = mes.charAt(0).toUpperCase() + mes.slice(1).toLowerCase() + (año ? ' ' + año : '');
   document.getElementById('last-update').textContent = label;
+
+  // ── Tipo de Cambio: mostrar el del ÚLTIMO mes cargado ──
+  // Se toma el TC implícito (suma REAL_CLP / suma REAL_USD) de las filas reales
+  // de ese mes/año, mismo criterio que usan los gráficos. Si no hay USD para
+  // derivarlo, se cae al Valor USD del mes en Indicadores Diarios. La tarjeta
+  // queda siempre en sintonía con "Última actualización" y con la temporada
+  // seleccionada. Sólo se toca cuando hay datos reales (arriba hay early-return
+  // si no los hay), así el TC manual sin Excel no se pisa.
+  try {
+    var mesU = mes.toUpperCase();
+    var filasMes = conReal.filter(function(d){
+      return (d['MES'] || '').toString().toUpperCase() === mesU && String(d['AÑO']) === String(año);
+    });
+    var sClp = filasMes.reduce(function(s, d){ return s + (parseFloat(d['REAL_CLP']) || 0); }, 0);
+    var sUsd = filasMes.reduce(function(s, d){ return s + (parseFloat(d['REAL_USD']) || 0); }, 0);
+    var tcInput = document.getElementById('rb-tc');
+    if (tcInput) {
+      var tcVal = (sUsd > 0) ? (sClp / sUsd) : null;
+      if (tcVal && tcVal > 0) {
+        tcInput.value = tcVal.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      } else if (typeof window.getIndicadorMes === 'function') {
+        var indic = window.getIndicadorMes(mesU, año);
+        if (indic && indic.usd) {
+          tcInput.value = Number(indic.usd).toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        }
+      }
+    }
+  } catch(e){}
 }
 
 function render() {
@@ -1101,10 +1535,11 @@ function renderLineChart(data) {
       ]
     },
     options: {
-      responsive: true, maintainAspectRatio: true,
+      responsive: true, maintainAspectRatio: false,
+      layout: { padding: { top: 4, right: 8, bottom: 2, left: 2 } },
       interaction: { mode: 'index', intersect: false },
       plugins: {
-        legend: { labels: { color: '#94a3b8', font: { size: 11 }, boxWidth: 12 } },
+        legend: { labels: { color: '#94a3b8', font: { size: 11 }, boxWidth: 12, padding: 10 } },
         tooltip: {
           backgroundColor: '#1a2235', borderColor: '#1e2d45', borderWidth: 1,
           callbacks: {
@@ -1113,8 +1548,15 @@ function renderLineChart(data) {
         }
       },
       scales: {
-        x: { ticks: { color: '#64748b', font:{size:10} }, grid: { color: 'rgba(30,45,69,0.5)' } },
-        y: { ticks: { color: '#64748b', font:{size:10}, callback: v => fmtVal(v) }, grid: { color: 'rgba(30,45,69,0.5)' } }
+        x: {
+          ticks: { color: '#64748b', font:{size:10}, autoSkip: true, maxRotation: 0, minRotation: 0 },
+          grid: { color: 'rgba(30,45,69,0.5)' }
+        },
+        y: {
+          beginAtZero: true,
+          ticks: { color: '#64748b', font:{size:10}, maxTicksLimit: 5, callback: v => fmtVal(v) },
+          grid: { color: 'rgba(30,45,69,0.5)' }
+        }
       }
     }
   });
@@ -1165,20 +1607,36 @@ function renderTipoChart(data) {
       ]
     },
     options: {
-      responsive: true, maintainAspectRatio: true,
+      responsive: true, maintainAspectRatio: false,
+      layout: { padding: { top: 4, right: 8, bottom: 2, left: 2 } },
       interaction: { mode: 'index', intersect: false },
       plugins: {
-        legend: { labels: { color: '#94a3b8', font: { size: 11 }, boxWidth: 12 } },
+        legend: { labels: { color: '#94a3b8', font: { size: 11 }, boxWidth: 12, padding: 10 } },
         tooltip: {
           backgroundColor: '#1a2235', borderColor: '#1e2d45', borderWidth: 1,
           callbacks: {
+            title: items => (items && items[0]) ? labels[items[0].dataIndex] : '',
             label: ctx => ` ${ctx.dataset.label}: ${fmtVal(ctx.parsed.y ?? 0)}`
           }
         }
       },
       scales: {
-        x: { ticks: { color: '#64748b', font:{size:9} }, grid: { color: 'rgba(30,45,69,0.5)' } },
-        y: { ticks: { color: '#64748b', font:{size:9}, callback: v => fmtVal(v) }, grid: { color: 'rgba(30,45,69,0.5)' } }
+        x: {
+          ticks: {
+            color: '#64748b', font:{size:9}, autoSkip: false,
+            maxRotation: 55, minRotation: 0,
+            callback: function(v){
+              var t = String(this.getLabelForValue(v) || '');
+              return t.length > 12 ? t.slice(0,11) + '…' : t;
+            }
+          },
+          grid: { color: 'rgba(30,45,69,0.5)' }
+        },
+        y: {
+          beginAtZero: true,
+          ticks: { color: '#64748b', font:{size:9}, maxTicksLimit: 5, callback: v => fmtVal(v) },
+          grid: { color: 'rgba(30,45,69,0.5)' }
+        }
       }
     }
   });
@@ -1211,7 +1669,25 @@ function renderSubgrupoChart(data) {
     },
     options: {
       responsive: true, maintainAspectRatio: false, cutout: '68%',
-      layout: { padding: { top: 65, bottom: 10, left: 75, right: 75 } },
+      // Clic en un segmento → detalle de los gastos reales de ese sub-grupo
+      onClick: (evt, elems) => {
+        if(!elems || !elems.length) return;
+        const idx = elems[0].index;
+        if(subs[idx]) openDetalleSubgrupo(subs[idx]);
+      },
+      onHover: (evt, elems) => {
+        const c = evt && evt.native && evt.native.target;
+        if(c) c.style.cursor = (elems && elems.length) ? 'pointer' : 'default';
+      },
+      layout: {
+        padding: (ctx) => {
+          // Padding proporcional: en móvil 75px fijos dejaban el aro diminuto
+          const w = (ctx.chart && ctx.chart.width) || 320;
+          const compacto = w < 520;
+          const lat = compacto ? Math.round(w * 0.11) : 75;
+          return { top: compacto ? 14 : 65, bottom: 10, left: lat, right: lat };
+        }
+      },
       plugins: {
         legend: { display: false },   // hidden — we use custom HTML legend
         tooltip: {
@@ -1232,6 +1708,9 @@ function renderSubgrupoChart(data) {
         const { ctx, data: cd } = chart;
         const meta = chart.getDatasetMeta(0);
         if (!meta.data.length) return;
+        // En móvil las etiquetas flotantes se salían del canvas:
+        // los montos ya se muestran en la leyenda HTML de abajo.
+        if (chart.width < 520) return;
         ctx.save();
         meta.data.forEach((arc, i) => {
           const val  = cd.datasets[0].data[i];
@@ -1287,7 +1766,9 @@ function renderSubgrupoChart(data) {
           </div>`;
         }).join('');
       return `
-        <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:6px;padding:5px 7px;display:flex;flex-direction:column;gap:4px;">
+        <div onclick="PZ.openDetalleSubgrupo('${String(label).replace(/'/g,"\\'")}')" title="Ver el detalle de gastos de ${label}"
+             style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:6px;padding:5px 7px;display:flex;flex-direction:column;gap:4px;cursor:pointer;"
+             onmouseover="this.style.background='rgba(255,255,255,0.08)'" onmouseout="this.style.background='rgba(255,255,255,0.03)'">
           <div style="display:flex;align-items:center;gap:7px;">
             <span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:${col};flex-shrink:0;"></span>
             <span style="font-size:10.5px;font-weight:700;color:#ffffff;line-height:1.2;">${label}</span>
@@ -1635,7 +2116,8 @@ function renderTopDev(data, byDesc) {
     const label = over ? '▲ +'+fmtVal(r.dev) : '▼ '+fmtVal(r.dev);
     const cls = over ? 'pill-over' : 'pill-under';
     const pctLabel = r.p ? (over ? '+' : '') + pct + '%' : '—';
-    const nombre = r.k.length > 24 ? r.k.slice(0,24)+'…' : r.k;
+    // El nombre va completo: la columna lo trunca con elipsis según el ancho real.
+    const nombre = r.k;
     // Cada fila es clicable: abre el detalle de gastos de esa descripción.
     // El tooltip (title) muestra el presupuesto y el real completos.
     const tip = 'Presupuesto: ' + fmtVal(r.p) + ' · Real: ' + fmtVal(r.r) + ' · Desv: ' + pctLabel + ' — Clic para ver el detalle';
@@ -1771,11 +2253,12 @@ function downloadDashboard() {
 var PZFB = {
   ready:false, online:false, applyingRemote:false, _localEditing:false,
   clientId: 'p_' + Math.random().toString(36).slice(2) + Date.now().toString(36),
-  lastVersion: 0, unsubscribe: null, listenerStarted:false
+  lastVersion: 0, unsubs: {}, listenerStarted:false
 };
-function pzFbDocRef(){
+function pzFbDocRef(huerto){
   if(typeof firebase==='undefined' || !firebase.apps || !firebase.apps.length) return null;
-  try{ return firebase.firestore().collection('presupuesto').doc('main'); }catch(e){ return null; }
+  var h = huerto || PZ_HUERTO;
+  try{ return firebase.firestore().collection('presupuesto').doc(pzHuertoDocId(h)); }catch(e){ return null; }
 }
 /* serializeDataset(): arma el objeto persistible con TODO el estado actual del
    dashboard (filas mensuales, detalle de gastos y los KPIs editables). */
@@ -1851,32 +2334,35 @@ function pzFbPush(){
     });
   }catch(e){ console.error('[PZ-Firebase] push error:', e); }
 }
-/* pzFbStartListener(): escucha presupuesto/main en tiempo real. */
-function pzFbStartListener(){
-  var ref = pzFbDocRef();
+/* pzFbStartListenerFor(huerto): escucha presupuesto/<doc> en tiempo real.
+   Si el snapshot corresponde al huerto ACTIVO, se aplica y re-renderiza; si
+   es de un huerto en segundo plano, solo se guarda en su store. */
+function pzFbStartListenerFor(huerto){
+  var ref = pzFbDocRef(huerto);
   if(!ref) return;
-  if(PZFB.unsubscribe){ try{ PZFB.unsubscribe(); }catch(e){} }
-  PZFB.unsubscribe = ref.onSnapshot({includeMetadataChanges:false}, function(doc){ try{FBCOUNT.read();}catch(e){}
+  if(PZFB.unsubs[huerto]){ try{ PZFB.unsubs[huerto](); }catch(e){} }
+  PZFB.unsubs[huerto] = ref.onSnapshot({includeMetadataChanges:false}, function(doc){ try{FBCOUNT.read();}catch(e){}
     PZFB.online = true;
     if(!doc.exists){
-      // La nube está vacía. Si este usuario puede editar, sembramos la semilla
-      // local actual para inicializar el documento remoto (una sola vez).
+      // Nube vacia. Solo el huerto 2018 se auto-siembra con la semilla RAW;
+      // el 2024 se inicializa cuando el admin sube su primer Excel.
       try{
-        if(typeof can==='function' && can('presupuesto.editar')){ pzFbPush(); }
+        if(huerto==='2018' && huerto===PZ_HUERTO && typeof can==='function' && can('presupuesto.editar')){ pzFbPush(); }
       }catch(e){}
       return;
     }
     var d = doc.data() || {};
-    // Ignorar el eco de nuestra propia escritura.
     if(d._clientId === PZFB.clientId && d._version === PZFB.lastVersion){ return; }
     if(!d.payload) return;
     var obj;
-    try{ obj = JSON.parse(d.payload); }catch(e){ console.error('[PZ-Firebase] payload inválido'); return; }
-    pzLoadDataset(obj);
+    try{ obj = JSON.parse(d.payload); }catch(e){ console.error('[PZ-Firebase] payload invalido'); return; }
+    if(huerto === PZ_HUERTO){ pzLoadDataset(obj); }
+    else { pzStorePayload(huerto, obj); }
   }, function(err){
-    console.error('[PZ-Firebase] onSnapshot error:', err);
+    console.error('[PZ-Firebase] onSnapshot error ('+huerto+'):', err);
   });
 }
+function pzFbStartListener(){ pzFbStartListenerFor('2018'); pzFbStartListenerFor('2024'); }
 /* pzFbInit(): inicializa la sincronización del presupuesto. Reusa la app de
    Firebase ya inicializada por el SCI/Cuaderno. */
 function pzFbInit(){
@@ -1911,50 +2397,18 @@ function pzInit(){
     }
     render();
     updateBanner();
-    // Botón 'Actualizar datos': solo visible para quien puede editar (admin).
+    try{ pzAplicarEtiquetasHuerto(); }catch(e){}
+    // Boton 'Actualizar datos': solo visible para quien puede editar (admin).
     try{
       var _btn = document.getElementById('pz-btn-upload');
       if(_btn){ _btn.style.display = (typeof can==='function' && can('presupuesto.editar')) ? '' : 'none'; }
     }catch(e){}
-    // Tipo de Cambio por defecto desde Indicadores Diarios (respaldo): si existe
-    // un Valor USD para el último mes con datos reales, usarlo como referencia
-    // cuando el dashboard arranca sin un TC traído por Excel en esta sesión.
-    try{
-      if(typeof window.getIndicadorMes==='function'){
-        var mesesReales = (window.MONTHS_WITH_REAL || (typeof MONTHS_WITH_REAL!=='undefined'?MONTHS_WITH_REAL:[])) || [];
-        var ultimoMes = mesesReales.length ? mesesReales[mesesReales.length-1] : null;
-        // Buscar el año de ese mes en los datos para resolver la temporada.
-        var anioUlt = null;
-        try{
-          var fuente = (typeof ACTIVE_DATA!=='undefined' && ACTIVE_DATA) ? ACTIVE_DATA : RAW;
-          var fila = ultimoMes ? fuente.find(function(d){ return d.MES===ultimoMes; }) : null;
-          anioUlt = fila ? fila['AÑO'] : null;
-        }catch(e){}
-        var indic = ultimoMes ? window.getIndicadorMes(ultimoMes, anioUlt) : null;
-        var tcInput = document.getElementById('rb-tc');
-        if(indic && indic.usd && tcInput){
-          // Solo si el usuario no ha modificado manualmente (heurística: marcar).
-          if(!tcInput.dataset.pzUserEdited){
-            tcInput.value = Number(indic.usd).toLocaleString('es-CL',{minimumFractionDigits:2,maximumFractionDigits:2});
-          }
-        }
-      }
-    }catch(e){}
-    // Superficie CZ 2018: tomar la suma de hectáreas de los paños 2018 del
-    // Cuaderno de Campo. Si existe, se rellena y se marca como derivada.
-    try{
-      if(typeof window.pzSumaHa2018==='function'){
-        var ha2018 = window.pzSumaHa2018();
-        var haInput = document.getElementById('rb-ha');
-        if(haInput && ha2018!=null && ha2018>0){
-          haInput.value = (Math.round(ha2018*100)/100).toLocaleString('es-CL',{minimumFractionDigits:2,maximumFractionDigits:2});
-          haInput.readOnly = true;
-          haInput.title = 'Calculado: suma de hectáreas de paños Plantación 2018 (Cuaderno de Campo)';
-          var sub = haInput.closest('.rb-item') ? haInput.closest('.rb-item').querySelector('.rb-sub') : null;
-          if(sub) sub.textContent = 'Ha · suma paños 2018 (Cuaderno)';
-        }
-      }
-    }catch(e){}
+    // El Tipo de Cambio del último mes cargado ya lo fija render()→refreshLastUpdate()
+    // (TC implícito del Excel, con respaldo al Valor USD de Indicadores Diarios para
+    // ese mismo mes). No se vuelve a tocar aquí para no pisarlo con un mes mal ordenado.
+    // Superficie del huerto activo: suma de hectáreas de los paños de esa
+    // Plantación (Cuaderno de Campo). Si no hay, queda editable manualmente.
+    try{ pzAplicarSuperficieHuerto(); }catch(e){}
   }catch(e){ console.error('PZ init error:', e); }
 }
 function pzReset(){ _pzReady = false; }
@@ -1984,8 +2438,47 @@ async function _pzSaveCriterios(items){
   STATE.cache.config[_PZ_CRIT_KEY] = obj;
   await dbPut('config', obj);
 }
-// Cambiar pestaña Dashboard / Criterios
+// Actualiza etiquetas dependientes del huerto activo (banner + subtitulo).
+function pzAplicarEtiquetasHuerto(){
+  var supLbl=document.getElementById('rb-sup-label');
+  if(supLbl) supLbl.textContent = 'Superficie CZ ' + PZ_HUERTO;
+  var sub=document.getElementById('subtitle-huerto');
+  if(sub) sub.textContent = 'Huerto Cerezos ' + PZ_HUERTO;
+}
+// Ajusta el campo Superficie según la Plantación del huerto activo. Si el
+// Cuaderno tiene paños de ese año, lo calcula y bloquea; si no, queda editable
+// conservando el valor guardado del huerto.
+function pzAplicarSuperficieHuerto(){
+  try{
+    var haInput=document.getElementById('rb-ha'); if(!haInput) return;
+    var sub = haInput.closest('.rb-item') ? haInput.closest('.rb-item').querySelector('.rb-sub') : null;
+    var suma=null;
+    if(typeof window.pzSumaHaPlantacion==='function') suma=window.pzSumaHaPlantacion(PZ_HUERTO);
+    else if(PZ_HUERTO==='2018' && typeof window.pzSumaHa2018==='function') suma=window.pzSumaHa2018();
+    if(suma!=null && suma>0){
+      haInput.value=(Math.round(suma*100)/100).toLocaleString('es-CL',{minimumFractionDigits:2,maximumFractionDigits:2});
+      haInput.readOnly=true;
+      haInput.title='Calculado: suma de hectareas de panos Plantacion '+PZ_HUERTO+' (Cuaderno de Campo)';
+      if(sub) sub.textContent='Ha \u00b7 suma panos '+PZ_HUERTO+' (Cuaderno)';
+    } else {
+      haInput.readOnly=false;
+      haInput.title='Editable \u00b7 Superficie en hectareas';
+      if(sub) sub.textContent='Ha \u00b7 ingresa la superficie';
+    }
+  }catch(e){}
+}
+// Cambia el huerto activo: snapshot del actual, restaura el destino y re-render.
+function pzSetHuerto(huerto){
+  if(huerto===PZ_HUERTO){ return; }
+  try{ pzSnapshotHuerto(); }catch(e){}
+  PZ_HUERTO = huerto;
+  try{ pzRestaurarHuerto(huerto); }catch(e){}
+  pzAplicarEtiquetasHuerto();
+  try{ pzAplicarSuperficieHuerto(); }catch(e){}
+}
+// Cambiar pestaña Dashboard 2018 / Dashboard 2024 / Formato GTT / Criterios
 window.pzCambiarTab = function(tab){
+  PZ_TAB = tab;
   var pDash=document.getElementById('pz-pane-dashboard');
   var pCrit=document.getElementById('pz-pane-criterios');
   document.querySelectorAll('.pz-tab-btn').forEach(function(b){
@@ -1994,33 +2487,41 @@ window.pzCambiarTab = function(tab){
     b.style.color=(t===tab)?'#1565c0':'#888';
     b.classList.toggle('pz-tab-active', t===tab);
   });
-  // "Formato GTT" reutiliza el pane del dashboard con el dataset GTT.
-  if(pDash) pDash.style.display=(tab==='dashboard'||tab==='gtt')?'':'none';
-  if(pCrit) pCrit.style.display=(tab==='criterios')?'':'none';
-  if(tab==='dashboard' || tab==='gtt'){
+  var esDash = (tab==='dashboard' || tab==='dashboard2024' || tab==='gtt');
+  // "Formato GTT" y ambos dashboards reutilizan el pane del dashboard.
+  if(pDash) pDash.style.display = esDash ? '' : 'none';
+  if(pCrit) pCrit.style.display = (tab==='criterios') ? '' : 'none';
+  var pEer=document.getElementById('pz-pane-eerha');
+  if(pEer) pEer.style.display = (tab==='eerha') ? '' : 'none';
+  if(esDash){
+    // Los dashboards fijan el huerto; GTT conserva el huerto activo.
+    if(tab==='dashboard')      pzSetHuerto('2018');
+    else if(tab==='dashboard2024') pzSetHuerto('2024');
     var vistaNueva = (tab==='gtt') ? 'GTT' : 'STD';
     var faltanGtt = (vistaNueva==='GTT' && (!ACTIVE_DATA_GTT || !ACTIVE_DATA_GTT.length));
-    // Aviso visible cuando se pide GTT pero no hay datos GTT cargados.
     var warn=document.getElementById('pz-gtt-warn');
     if(warn) warn.style.display = faltanGtt ? 'block' : 'none';
-    // Toolbar GTT (botón de resumen por hectárea): solo en la vista GTT.
     var tools=document.getElementById('pz-gtt-tools');
     if(tools) tools.style.display = (vistaNueva==='GTT') ? 'block' : 'none';
-    if(vistaNueva !== PZ_VISTA){
-      PZ_VISTA = vistaNueva;
-      try{ rebuildFilters(pzDataset()); }catch(e){}
-      try{ render(); }catch(e){}
-      try{ updateBanner(); }catch(e){}
-    }
+    // Re-render siempre (cambio de huerto o de vista lo requiere).
+    PZ_VISTA = vistaNueva;
+    pzAplicarEtiquetasHuerto();
+    try{ rebuildFilters(pzDataset()); }catch(e){}
+    try{ populateFilters(); }catch(e){}
+    try{ render(); }catch(e){}
+    try{ updateBanner(); }catch(e){}
     var h1=document.getElementById('pz-dash-title');
-    if(h1) h1.textContent = (PZ_VISTA==='GTT')
-      ? 'Dashboard Gerencial – Formato GTT Nahuelbuta'
-      : 'Dashboard Gerencial – Control Presupuesto';
+    if(h1) pzActualizarTitulo();
   }
   if(tab==='criterios'){
     pzPopularSelectoresCriterios();
     pzRenderCriterios();
   }
+  if(tab==='eerha'){
+    try{ pzCargarEERInputs(); }catch(e){}
+    try{ pzRenderEERHa(); }catch(e){}
+  }
+  pzActualizarTitulo();
 };
 // Popular los selectores de temporada y tipo de gasto
 window.pzPopularSelectoresCriterios = function(){
@@ -2070,12 +2571,13 @@ window.pzGuardarCriterio = async function(){
   var editId=document.getElementById('pz-crit-edit-id');
   if(editId && editId.value){
     var ex=items.find(function(c){ return c.id===editId.value; });
-    if(ex){ ex.temporada=temp; ex.tipo=tipo; ex.detalle=detalle.trim(); ex.modificado=new Date().toISOString(); ex.usuario=(STATE.user?(STATE.user.nombre||STATE.user.id):''); }
+    if(ex){ ex.huerto=ex.huerto||PZ_HUERTO; ex.temporada=temp; ex.tipo=tipo; ex.detalle=detalle.trim(); ex.modificado=new Date().toISOString(); ex.usuario=(STATE.user?(STATE.user.nombre||STATE.user.id):''); }
     editId.value='';
     document.querySelector('#pz-criterio-form .pz-crit-cancel-btn')?.remove();
   } else {
     items.push({
       id:'cr_'+Date.now()+'_'+Math.random().toString(36).slice(2,6),
+      huerto:PZ_HUERTO,
       temporada:temp, tipo:tipo, detalle:detalle.trim(),
       fecha:new Date().toISOString(),
       usuario:(STATE.user?(STATE.user.nombre||STATE.user.id):'')
@@ -2091,6 +2593,8 @@ window.pzGuardarCriterio = async function(){
 window.pzRenderCriterios = function(){
   var el=document.getElementById('pz-criterios-list'); if(!el) return;
   var items=_pzGetCriterios();
+  // Criterios del huerto activo (los antiguos sin huerto se asumen 2018).
+  items=items.filter(function(c){ return (c.huerto||'2018')===PZ_HUERTO; });
   // La temporada se controla con el filtro global del Dashboard (f-temporada)
   var filtro=(document.getElementById('f-temporada')||{}).value||'';
   var lbl=document.getElementById('pz-crit-temp-activa'); if(lbl) lbl.textContent = filtro || 'Todas';
@@ -2273,6 +2777,207 @@ window.pzExportarResumenHa = function(){
   try{ toast('Resumen por hectárea generado ('+fn+').'); }catch(e){}
 };
 
+/* ============ ESTADO DE RESULTADO POR HECTAREA (formato CEAgro) ============
+   Los costos se toman del presupuesto real (dataset del huerto/temporada
+   activos); produccion, precios y parametros se ingresan y se guardan por
+   huerto+temporada en config ('pz_eerha'). */
+var _PZ_EER_KEY = 'pz_eerha';
+function _pzEERMap(){
+  try{ var c=(STATE.cache.config && STATE.cache.config[_PZ_EER_KEY])||null;
+    return (c && c.data && typeof c.data==='object') ? c.data : {}; }catch(e){ return {}; }
+}
+function _pzEERSlot(){
+  var t=(document.getElementById('f-temporada')||{}).value||'todas';
+  return PZ_HUERTO+'|'+t;
+}
+function _pzSaveEERMap(map){
+  var obj={ key:_PZ_EER_KEY, data:map, _updatedAt:new Date().toISOString() };
+  STATE.cache.config=STATE.cache.config||{}; STATE.cache.config[_PZ_EER_KEY]=obj;
+  try{ dbPut('config', obj); }catch(e){}
+}
+var _EER_FIELDS=['eer-exp-kg','eer-exp-precio','eer-cat2-kg','eer-cat2-precio','eer-desc-kg','eer-desc-precio','eer-variedad','eer-cuartel','eer-anio','eer-precio-usd','eer-gfin'];
+function pzCargarEERInputs(){
+  var map=_pzEERMap(); var slot=map[_pzEERSlot()]||{};
+  _EER_FIELDS.forEach(function(id){ var el=document.getElementById(id); if(el) el.value=(slot[id]!=null?slot[id]:''); });
+}
+function pzGuardarEERInputs(){
+  var map=_pzEERMap(); var slot={};
+  _EER_FIELDS.forEach(function(id){ var el=document.getElementById(id); if(el) slot[id]=el.value||''; });
+  map[_pzEERSlot()]=slot; _pzSaveEERMap(map);
+}
+function _eerNum(id){ var el=document.getElementById(id); if(!el) return 0;
+  var v=(el.value||'').toString().replace(/\./g,'').replace(',','.').replace(/[^0-9.\-]/g,'');
+  var n=parseFloat(v); return isNaN(n)?0:n; }
+function _eerTxt(id){ var el=document.getElementById(id); return el?(el.value||'').trim():''; }
+
+// Arbol de costos reales con clasificacion GTT (Tipo GTT -> Cuenta GTT ->
+// Familia GTT), tomado del dataset GTT del huerto activo (ACTIVE_DATA_GTT).
+function pzEERCostTree(){
+  var base=(typeof ACTIVE_DATA_GTT!=='undefined' && ACTIVE_DATA_GTT && ACTIVE_DATA_GTT.length) ? ACTIVE_DATA_GTT : [];
+  var falta=!base.length;
+  var tempSel=(document.getElementById('f-temporada')||{}).value||'';
+  var rows=base.filter(function(d){ return !tempSel || _getTemporada(d)===tempSel; });
+  var tree={}, total=0;
+  rows.forEach(function(d){
+    var tipo=((d['TIPO DE COSTO']||'OTROS')+'').trim().toUpperCase();
+    var sub=((d['SUB-GRUPO']||'—')+'').trim();
+    var desc=((d['DESCRIPCION']||'—')+'').trim();
+    var r=parseFloat(d['MONTO REAL'])||0;
+    if(!r) return;
+    tree[tipo]=tree[tipo]||{t:0,sub:{}};
+    tree[tipo].sub[sub]=tree[tipo].sub[sub]||{t:0,desc:{}};
+    tree[tipo].sub[sub].desc[desc]=(tree[tipo].sub[sub].desc[desc]||0)+r;
+    tree[tipo].sub[sub].t+=r; tree[tipo].t+=r; total+=r;
+  });
+  return {tree:tree, total:total, tempSel:tempSel, falta:falta};
+}
+
+function pzBuildEERHaHTML(){
+  pzGuardarEERInputs();
+  var ha=_eerNum('rb-ha'); var tc=_eerNum('rb-tc');
+  var prod=[
+    {n:'Exportación', kg:_eerNum('eer-exp-kg'), pr:_eerNum('eer-exp-precio')},
+    {n:'Categoría 2 (bajo calibre)', kg:_eerNum('eer-cat2-kg'), pr:_eerNum('eer-cat2-precio')},
+    {n:'Descarte', kg:_eerNum('eer-desc-kg'), pr:_eerNum('eer-desc-precio')}
+  ];
+  var totKg=0, totProd=0;
+  prod.forEach(function(m){ m.ha=m.kg*m.pr; totKg+=m.kg; totProd+=m.ha; });
+  var precioProm = totKg>0 ? totProd/totKg : 0;
+
+  var CT=pzEERCostTree();
+  var tree=CT.tree, totalCostTot=CT.total;
+  var perHa=function(v){ return ha>0 ? v/ha : 0; };
+  var gfinTot=_eerNum('eer-gfin'); var gfinHa=perHa(gfinTot);
+  var totalCostHa=perHa(totalCostTot)+gfinHa;
+  function _eerCls(t){ if(/INDIRECT/.test(t)) return 'ind'; if(/DIRECT|COSECHA/.test(t)) return 'dir'; return 'otro'; }
+  var _tipos=Object.keys(tree);
+  var _dirTipos=_tipos.filter(function(t){return _eerCls(t)==='dir';}).sort();
+  var _indTipos=_tipos.filter(function(t){return _eerCls(t)==='ind';}).sort();
+  var _otroTipos=_tipos.filter(function(t){return _eerCls(t)==='otro';}).sort();
+  var directosTot=_dirTipos.reduce(function(s,t){return s+tree[t].t;},0);
+  var directosHa=perHa(directosTot);
+  var margenOpHa=totProd-directosHa;
+  var utilTotalHa=totProd-totalCostHa;
+  var rentab = totalCostHa!==0 ? (utilTotalHa/Math.abs(totalCostHa)*100) : null;
+
+  // Formatters
+  function f0(n){ if(n===''||n==null||isNaN(n)) return '—'; var s=(n<0?'-':'')+'$'+Math.round(Math.abs(n)).toLocaleString('es-CL'); return s; }
+  function fkg(n){ if(n===''||n==null||isNaN(n)) return '—'; return Math.round(n).toLocaleString('es-CL'); }
+  function fu(n){ if(n===''||n==null||isNaN(n)) return '—'; return 'US$ '+n.toLocaleString('es-CL',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+  function fp(n){ if(n===''||n==null||isNaN(n)) return '—'; return n.toLocaleString('es-CL',{minimumFractionDigits:0,maximumFractionDigits:1})+'%'; }
+  function neg(n){ return (typeof n==='number'&&n<0)?'color:#c0392b':''; }
+
+  var HEAD='background:#1565c0;color:#fff;font-weight:700';
+  var SUBT='background:#eef4fb;font-weight:800';
+  var YEL='background:#fff7cc';
+  var TD='padding:5px 9px;border-bottom:1px solid #e6ecf3;font-size:12.5px';
+  var TDr='padding:5px 9px;border-bottom:1px solid #e6ecf3;font-size:12.5px;text-align:right;font-variant-numeric:tabular-nums';
+
+  function bandRow(txt){ return '<tr><td colspan="6" style="'+TD+';'+HEAD+';border-bottom:1px solid #0f4c9a">'+txt+'</td></tr>'; }
+  function colHdr(first){ return '<tr style="color:#64748b;background:#f1f6fc">'+
+    '<th style="'+TD+';text-align:left">'+first+'</th>'+
+    '<th style="'+TDr+'">kg/ha</th><th style="'+TDr+'">$/kg</th><th style="'+TDr+'">US$/kg</th><th style="'+TDr+'">$ por ha</th><th style="'+TDr+'">%</th></tr>'; }
+  function dataRow(name, kgha, dkg, ukg, porha, pctv, style){
+    style=style||'';
+    return '<tr style="'+style+'">'+
+      '<td style="'+TD+'">'+name+'</td>'+
+      '<td style="'+TDr+'">'+fkg(kgha)+'</td>'+
+      '<td style="'+TDr+'">'+f0(dkg)+'</td>'+
+      '<td style="'+TDr+'">'+fu(ukg)+'</td>'+
+      '<td style="'+TDr+';'+YEL+';'+neg(porha)+'">'+f0(porha)+'</td>'+
+      '<td style="'+TDr+'">'+fp(pctv)+'</td></tr>';
+  }
+
+  var H='';
+  H+='<table style="width:100%;min-width:560px;border-collapse:collapse;border:1px solid #cbd8e6;border-radius:8px;overflow:hidden">';
+  // Produccion
+  H+=bandRow('PRODUCCIÓN HUERTO');
+  H+=colHdr('Mercado');
+  prod.forEach(function(m){
+    H+=dataRow(m.n, m.kg, m.pr, (tc?m.pr/tc:null), m.ha, (totKg>0?m.kg/totKg*100:null));
+  });
+  H+=dataRow('TOTAL kg / ha', totKg, precioProm, (tc?precioProm/tc:null), totProd, 100, SUBT);
+
+  // Costos directos
+  function costSection(title, tipo){
+    var node=tree[tipo]; if(!node) return 0;
+    H+=bandRow(title);
+    H+=colHdr('Ítem');
+    Object.keys(node.sub).sort().forEach(function(sub){
+      var sn=node.sub[sub], v=perHa(sn.t);
+      H+=dataRow(sub, (precioProm>0?v/precioProm:null), (totKg>0?v/totKg:null), (totKg>0&&tc?(v/totKg)/tc:null), v, (totalCostHa>0?v/totalCostHa*100:null), 'font-weight:600');
+      var fams=Object.keys(sn.desc).sort();
+      if(!(fams.length===1 && fams[0]===sub)){
+        fams.forEach(function(fm){ var fv=perHa(sn.desc[fm]);
+          H+=dataRow('&nbsp;&nbsp;&nbsp;'+fm, (precioProm>0?fv/precioProm:null), (totKg>0?fv/totKg:null), (totKg>0&&tc?(fv/totKg)/tc:null), fv, (totalCostHa>0?fv/totalCostHa*100:null), 'color:#64748b');
+        });
+      }
+    });
+    var tv=perHa(node.t);
+    H+=dataRow('Sub-Total '+title, (precioProm>0?tv/precioProm:null), (totKg>0?tv/totKg:null), (totKg>0&&tc?(tv/totKg)/tc:null), tv, (totalCostHa>0?tv/totalCostHa*100:null), SUBT);
+    return node.t;
+  }
+  _dirTipos.forEach(function(t){ costSection(t, t); });
+
+  // Margen operacional
+  H+=bandRow('UTILIDAD / MARGEN OPERACIONAL');
+  H+=dataRow('Margen Operacional / ha', null, null, (tc?margenOpHa/tc:null), margenOpHa, null, 'font-weight:800');
+
+  _indTipos.forEach(function(t){ costSection(t, t); });
+  _otroTipos.forEach(function(t){ costSection(t, t); });
+
+  // Gastos financieros de grupo (ingreso manual)
+  if(gfinTot){
+    H+=bandRow('GASTOS FINANCIEROS (financiamiento grupo)');
+    H+=dataRow('Intereses financiamiento grupo (manual)', (precioProm>0?gfinHa/precioProm:null), (totKg>0?gfinHa/totKg:null), (totKg>0&&tc?(gfinHa/totKg)/tc:null), gfinHa, (totalCostHa>0?gfinHa/totalCostHa*100:null), 'font-weight:600');
+  }
+
+  // Totales
+  H+=bandRow('RESULTADO');
+  H+=dataRow('TOTAL COSTOS / ha', (precioProm>0?totalCostHa/precioProm:null), (totKg>0?totalCostHa/totKg:null), (totKg>0&&tc?(totalCostHa/totKg)/tc:null), totalCostHa, 100, SUBT);
+  H+=dataRow('UTILIDAD TOTAL / ha', null, null, (tc?utilTotalHa/tc:null), utilTotalHa, null, 'font-weight:800;'+SUBT);
+  H+='<tr style="'+SUBT+'"><td style="'+TD+'">Rentabilidad Sobre Costos</td><td colspan="4" style="'+TD+'"></td><td style="'+TDr+';'+neg(rentab)+'">'+fp(rentab)+'</td></tr>';
+  H+='</table>';
+
+  // Parametros
+  var boxItem=function(l,v){ return '<div style="border:1px solid #e3e8ee;border-radius:8px;padding:8px 12px"><div style="font-size:10px;color:#94a3b8;font-weight:700;text-transform:uppercase">'+l+'</div><div style="font-size:14px;font-weight:700;color:#23303d">'+(v||'—')+'</div></div>'; };
+  var params='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:14px">'+
+    boxItem('Variedad', _eerTxt('eer-variedad'))+
+    boxItem('Nombre Cuartel/Huerto', _eerTxt('eer-cuartel'))+
+    boxItem('Superficie (ha)', ha? ha.toLocaleString('es-CL'):'')+
+    boxItem('Año Plantación', _eerTxt('eer-anio'))+
+    boxItem('Precio Venta Prom. Export', _eerTxt('eer-precio-usd')? ('US$ '+_eerTxt('eer-precio-usd')):'')+
+    boxItem('Tipo de Cambio (USD)', tc? tc.toLocaleString('es-CL'):'')+
+    '</div>';
+
+  var titulo='<div style="text-align:center;margin-bottom:12px">'+
+    '<div style="font-size:16px;font-weight:800;color:#23303d;letter-spacing:.5px">CEREZOS · ESTADO DE RESULTADO OPERACIÓN POR HECTÁREA</div>'+
+    '<div style="font-size:12.5px;color:#64748b">Huerto Cerezos '+PZ_HUERTO+' · Temporada '+(CT.tempSel||'(todas)')+'</div></div>';
+
+  var avisoGtt = CT.falta ? '<div style="background:#fff8e1;border:1px solid #ffe082;color:#8a6d00;border-radius:9px;padding:10px 14px;font-size:12.5px;margin-bottom:12px">\u26a0\ufe0f No hay datos con clasificaci\u00f3n GTT cargados para este huerto. Los costos aparecer\u00e1n en blanco hasta que uses \u201cActualizar datos\u201d y vuelvas a seleccionar el Excel (las columnas GTT no se guardan en la nube).</div>' : '';
+  var Hwrap='<div style="overflow-x:auto;-webkit-overflow-scrolling:touch">'+H+'</div>';
+  return titulo+avisoGtt+Hwrap+params+
+    '<div style="font-size:10.5px;color:#94a3b8;margin-top:10px">Fuente: Control de Presupuesto SCI · costos reales del huerto/temporada; producción y precios ingresados manualmente.</div>';
+}
+
+window.pzRenderEERHa=function(){
+  var box=document.getElementById('eerha-report'); if(!box) return;
+  try{ box.innerHTML=pzBuildEERHaHTML(); }catch(e){ console.error('EERHa render:',e); box.innerHTML='<div style="color:#c0392b;padding:16px">Error al generar el reporte.</div>'; }
+};
+
+window.pzImprimirEERHa=function(){
+  var inner;
+  try{ inner=pzBuildEERHaHTML(); }catch(e){ inner='<p>Error al generar.</p>'; }
+  var w=window.open('','_blank'); if(!w){ try{toast('Permite ventanas emergentes para imprimir.');}catch(e){} return; }
+  w.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>Estado de Resultado por Hectárea</title>'+
+    '<style>@page{size:letter portrait;margin:12mm}body{font-family:Arial,Helvetica,sans-serif;color:#23303d;padding:6px}'+
+    'table{width:100%!important}th,td{-webkit-print-color-adjust:exact;print-color-adjust:exact}'+
+    '*{-webkit-print-color-adjust:exact;print-color-adjust:exact}</style></head><body>'+inner+'</body></html>');
+  w.document.close();
+  setTimeout(function(){ try{ w.focus(); w.print(); }catch(e){} }, 350);
+};
+
+
 window.PZ = {
   init: function(){ pzWireFilters(); pzInit(); },
   reset: pzReset,
@@ -2284,6 +2989,12 @@ window.PZ = {
   closeDetalleModal: closeDetalleModal,
   filterDetalleTable: filterDetalleTable,
   openDetalleModal: openDetalleModal,
+  openDetalleSubgrupo: openDetalleSubgrupo,
+  openComparadorModal: openComparadorModal,
+  cerrarComparador: cerrarComparador,
+  refrescarComparador: refrescarComparador,
+  verDetalleComparado: verDetalleComparado,
+  exportarComparador: exportarComparador,
   serializeDataset: pzSerializeDataset,
   loadDataset: pzLoadDataset,
   fbInit: pzFbInit,

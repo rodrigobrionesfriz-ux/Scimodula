@@ -3,21 +3,28 @@
    de index.html y el SW no registraba). Estrategia: cache-first con
    precache versionado; la red actualiza el cache en segundo plano. */
 
-const CACHE = 'sci-v92';
+/* VERSION: único punto a cambiar en cada release. CACHE y las refs ?v= de
+   ASSETS se derivan de aquí, así no pueden volver a desalinearse (hasta v107
+   la lista quedó congelada en ?v=99 y el precache no servía a la app, que
+   pedía otra URL: en terreno sin señal eso dejaba la app sin archivos). */
+const VERSION = 149;
+const CACHE = 'sci-v' + VERSION;
+const V = '?v=' + VERSION;
 
 const ASSETS = [
   './',
   './index.html',
   './manifest.json',
-  './css/styles.css?v=92',
-  './js/core.js?v=92',
-  './js/inventario.js?v=92',
-  './js/cuaderno.js?v=92',
-  './js/huerto.js?v=92',
-  './js/presupuesto.js?v=92',
-  './js/ordencompra.js?v=92',
-  './js/actualizacion.js?v=92',
-  './data/presupuesto-data.js?v=92',
+  './css/styles.css' + V,
+  './js/core.js' + V,
+  './js/inventario.js' + V,
+  './js/cuaderno.js' + V,
+  './js/huerto.js' + V,
+  './js/presupuesto.js' + V,
+  './js/ordencompra.js' + V,
+  './js/actualizacion.js' + V,
+  './js/helada.js' + V,
+  './data/presupuesto-data.js' + V,
   './icons/icon-192.png',
   './icons/icon-512.png'
 ];

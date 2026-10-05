@@ -9,7 +9,7 @@
 
 /* ═══════════════ DB LAYER (IndexedDB) ═══════════════ */
 const DB_NAME='SCI_DB';
-const DB_VERSION=12;
+const DB_VERSION=14;   // v129: nuevo store 'clima' (histórico diario de temperaturas)
 const STORES=[
   ['users','id'],
   ['products','codigoInterno'],
@@ -32,7 +32,9 @@ const STORES=[
   ['combustible','id'],
   ['config','key'],
   ['aihprop','id'],
-  ['aihver','id']
+  ['aihver','id'],
+  ['heladas','id'],
+  ['clima','fecha']
 ];
 let DB=null;
 
@@ -67,7 +69,7 @@ function dbPut(store,obj){
     // el mismo registro. No se aplica al aplicar un cambio remoto (para no
     // re-sellar lo que ya viene de la nube).
     try{
-      var ACUM = {'invplantas':1,'conteos':1,'estimaciones':1,'movements':1,'mantenciones':1,'inventoryCounts':1,'lots':1,'aihprop':1};
+      var ACUM = {'invplantas':1,'conteos':1,'estimaciones':1,'movements':1,'mantenciones':1,'inventoryCounts':1,'lots':1,'aihprop':1,'heladas':1,'clima':1,'combustible':1};
       if(ACUM[store] && obj && typeof obj==='object' && !(typeof SCIFB!=='undefined' && SCIFB.applyingRemote)){
         obj._mod = Date.now();
       }
@@ -191,13 +193,64 @@ var SCIFB = {
   applyingRemote: false,
   saveTimer: null,
   // Tablas que se sincronizan (todas las del SCI)
-  stores: ['users','products','warehouses','groups','productTypes','providers','customers','costCenters','inventoryCounts','movements','ordenescompra','lots','config','mantenciones','conteos','estimaciones','invplantas','combustible','aihprop']
+  stores: ['users','products','warehouses','groups','productTypes','providers','customers','costCenters','inventoryCounts','movements','ordenescompra','lots','config','mantenciones','conteos','estimaciones','invplantas','combustible','aihprop','heladas','clima']
 };
 
 function sciFbDocRef(){
   if(typeof firebase==='undefined' || !firebase.apps.length) return null;
   return firebase.firestore().collection('sci').doc('main');
 }
+
+/* ─── Particionado del payload (v141) ─────────────────────────────────────
+   Firestore limita cada documento a ~1 MB. El payload del SCI ya superaba ese
+   tope, así que se divide en trozos: sci/main_p0, sci/main_p1, ... y el doc
+   sci/main solo guarda metadatos (_version, _chunks). Todo se escribe en un
+   batch atómico: los trozos y el doc principal cambian juntos o no cambia
+   nada. Cada trozo lleva el _version para detectar lecturas a medio camino.
+   Compatibilidad: si sci/main aún trae 'payload' (formato antiguo) se usa. */
+var SCI_CHUNK_CHARS = 300000;   // 300k unidades UTF-16 ≤ ~900 KB en UTF-8
+function sciFbChunkRef(i){
+  return firebase.firestore().collection('sci').doc('main_p'+i);
+}
+async function _sciFbLeerRemoto(data){
+  if(!data) return null;
+  if(data.payload){
+    return (typeof data.payload==='string') ? JSON.parse(data.payload) : data.payload;
+  }
+  var n = data._chunks|0;
+  if(!n) return null;
+  var snaps = [];
+  for(var i=0;i<n;i++){ snaps.push(sciFbChunkRef(i).get()); }
+  snaps = await Promise.all(snaps);
+  try{ for(var r=0;r<n;r++) FBCOUNT.read(); }catch(e){}
+  var partes = [];
+  for(var k=0;k<n;k++){
+    var d = snaps[k] && snaps[k].exists ? snaps[k].data() : null;
+    if(!d || d._version !== data._version){
+      throw new Error('Trozo '+k+' desalineado (escritura en curso)');
+    }
+    partes.push(d.data||'');
+  }
+  return JSON.parse(partes.join(''));
+}
+/* Diagnóstico: peso de cada store en KB (ordenado de mayor a menor). */
+function _sciFbTamanos(obj){
+  var out = [];
+  Object.keys(obj||{}).forEach(function(k){
+    var kb = 0; try{ kb = Math.round(JSON.stringify(obj[k]).length/1024); }catch(e){}
+    out.push({store:k, registros:Array.isArray(obj[k])?obj[k].length:'-', kb:kb});
+  });
+  out.sort(function(a,b){ return b.kb-a.kb; });
+  return out;
+}
+async function sciFbDiagnosticoTamano(){
+  var obj = {};
+  for(var i=0;i<SCIFB.stores.length;i++){ obj[SCIFB.stores[i]] = await dbAll(SCIFB.stores[i]); }
+  var t = _sciFbTamanos(obj);
+  try{ console.table(t); }catch(e){ console.log(t); }
+  return t;
+}
+try{ window.sciFbDiagnosticoTamano = sciFbDiagnosticoTamano; }catch(e){}
 
 // Inicializa la sincronización del SCI (Firebase ya debe estar inicializado por el Cuaderno)
 function sciFbInit(){
@@ -300,11 +353,34 @@ function sciFbStartListener(){
 }
 
 // Aplica el estado remoto a IndexedDB local
+/* Firma barata de la lista de movimientos: permite distinguir un snapshot que
+   trae cambios reales de uno que solo devuelve el eco de lo que acabamos de
+   subir. Evita recalcular todo el stock en cada notificación de Firebase.     */
+function _sigMovimientos(arr){
+  var n=0, s=0;
+  if(!Array.isArray(arr)) return '0:0';
+  for(var i=0;i<arr.length;i++){
+    var m=arr[i]; if(!m) continue;
+    n++;
+    var u=String(m.numero||'')+'|'+String(m.updatedAt||m.fecha||'')+(m.anulado?'|A':'');
+    for(var c=0;c<u.length;c++){ s=(s*31+u.charCodeAt(c))>>>0; }
+  }
+  return n+':'+s;
+}
+
 async function sciFbApplyRemote(data){
+  var llegaronMovimientos = false;
   try {
     SCIFB.applyingRemote = true;
-    if(data.payload){
-      var remote = (typeof data.payload === 'string') ? JSON.parse(data.payload) : data.payload;
+    var remote = null;
+    try{ remote = await _sciFbLeerRemoto(data); }
+    catch(e){
+      // Trozos aún no alineados: reintentar una vez en 2 s.
+      console.warn('[SCI-Firebase]', e && e.message, '→ reintento');
+      await new Promise(function(r){ setTimeout(r, 2000); });
+      remote = await _sciFbLeerRemoto(data);
+    }
+    if(remote){
       // Stores acumulativos: fusión por clave (definido globalmente en
       // SCI_STORES_ACUMULATIVOS) para que ningún dispositivo borre datos de otro.
       for(var i=0;i<SCIFB.stores.length;i++){
@@ -330,6 +406,9 @@ async function sciFbApplyRemote(data){
             for(var j=0;j<fusionado.length;j++){
               try{ await dbPutLocal(store, fusionado[j]); }catch(e){}
             }
+            if(store==='movements' && _sigMovimientos(localArr)!==_sigMovimientos(fusionado)){
+              llegaronMovimientos = true;
+            }
           } else {
             // Stores de catálogo/configuración: reemplazo directo.
             await dbClear(store);
@@ -341,11 +420,19 @@ async function sciFbApplyRemote(data){
       }
       SCIFB.lastVersion = data._version || SCIFB.lastVersion;
       await reloadCache();
-      // Refrescar la pantalla actual del SCI
-      if(typeof navigate === 'function' && typeof STATE !== 'undefined' && STATE.page){
-        try{ navigate(STATE.page); }catch(e){}
+      // El stock NO se sincroniza: es un valor DERIVADO de los movimientos.
+      // Si llegaron movimientos de otro dispositivo, hay que reconstruirlo aquí
+      // o los saldos quedarían con el valor anterior hasta el próximo ingreso.
+      if(llegaronMovimientos && typeof _ejecutarRecalculoStock==='function'){
+        try{
+          await _ejecutarRecalculoStock();   // recalcula y hace reloadCache()
+        }catch(e){ console.error('[SCI-Firebase] Recálculo tras sync falló:', e); }
       }
-      sciFbIndicator('online', 'Inventario actualizado desde la nube');
+      // Redibujar la pantalla actual (solo vistas de consulta)
+      _refrescarVistaSegura();
+      sciFbIndicator('online', llegaronMovimientos
+        ? 'Movimientos sincronizados · saldos recalculados'
+        : 'Inventario actualizado desde la nube');
     }
   } catch(e){
     console.error('[SCI-Firebase] Error al aplicar cambio remoto:', e);
@@ -353,6 +440,29 @@ async function sciFbApplyRemote(data){
     SCIFB.applyingRemote = false;
   }
 }
+
+/* ─── Refresco de la vista tras un cambio de datos de fondo ────────────────
+   Vuelve a dibujar la pantalla actual SOLO si es una vista de consulta. En
+   páginas con formulario (entradas, salidas, tomas, conteos...) redibujar
+   borraría lo que el usuario está escribiendo, así que se omite. Tampoco se
+   refresca con un modal abierto. Devuelve true si alcanzó a redibujar.        */
+var _SCI_PAGINAS_CONSULTA = {
+  dashboard:1, stock:1, movimientos:1, productos:1, bodegas:1, proveedores:1,
+  clientes:1, centrosCosto:1, tomas:1, usuarios:1, auditoria:1,
+  ordenesCompra:1, repCombustible:1, sistemasExternos:1
+};
+function _refrescarVistaSegura(){
+  try{
+    if(typeof navigate!=='function') return false;
+    if(typeof STATE==='undefined' || !STATE.page) return false;
+    if(!_SCI_PAGINAS_CONSULTA[STATE.page]) return false;
+    var bd=document.getElementById('modalBackdrop');
+    if(bd && bd.classList.contains('show')) return false;
+    navigate(STATE.page, true);   // true = no apilar en el historial
+    return true;
+  }catch(e){ return false; }
+}
+try{ window._refrescarVistaSegura=_refrescarVistaSegura; }catch(e){}
 
 // Envía todo el estado del SCI a la nube
 /* ─── Lápidas de eliminación (tombstones) ───────────────────────────────
@@ -398,7 +508,7 @@ function _sciEstaEliminado(store, rec, key){
    dispositivo borre datos que otro creó. */
 var SCI_STORES_ACUMULATIVOS = {
   'invplantas':1,'conteos':1,'estimaciones':1,'movements':1,'combustible':1,'aihprop':1,
-  'mantenciones':1,'inventoryCounts':1,'audit':1,'lots':1,'ordenescompra':1
+  'mantenciones':1,'inventoryCounts':1,'audit':1,'lots':1,'ordenescompra':1,'heladas':1,'clima':1
 };
 function _sciStoreKey(store){
   try{ for(var i=0;i<STORES.length;i++){ if(STORES[i][0]===store) return STORES[i][1]; } }catch(e){}
@@ -442,16 +552,14 @@ async function sciFbPush(immediate){
       try{
         var snap = await ref.get(); try{FBCOUNT.read();}catch(e){}
         if(snap && snap.exists){
-          var rdata = snap.data();
-          if(rdata && rdata.payload){
-            remoteObj = (typeof rdata.payload==='string') ? JSON.parse(rdata.payload) : rdata.payload;
-          }
+          remoteObj = await _sciFbLeerRemoto(snap.data());
         }
-      }catch(e){ /* si no se puede leer, se sube lo local */ }
+      }catch(e){ console.warn('[SCI-Firebase] No se pudo leer remoto antes de subir:', e && e.message); /* se sube lo local */ }
 
       var newVersion = Date.now();
       SCIFB.lastVersion = newVersion;
       var payloadObj = {};
+      var _movCambiaron = false;
       for(var i=0;i<SCIFB.stores.length;i++){
         var store = SCIFB.stores[i];
         var localData = await dbAll(store);
@@ -461,6 +569,7 @@ async function sciFbPush(immediate){
           // Reflejar la fusión también en la base local, para quedar consistentes.
           try{
             if(payloadObj[store].length !== localData.length){
+              if(store==='movements' && _sigMovimientos(localData)!==_sigMovimientos(payloadObj[store])) _movCambiaron = true;
               SCIFB.applyingRemote = true;
               await dbClear(store);
               for(var m=0;m<payloadObj[store].length;m++){ try{ await dbPutLocal(store, payloadObj[store][m]); }catch(e){} }
@@ -472,29 +581,45 @@ async function sciFbPush(immediate){
         }
       }
       var payload = JSON.stringify(payloadObj);
-      // Guarda de tamaño: Firestore limita cada documento a ~1 MB. Si el payload
-      // se acerca, avisar (el guardado fallaría y no se sincronizaría nada).
-      if(payload.length > 950000){
-        try{ sciFbIndicator('error','Datos demasiado grandes para la nube'); }catch(e){}
-        try{ toast('⚠ Sincronización en riesgo','Los datos se acercan al límite de la nube (1 MB). Contacte al administrador para depurar registros antiguos.','warning'); }catch(e){}
-        console.warn('Payload SCI cercano al límite:', payload.length, 'bytes');
+      // Partir el payload en trozos (ver SCI_CHUNK_CHARS). El batch de
+      // Firestore admite hasta 10 MB y 500 operaciones: avisar al pasar 8 MB.
+      var chunks = [];
+      for(var c=0;c<payload.length;c+=SCI_CHUNK_CHARS){ chunks.push(payload.slice(c, c+SCI_CHUNK_CHARS)); }
+      if(!chunks.length) chunks.push('');
+      if(payload.length > 8000000){
+        try{ toast('⚠ Sincronización en riesgo','Los datos del inventario superan 8 MB. Contacte al administrador para depurar registros antiguos.','warning'); }catch(e){}
+        try{ console.warn('Payload SCI grande:', payload.length); console.table(_sciFbTamanos(payloadObj)); }catch(e){}
       }
       var userName = '';
       try { if(STATE && STATE.user){ userName = STATE.user.nombre || STATE.user.id || ''; } }catch(e){}
-      try{FBCOUNT.write();}catch(e){}
-      await ref.set({
-        payload: payload,
+      var batch = firebase.firestore().batch();
+      for(var q=0;q<chunks.length;q++){
+        batch.set(sciFbChunkRef(q), { data: chunks[q], _version: newVersion });
+        try{FBCOUNT.write();}catch(e){}
+      }
+      // set() sin merge reemplaza el doc principal: elimina el 'payload' antiguo.
+      batch.set(ref, {
+        _chunks: chunks.length,
+        _size: payload.length,
         _version: newVersion,
         _clientId: SCIFB.clientId,
         _updatedBy: userName,
         _updatedAt: firebase.firestore.FieldValue.serverTimestamp()
       });
+      try{FBCOUNT.write();}catch(e){}
+      await batch.commit();
       SCIFB.online = true;
       SCIFB.pendiente = false;
       try{ localStorage.removeItem('SCI_SYNC_PENDIENTE'); }catch(e){}
       sciFbIndicator('online', 'Inventario guardado en la nube');
       // Si fusionamos algo nuevo desde la nube, refrescar el cache y la vista.
       try{ if(typeof reloadCache==='function'){ await reloadCache(); } }catch(e){}
+      // Si la fusión trajo movimientos de otro dispositivo, los saldos locales
+      // quedan desfasados: recalcular y redibujar sin esperar a reabrir la app.
+      if(_movCambiaron && typeof _ejecutarRecalculoStock==='function'){
+        try{ await _ejecutarRecalculoStock(); _refrescarVistaSegura(); }
+        catch(e){ console.error('[SCI-Firebase] Recálculo tras fusión falló:', e); }
+      }
     } catch(err){
       SCIFB.online = false;
       SCIFB.pendiente = true;
@@ -535,7 +660,7 @@ async function sha256(text){
 const STATE={
   user:null,
   page:'dashboard',
-  cache:{products:[],warehouses:[],groups:[],productTypes:[],providers:[],customers:[],costCenters:[],inventoryCounts:[],movements:[],ordenescompra:[],stock:[],lots:[],users:[],config:{},mantenciones:[],conteos:[],estimaciones:[],invplantas:[],combustible:[],aihprop:[]}
+  cache:{products:[],warehouses:[],groups:[],productTypes:[],providers:[],customers:[],costCenters:[],inventoryCounts:[],movements:[],ordenescompra:[],stock:[],lots:[],users:[],config:{},mantenciones:[],conteos:[],estimaciones:[],invplantas:[],combustible:[],aihprop:[],heladas:[],clima:[]}
 };
 
 // ── Advertencia al cerrar / recargar / volver atrás (evita salir por error) ──
@@ -690,15 +815,17 @@ const PERMISSIONS=[
   ['aih.ver','Acceder a Actualización Inventario Huerto'],
   ['aih.proponer','Proponer cambios de estado de plantas (terreno)'],
   ['aih.aprobar','Aprobar/rechazar propuestas y restaurar versiones del inventario'],
+  ['helada.ver','Ver el Control de Heladas y sus registros'],
+  ['helada.registrar','Registrar y editar controles de helada de las torres'],
 ];
 const ROLE_PERMS={
   'admin':PERMISSIONS.map(p=>p[0]),
   // Gerente: ve todo (solo lectura en general, pero acceso completo de visualización)
-  'gerente':['productos.ver','bodegas.ver','proveedores.ver','clientes.ver','centrosCosto.ver','tomas.ver','movimientos.ver','stock.ver','usuarios.ver','config.ver','cuaderno.ver','mantenciones.ver','presupuesto.ver'],
+  'gerente':['productos.ver','bodegas.ver','proveedores.ver','clientes.ver','centrosCosto.ver','tomas.ver','movimientos.ver','stock.ver','usuarios.ver','config.ver','cuaderno.ver','mantenciones.ver','presupuesto.ver','helada.ver'],
   // Admin. Agrónomo: gestiona todo el Cuaderno de Campo + ve el inventario
-  'agronomo':['productos.ver','bodegas.ver','stock.ver','movimientos.ver','config.ver','cuaderno.ver','cuaderno.editar','cuaderno.confirmar','cuaderno.panos','conteos.ver','conteos.revisar','invplantas.ver','invplantas.revisar','presupuesto.ver','aih.ver','aih.proponer'],
-  'operador':['productos.ver','productos.crear','bodegas.ver','proveedores.ver','proveedores.crear','clientes.ver','clientes.crear','centrosCosto.ver','centrosCosto.crear','movimientos.ver','movimientos.crear','combustible.registrar','stock.ver','tomas.ver','tomas.crear','config.ver'],
-  'consulta':['productos.ver','bodegas.ver','proveedores.ver','clientes.ver','centrosCosto.ver','movimientos.ver','stock.ver','tomas.ver','config.ver'],
+  'agronomo':['productos.ver','bodegas.ver','stock.ver','movimientos.ver','config.ver','cuaderno.ver','cuaderno.editar','cuaderno.confirmar','cuaderno.panos','conteos.ver','conteos.revisar','invplantas.ver','invplantas.revisar','presupuesto.ver','aih.ver','aih.proponer','helada.ver','helada.registrar'],
+  'operador':['productos.ver','productos.crear','bodegas.ver','proveedores.ver','proveedores.crear','clientes.ver','clientes.crear','centrosCosto.ver','centrosCosto.crear','movimientos.ver','movimientos.crear','combustible.registrar','stock.ver','tomas.ver','tomas.crear','config.ver','helada.ver','helada.registrar'],
+  'consulta':['productos.ver','bodegas.ver','proveedores.ver','clientes.ver','centrosCosto.ver','movimientos.ver','stock.ver','tomas.ver','config.ver','helada.ver'],
   // OP. CONTEOS: solo el módulo de conteos en terreno
   'opconteos':['conteos.ver','invplantas.ver','aih.ver','aih.proponer'],
   // OP. COMBUSTIBLE: solo el formulario de salida de combustible
@@ -768,7 +895,12 @@ const TIPOS_MOV_SAL=[
   {tipo:'TRASPASO BODEGA',       prefijo:'TRB', label:'Traspaso entre bodega',        icon:'🔄', reqDoc:false, reqCli:false, reqCC:false, reqBodDest:true,  validaUnicidadDoc:false},
   {tipo:'MERMA',                 prefijo:'MER', label:'Merma',                        icon:'🗑️', reqDoc:false, reqCli:false, reqCC:false, reqBodDest:false, validaUnicidadDoc:false},
   {tipo:'DEVOLUCION PROVEEDOR',  prefijo:'DEV', label:'Devolución a proveedor',       icon:'↪️', reqDoc:true,  reqCli:false, reqCC:false, reqBodDest:false, validaUnicidadDoc:false, reqProv:true},
-  {tipo:'TOMA INVENTARIO SAL',   prefijo:'TIS', label:'Salida por toma de inventario',icon:'📋', reqDoc:false, reqCli:false, reqCC:false, reqBodDest:false, validaUnicidadDoc:false}
+  {tipo:'TOMA INVENTARIO SAL',   prefijo:'TIS', label:'Salida por toma de inventario',icon:'📋', reqDoc:false, reqCli:false, reqCC:false, reqBodDest:false, validaUnicidadDoc:false},
+  // Generado por el formulario de combustible (que además registra equipo y
+  // horómetro). No se ofrece al crear una salida manual —de ahí `oculto`— pero
+  // debe existir aquí: sin él, getMovCfg devolvía null y el movimiento no se
+  // podía editar ni guardar.
+  {tipo:'CONSUMO COMBUSTIBLE',   prefijo:'SAL', label:'Consumo de combustible',       icon:'⛽', reqDoc:false, reqCli:false, reqCC:true,  reqBodDest:false, validaUnicidadDoc:false, oculto:true}
 ];
 
 function getMovCfg(tipo,tipoMov){
@@ -829,6 +961,11 @@ async function reloadCache(){
   STATE.cache.conteos=await dbAll('conteos');
   STATE.cache.invplantas=await dbAll('invplantas');
   STATE.cache.aihprop=await dbAll('aihprop');
+  STATE.cache.heladas=await dbAll('heladas');
+  STATE.cache.clima=await dbAll('clima');
+  // 'combustible' se sincroniza y se escribía en cache solo al registrar una
+  // salida: tras recargar la app quedaba vacío hasta el primer consumo nuevo.
+  STATE.cache.combustible=await dbAll('combustible');
   // 'stock' es derivado y desde v82 ya NO se sincroniza: la única vía que lo
   // cargaba en memoria era applyRemote. Debe leerse aquí explícitamente.
   STATE.cache.stock=await dbAll('stock');
@@ -953,6 +1090,8 @@ async function doLogin(){
         }
         await new Promise(r=>setTimeout(r,2000)); // margen tras el primer snapshot
         try{ if(typeof reloadCache==='function') await reloadCache(); }catch(e){}
+        // Nombres de equipos/torres a forma canónica (idempotente, v144)
+        try{ if(typeof sciNormalizarNombresEquipos==='function' && STATE.user && STATE.user.role==='admin') await sciNormalizarNombresEquipos(); }catch(e){ console.error('Normalización de equipos falló:',e); }
         await new Promise(r=>setTimeout(r,1000));
         const check=await detectarInconsistenciaStock();
         if(!check.ok&&check.diferencias.length>0){
@@ -965,7 +1104,14 @@ async function doLogin(){
               const res=await _ejecutarRecalculoStock();
               const check2=await detectarInconsistenciaStock();
               if(check2.ok){
-                toast('Stock reconstruido',`Se detectaron ${total} saldo(s) desactualizado(s) y se recalcularon automáticamente desde los movimientos.`,'success');
+                // Los saldos ya están recalculados en cache, pero la pantalla
+                // se dibujó antes: hay que volver a pintarla o el usuario
+                // seguiría viendo los valores viejos hasta reabrir la app.
+                const refrescado=_refrescarVistaSegura();
+                toast('Stock reconstruido',
+                  `Se detectaron ${total} saldo(s) desactualizado(s) y se recalcularon automáticamente desde los movimientos.`+
+                  (refrescado?'':' Vuelva a abrir la pantalla para ver los saldos nuevos.'),
+                  'success');
               }else{
                 const d0=check2.diferencias[0];
                 let nom='';
@@ -1090,6 +1236,7 @@ const PAGES=[
     {id:'ordenesCompra',label:'Órdenes de Compra',icon:'🧾',perm:'movimientos.ver'},
     {id:'tomas',label:'Tomas de Inventario',icon:'📋',perm:'tomas.ver'},
     {id:'repCombustible',label:'Rendimiento combustible',icon:'⛽',perm:'combustible.registrar',adminOnly:true},
+    {id:'helada',label:'Control de Heladas',icon:'❄️',perm:'helada.ver'},
   ]},
   {section:'CUADERNO DE CAMPO',items:[
     {id:'cuaderno',label:'Cuaderno de Campo',icon:'🌳',perm:'cuaderno.ver'},
@@ -1171,7 +1318,7 @@ function toggleNavSection(seccion){
 /* ── Puente: superficie total (ha) de cerezos Plantación 2018 del Cuaderno ──
    El módulo de presupuesto está encapsulado y no ve S.panos directamente; esta
    función global le permite obtener la suma de hectáreas de los paños 2018. */
-function pzSumaHa2018(){
+function pzSumaHaPlantacion(anio){
   try{
     // Asegurar que el estado del Cuaderno (S.panos) esté cargado: el Cuaderno
     // lee sus datos de localStorage vía load(); si aún no se ha entrado al
@@ -1181,11 +1328,15 @@ function pzSumaHa2018(){
       try{ load(); panos = (typeof S!=='undefined' && S && Array.isArray(S.panos)) ? S.panos : panos; }catch(e){}
     }
     if(!panos || !panos.length) return null;
-    var suma = panos.filter(function(p){ return String(p.anio)==='2018'; })
+    var target = String(anio);
+    var suma = panos.filter(function(p){ return String(p.anio)===target; })
                     .reduce(function(s,p){ return s + (parseFloat(p.hectareas)||0); }, 0);
     return (suma>0) ? suma : null;
   }catch(e){ return null; }
 }
+window.pzSumaHaPlantacion = pzSumaHaPlantacion;
+// Compatibilidad: la variante 2018 sigue disponible.
+function pzSumaHa2018(){ return pzSumaHaPlantacion('2018'); }
 window.pzSumaHa2018 = pzSumaHa2018;
 
 /* ── OP. CONTEOS: mostrar la barra lateral con las 2 opciones para elegir ── */
@@ -1380,7 +1531,8 @@ function navigate(page, fromHistory){
     conteos:'Conteos en terreno',
     invplantas:'Inventario de Huerto · Conteo de Plantas',
     aih:'Actualización Inventario Huerto',
-    presupuesto:'Control de Presupuesto — Huerto Cerezos 2018'
+    helada:'Control de Heladas — Torres de Control',
+    presupuesto:'Control de Presupuesto — Huertos Cerezo'
   };
   document.getElementById('topTitle').textContent=titles[page]||'';
   const main=document.getElementById('mainContent');
@@ -1411,6 +1563,7 @@ function navigate(page, fromHistory){
     case 'conteos':renderConteos(main);break;
     case 'invplantas':renderInvPlantas(main);break;
     case 'aih':renderAIH(main);break;
+    case 'helada':renderHelada(main);break;
     case 'presupuesto':renderPresupuesto(main);break;
   }
 }
