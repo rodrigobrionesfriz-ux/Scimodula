@@ -5333,6 +5333,20 @@ function renderMovimientoForm(c,tipo='ENT'){
   };
   _renderMovForm(c);
 }
+/* Extrae equipo/km/operador/nota del texto de observaciones de un consumo de
+   combustible ("EQUIPO: X · KM/HR: Y · OPERADOR: Z · nota..."). */
+function _parseObsCombustible(obs){
+  var r={equipo:'',km:'',operador:'',nota:''}, resto=[];
+  String(obs||'').split('·').forEach(function(p){
+    p=p.trim();
+    var mE=p.match(/^EQUIPO:\s*(.*)$/i); if(mE){r.equipo=mE[1].trim();return;}
+    var mK=p.match(/^KM\/?\s*HR?:\s*(.*)$/i)||p.match(/^KM\/HR:\s*(.*)$/i); if(mK){r.km=mK[1].trim();return;}
+    var mO=p.match(/^OPERADOR:\s*(.*)$/i); if(mO){r.operador=mO[1].trim();return;}
+    if(p) resto.push(p);
+  });
+  r.nota=resto.join(' · ');
+  return r;
+}
 function editMovimiento(numero){
   const m=STATE.cache.movements.find(x=>x.numero===numero);if(!m)return;
   STATE.page=m.tipo==='ENT'?'entradas':'salidas';
@@ -5357,6 +5371,19 @@ function editMovimiento(numero){
     lineas:(m.detalles||[]).map(d=>({...d}))
   };
   if(movDraft.lineas.length===0)movDraft.lineas=[{}];
+  // Edición de consumo de combustible: exponer campos dedicados Equipo /
+  // Km-Horómetro / Operador (que viven en el registro del store `combustible`),
+  // en vez de dejarlos embebidos en el texto de observaciones.
+  movDraft._esComb = (m.tipoMovimiento==='CONSUMO COMBUSTIBLE');
+  if(movDraft._esComb){
+    var _reg=(STATE.cache.combustible||[]).find(r=>r.movNumero===numero);
+    var _pa=_parseObsCombustible(m.observaciones);
+    movDraft.cbId=_reg?_reg.id:null;
+    movDraft.cbEquipo=(_reg&&_reg.equipo)||_pa.equipo||m.destino||'';
+    movDraft.cbKm=(_reg&&_reg.km!=null&&_reg.km!=='')?_reg.km:(_pa.km||'');
+    movDraft.cbOperador=(_reg&&_reg.usuario)||_pa.operador||'';
+    movDraft.observaciones=_pa.nota; // el campo de observaciones muestra solo la nota libre
+  }
   renderSidebar();
   document.getElementById('topTitle').textContent=`Editar ${tipoLabel(m.tipo)} · ${numero}`;
   _renderMovForm(document.getElementById('mainContent'));
@@ -5536,7 +5563,14 @@ function _renderMovForm(c){
       <div class="card" style="margin-top:14px">
         <div style="padding:18px">
           <div class="form-grid">
+            ${movDraft._esComb?`
+            <div class="form-field"><label>Equipo</label><input type="text" id="mvCbEquipo" value="${escapeHtml(movDraft.cbEquipo||'')}" placeholder="Ej: TRACTOR 2"></div>
+            <div class="form-field"><label>Km / Horómetro</label><input type="number" step="any" id="mvCbKm" value="${escapeHtml(String(movDraft.cbKm==null?'':movDraft.cbKm))}" placeholder="Ej: 2064"><div class="hint">Corrige aquí el horómetro; se guarda en el registro de combustible.</div></div>
+            <div class="form-field"><label>Operador</label><input type="text" id="mvCbOperador" value="${escapeHtml(movDraft.cbOperador||'')}" placeholder="Ej: FELIPE RAMIREZ"></div>
+            <div class="form-field span-2"><label>Nota (observaciones)</label><input type="text" id="mvObs" value="${escapeHtml(movDraft.observaciones||'')}" placeholder="Notas opcionales"></div>
+            `:`
             <div class="form-field span-2 ${movDraft.tipoMovimiento==='MERMA'||movDraft.tipoMovimiento==='TOMA INVENTARIO ENT'||movDraft.tipoMovimiento==='TOMA INVENTARIO SAL'?'required':''}"><label>${movDraft.tipoMovimiento==='MERMA'?'Motivo de la merma':'Observaciones'}</label><input type="text" id="mvObs" value="${escapeHtml(movDraft.observaciones||'')}" placeholder="${movDraft.tipoMovimiento==='MERMA'?'Ej: Vencimiento, daño, pérdida':'Notas opcionales'}"></div>
+            `}
             ${movDraft.editId?`<div class="form-field span-2 required"><label>Motivo de edición</label><input type="text" id="mvMot" placeholder="Indique por qué se edita este movimiento" value="${escapeHtml(movDraft.motivo||'')}"></div>`:''}
           </div>
         </div>
@@ -5715,6 +5749,9 @@ function _captureMovHeader(){
   if(document.getElementById('mvBodDest'))movDraft.bodegaDestinoId=get('mvBodDest');
   if(document.getElementById('mvFechaCosecha'))movDraft.fechaCosecha=get('mvFechaCosecha');
   if(document.getElementById('mvObs'))movDraft.observaciones=get('mvObs');
+  if(document.getElementById('mvCbEquipo'))movDraft.cbEquipo=get('mvCbEquipo');
+  if(document.getElementById('mvCbKm'))movDraft.cbKm=get('mvCbKm');
+  if(document.getElementById('mvCbOperador'))movDraft.cbOperador=get('mvCbOperador');
   if(document.getElementById('mvMot'))movDraft.motivo=get('mvMot');
   if(document.getElementById('mvCC'))movDraft.centroCosto=get('mvCC');
   if(document.getElementById('mvTipoDoc'))movDraft.tipoDoc=get('mvTipoDoc');
@@ -6160,11 +6197,23 @@ async function saveMovimiento(){
     if(movDraft.editId){
       // Edición: persistir cambios y recalcular stock desde cero
       const old=await dbGet('movements',movDraft.editId);
+      // Consumo de combustible: reconstruir el texto de observaciones a partir
+      // de los campos dedicados (Equipo/Km/Operador) + nota, y usar el equipo
+      // como destino.
+      let _obsFinal=movDraft.observaciones, _destFinal=movDraft.destino;
+      let _cbEquipoN='', _cbKmN=null, _cbOperadorN='';
+      if(movDraft._esComb){
+        _cbEquipoN=(typeof normEquipo==='function'?normEquipo(movDraft.cbEquipo):String(movDraft.cbEquipo||'').trim());
+        const _k=parseFloat(String(movDraft.cbKm).replace(',','.')); _cbKmN=isNaN(_k)?null:_k;
+        _cbOperadorN=String(movDraft.cbOperador||'').trim();
+        _obsFinal=`EQUIPO: ${_cbEquipoN} · KM/HR: ${_cbKmN==null?'':_cbKmN} · OPERADOR: ${_cbOperadorN}${movDraft.observaciones?(' · '+movDraft.observaciones):''}`;
+        _destFinal=_cbEquipoN||movDraft.destino;
+      }
       const updated={...old,
         fecha:movDraft.fecha+'T'+(old.fecha.split('T')[1]||'00:00:00'),
         bodegaId:movDraft.bodegaId,
-        documento:movDraft.documento,proveedor:movDraft.proveedor,destino:movDraft.destino,
-        observaciones:movDraft.observaciones,
+        documento:movDraft.documento,proveedor:movDraft.proveedor,destino:_destFinal,
+        observaciones:_obsFinal,
         detalles,editado:new Date().toISOString(),editadoPor:STATE.user.id,editadoMotivo:movDraft.motivo
       };
       // Tipo de movimiento NO se puede cambiar al editar (mantiene el original)
@@ -6201,6 +6250,13 @@ async function saveMovimiento(){
           rc.fecha=updated.fecha;
           rc.bodegaId=updated.bodegaId;
           if(updated.centroCosto) rc.centroCosto=updated.centroCosto;
+          // Campos editados desde el formulario de combustible (horómetro, etc.)
+          if(movDraft._esComb){
+            if(_cbKmN!=null) rc.km=_cbKmN;
+            if(_cbEquipoN) rc.equipo=_cbEquipoN;
+            if(_cbOperadorN) rc.usuario=_cbOperadorN;
+            rc.observaciones=movDraft.observaciones||'';
+          }
           await dbPut('combustible',rc);
         }
       }catch(e){ console.error('[SCI] No se pudo sincronizar el registro de combustible:',e); }
