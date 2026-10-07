@@ -1493,6 +1493,9 @@ function navigate(page, fromHistory){
     renderCombustibleForm(document.getElementById('mainContent'));
     return;
   }
+  // Cerrar la ventana flotante del formulario de movimientos al cambiar de
+  // módulo (se vuelve a crear si el destino es la propia entrada de bodega).
+  try{ var _mvo=document.getElementById('mvFormOverlay'); if(_mvo) _mvo.remove(); }catch(e){}
   // Refrescar alerta de backup en cada navegación
   setTimeout(refreshBackupAlert,50);
   STATE.page=page;

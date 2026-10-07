@@ -5354,6 +5354,48 @@ async function guardarCombustible(){
 }
 try{ window.guardarCombustible=guardarCombustible; }catch(e){}
 
+/* ── Ventana flotante del formulario de entrada/salida ──
+   El formulario se muestra como un modal centrado sobre el área de contenido,
+   dejando la barra lateral accesible. No se cierra al clicar fuera: solo con la
+   X o al cambiar de módulo (navigate lo elimina). */
+function _mvInjectStyles(){
+  if(document.getElementById('mvFormStyles')) return;
+  var st=document.createElement('style'); st.id='mvFormStyles';
+  st.textContent=''+
+    '.mv-form-overlay{position:fixed;top:56px;left:240px;right:0;bottom:0;background:rgba(15,23,42,.45);z-index:150;display:flex;align-items:flex-start;justify-content:center;padding:18px;overflow:auto}'+
+    '@media(max-width:880px){.mv-form-overlay{left:0}}'+
+    '.mv-form-modal{background:#fff;width:100%;max-width:760px;max-height:calc(100vh - 92px);border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,.3);display:flex;flex-direction:column;overflow:hidden}'+
+    '.mv-form-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:13px 18px;border-bottom:1px solid var(--bo,#e3e8ee);background:#fff;flex-shrink:0}'+
+    '.mv-form-head h3{font-size:17px;font-weight:700;margin:0;color:var(--gd,#23303d)}'+
+    '.mv-form-x{border:none;background:#f1f5f9;width:34px;height:34px;border-radius:8px;font-size:17px;cursor:pointer;color:#475569;line-height:1}'+
+    '.mv-form-x:hover{background:#e2e8f0}'+
+    '.mv-form-body{padding:14px 18px;overflow:auto}'+
+    '.mv-form-body .card{margin-top:10px;box-shadow:none;border:1px solid var(--bo,#e3e8ee)}'+
+    '.mv-form-body .card:first-of-type{margin-top:0}'+
+    '.mv-form-body .card>div{padding:12px 14px}'+
+    '.mv-form-body .form-grid{gap:10px 12px}';
+  document.head.appendChild(st);
+}
+function _mvEnsureOverlay(isEnt,isEdit,editId){
+  _mvInjectStyles();
+  var ov=document.getElementById('mvFormOverlay');
+  if(!ov){
+    ov=document.createElement('div'); ov.id='mvFormOverlay'; ov.className='mv-form-overlay';
+    ov.innerHTML='<div class="mv-form-modal"><div class="mv-form-head"><h3 id="mvFormTitle"></h3>'+
+      '<button class="mv-form-x" title="Cerrar" onclick="_mvCloseForm()">✕</button></div>'+
+      '<div class="mv-form-body" id="mvFormBody"></div></div>';
+    document.body.appendChild(ov);
+  }
+  var t=document.getElementById('mvFormTitle');
+  if(t) t.textContent=(isEdit?'Editar ':'Nueva ')+(isEnt?'Entrada':'Salida')+' de Bodega'+((isEdit&&editId)?(' · '+editId):'');
+  return document.getElementById('mvFormBody');
+}
+function _mvCloseForm(){
+  var ov=document.getElementById('mvFormOverlay'); if(ov) ov.remove();
+  try{ navigate('movimientos'); }catch(e){}
+}
+try{ window._mvCloseForm=_mvCloseForm; }catch(e){}
+
 function renderMovimientoForm(c,tipo='ENT'){
   movDraft={
     lineas:[{}],tipo,editId:null,
@@ -5433,16 +5475,10 @@ function _renderMovForm(c){
   const isEnt=tipo==='ENT';
   const today=new Date().toISOString().slice(0,10);
   const fecha=movDraft.fecha||today;
+  // Montar en la ventana flotante (reasigna el contenedor al cuerpo del modal).
+  c=_mvEnsureOverlay(isEnt,!!movDraft.editId,movDraft.editId);
   c.innerHTML=`
-    <div class="page-header">
-      <div>
-        <div class="page-title">${movDraft.editId?'Editar ':'Nueva '}${isEnt?'Entrada':'Salida'} de Bodega</div>
-        <div class="page-subtitle">${movDraft.editId?'Modificación de '+movDraft.editId:'Auto-numerado al guardar'} · Auto-guardado activo</div>
-      </div>
-      <div style="display:flex;gap:8px">
-        <button class="btn btn-secondary" onclick="navigate('movimientos')">← Volver</button>
-      </div>
-    </div>
+    <div class="page-subtitle" style="margin-bottom:12px">${movDraft.editId?'Modificación de '+movDraft.editId:'Auto-numerado al guardar'} · Auto-guardado activo</div>
     ${(()=>{
       const TODOS=isEnt?TIPOS_MOV_ENT:TIPOS_MOV_SAL;
       // Al crear se ofrecen solo los tipos manuales; al editar se muestra el
