@@ -855,6 +855,35 @@ function verPorVencer(){
     'lg');
 }
 
+/* ── Donut de distribución del inventario (dashboard) ── */
+var _dashInvChart=null;
+var _DASH_DONUT_COLORS=['#0a6ed1','#e9730c','#1a7e3e','#8e44ad','#c0392b','#16a085','#d4ac0d','#2c3e50','#e84393','#2563eb'];
+function _dashInjectCss(){
+  if(document.getElementById('dashCompactCss')) return;
+  var s=document.createElement('style'); s.id='dashCompactCss';
+  s.textContent='@media(max-width:760px){.dash-top-grid{grid-template-columns:1fr!important}}';
+  document.head.appendChild(s);
+}
+function _dashDibujarDonutInv(data){
+  var cv=document.getElementById('dashInvDonut'); if(!cv||typeof Chart==='undefined') return;
+  if(_dashInvChart){ try{_dashInvChart.destroy();}catch(e){} _dashInvChart=null; }
+  if(!data||!data.length) return;
+  var vals=data.map(function(t){return Math.round(t.valor);});
+  var colors=data.map(function(_,i){return _DASH_DONUT_COLORS[i%_DASH_DONUT_COLORS.length];});
+  _dashInvChart=new Chart(cv.getContext('2d'),{
+    type:'doughnut',
+    data:{labels:data.map(function(t){return t.tipo;}),datasets:[{data:vals,backgroundColor:colors,borderWidth:1,borderColor:'#fff'}]},
+    options:{
+      responsive:true,maintainAspectRatio:false,cutout:'60%',
+      plugins:{ legend:{display:false},
+        tooltip:{callbacks:{label:function(ctx){ var tot=ctx.dataset.data.reduce(function(a,b){return a+b;},0); var p=tot>0?(ctx.parsed/tot*100):0; return ' '+ctx.label+': '+fmtMon(ctx.parsed)+' ('+p.toFixed(1)+'%)'; }}}
+      },
+      onClick:function(e,els){ if(els&&els.length){ var i=els[0].index; var t=data[i]&&data[i].tipo; if(t && typeof verStockPorTipo==='function') verStockPorTipo(t); } }
+    }
+  });
+}
+try{ window._dashDibujarDonutInv=_dashDibujarDonutInv; }catch(e){}
+
 function renderDashboard(c){
   // OP. CONTEOS no tiene acceso al dashboard: mostrar su menú de conteos.
   if(STATE.user && STATE.user.role==='opconteos'){
@@ -968,27 +997,35 @@ function renderDashboard(c){
 
     ${_cuHtml}
 
-    <div class="stats-grid dash3">
-      <div class="stat-card gold dash-wide">
+    <div class="dash-top-grid" style="display:grid;grid-template-columns:2fr 1fr;gap:14px;margin-bottom:16px">
+      <div class="stat-card gold">
         <div class="stat-label">Valor inventario</div>
-        <div style="display:flex;flex-wrap:wrap;gap:6px 22px;align-items:baseline">
-          <div><span class="stat-value">${fmtMon(valorInv)}</span> <span class="stat-sub">inventariables · costo PPP</span></div>
-          <div><span class="stat-label">Servicios</span> <span style="font-size:18px;font-weight:800">${fmtMon(valorServ)}</span></div>
-        </div>
-        <div style="margin-top:10px">
-          <div style="font-size:10px;color:var(--mu);text-transform:uppercase;letter-spacing:.4px;margin-bottom:2px">Por tipo de producto · toca para ver el detalle</div>
-          ${porTipoHtml}
+        <div style="display:flex;flex-wrap:wrap;gap:14px 24px;align-items:flex-start;justify-content:space-between">
+          <div style="flex:1 1 300px;min-width:240px">
+            <div style="display:flex;flex-wrap:wrap;gap:4px 20px;align-items:baseline;margin-bottom:8px">
+              <div><span class="stat-value">${fmtMon(valorInv)}</span> <span class="stat-sub">inventariables · costo PPP</span></div>
+              <div><span class="stat-label" style="margin:0">Servicios</span> <span style="font-size:17px;font-weight:800">${fmtMon(valorServ)}</span></div>
+            </div>
+            <div style="font-size:10px;color:var(--mu);text-transform:uppercase;letter-spacing:.4px;margin-bottom:2px">Por tipo de producto · toca para ver el detalle</div>
+            ${porTipoHtml}
+          </div>
+          <div style="flex:0 0 auto;width:188px;max-width:46vw;align-self:center">
+            <div style="position:relative;height:188px"><canvas id="dashInvDonut"></canvas></div>
+            <div style="text-align:center;font-size:10.5px;color:var(--mu);margin-top:2px">Toca un segmento para ver el detalle</div>
+          </div>
         </div>
       </div>
-      <div class="stat-card amber" ${(new Set(lowStock.map(s=>s.codigoInterno)).size)>0?'onclick="verStockBajo()" style="cursor:pointer"':''}>
-        <div class="stat-label">Stock bajo ${(new Set(lowStock.map(s=>s.codigoInterno)).size)>0?'<span style="font-size:11px;color:#0a6ed1">› ver</span>':''}</div>
-        <div class="stat-value">${new Set(lowStock.map(s=>s.codigoInterno)).size}</div>
-        <div class="stat-sub">productos bajo mínimo</div>
-      </div>
-      <div class="stat-card red" ${lotsExp.length>0?'onclick="verPorVencer()" style="cursor:pointer"':''}>
-        <div class="stat-label">Por vencer ${lotsExp.length>0?'<span style="font-size:11px;color:#0a6ed1">› ver</span>':''}</div>
-        <div class="stat-value">${lotsExp.length}</div>
-        <div class="stat-sub">lotes en próximos 30 días</div>
+      <div style="display:flex;flex-direction:column;gap:14px">
+        <div class="stat-card amber" style="flex:1${(new Set(lowStock.map(s=>s.codigoInterno)).size)>0?';cursor:pointer':''}" ${(new Set(lowStock.map(s=>s.codigoInterno)).size)>0?'onclick="verStockBajo()"':''}>
+          <div class="stat-label">Stock bajo ${(new Set(lowStock.map(s=>s.codigoInterno)).size)>0?'<span style="font-size:11px;color:#0a6ed1">› ver</span>':''}</div>
+          <div class="stat-value">${new Set(lowStock.map(s=>s.codigoInterno)).size}</div>
+          <div class="stat-sub">productos bajo mínimo</div>
+        </div>
+        <div class="stat-card red" style="flex:1${lotsExp.length>0?';cursor:pointer':''}" ${lotsExp.length>0?'onclick="verPorVencer()"':''}>
+          <div class="stat-label">Por vencer ${lotsExp.length>0?'<span style="font-size:11px;color:#0a6ed1">› ver</span>':''}</div>
+          <div class="stat-value">${lotsExp.length}</div>
+          <div class="stat-sub">lotes en próximos 30 días</div>
+        </div>
       </div>
     </div>
 
@@ -1055,6 +1092,7 @@ function renderDashboard(c){
   // El chip del clima se pinta aparte: depende de GPS y de red, y no debe
   // retrasar ni romper el dashboard si algo de eso falla.
   try{ if(typeof renderDashClima==='function') renderDashClima(); }catch(e){}
+  try{ _dashInjectCss(); _dashDibujarDonutInv(porTipo); }catch(e){ console.error('[dash donut]',e); }
 }
 function tipoLabel(t){return {ENT:'Entrada',SAL:'Salida',TRA:'Traspaso',AJU:'Ajuste'}[t]||t}
 function tipoMovLabel(m){
