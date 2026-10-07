@@ -5201,11 +5201,12 @@ function cbToggleOtro(){
   // Mostrar último horómetro/km registrado para el equipo elegido
   const hint=document.getElementById('cb-km-hint');
   if(hint){
-    const previos=getCombustibleReal().filter(r=>r.equipo===sel && (r.km||0)>0)
-      .sort((a,b)=>new Date(b.fecha)-new Date(a.fecha));
-    if(sel && sel!==EQUIPO_OTRO && previos.length>0){
-      const u=previos[0];
-      hint.textContent=`Último registrado: ${u.km} (${new Date(u.fecha).toLocaleDateString('es-CL')})`;
+    const regsEq=getCombustibleReal().filter(r=>r.equipo===sel && (r.km||0)>0);
+    if(sel && sel!==EQUIPO_OTRO && regsEq.length>0){
+      // Referencia = el horómetro/km MÁS ALTO del equipo (no el último por fecha,
+      // que puede ser inferior si se editó o reordenó un registro).
+      const mx=regsEq.reduce((a,b)=>((b.km||0)>(a.km||0)?b:a));
+      hint.textContent=`Horómetro/km más alto registrado: ${mx.km} (${new Date(mx.fecha).toLocaleDateString('es-CL')})`;
       hint.style.display='block';
     } else { hint.style.display='none'; }
   }
@@ -5290,13 +5291,13 @@ async function guardarCombustible(){
   if(cantidad<=0) return setErr('Ingrese una cantidad válida.');
   if(!centro) return setErr('Seleccione el centro de costo.');
 
-  // Validación de horómetro/kilometraje: no puede ser inferior al último del equipo.
-  const previos=getCombustibleReal().filter(r=>r.equipo===equipo && (r.km||0)>0)
-    .sort((a,b)=>new Date(b.fecha)-new Date(a.fecha));
-  if(km>0 && previos.length>0){
-    const ultimo=previos[0];
-    if(km < (ultimo.km||0)){
-      return setErr(`El horómetro/km (${km}) no puede ser inferior al último registrado para ${equipo}: ${ultimo.km} (${new Date(ultimo.fecha).toLocaleDateString('es-CL')}).`);
+  // Validación de horómetro/kilometraje: no puede ser inferior al MÁS ALTO del
+  // equipo (no el último por fecha, que puede ser menor tras editar/reordenar).
+  const regsEq=getCombustibleReal().filter(r=>r.equipo===equipo && (r.km||0)>0);
+  if(km>0 && regsEq.length>0){
+    const mx=regsEq.reduce((a,b)=>((b.km||0)>(a.km||0)?b:a));
+    if(km < (mx.km||0)){
+      return setErr(`El horómetro/km (${km}) no puede ser inferior al más alto registrado para ${equipo}: ${mx.km} (${new Date(mx.fecha).toLocaleDateString('es-CL')}).`);
     }
   }
 
