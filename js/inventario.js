@@ -4323,6 +4323,7 @@ function viewMovimiento(numero){
       <div class="form-field"><label>Documento</label><div class="mono">${escapeHtml(m.documento||'-')}</div></div>
       <div class="form-field"><label>${isEnt?'Proveedor':'Destino'}</label><div>${escapeHtml(m.proveedor||m.destino||'-')}</div></div>
       `}
+      ${m.facturaAsociada?`<div class="form-field span-2"><label>🔗 Factura asociada (Nota de Crédito)</label><div><strong>${escapeHtml(m.facturaAsociadaDoc||m.facturaAsociada)}</strong> <span style="color:var(--mu);font-size:12px">· mov. ${escapeHtml(m.facturaAsociada)}</span></div></div>`:''}
       <div class="form-field span-2"><label>Observaciones</label><div>${escapeHtml(m.observaciones||'-')}</div></div>
       <div class="form-field"><label>Usuario</label><div>${escapeHtml(m.usuario||'-')}</div></div>
       <div class="form-field"><label>Total</label><div><strong>${fmtMon(valor)}</strong></div></div>
@@ -5365,7 +5366,8 @@ function renderMovimientoForm(c,tipo='ENT'){
     centroCosto:'',
     bodegaDestinoId:'',
     documento:'',proveedor:'',destino:'',
-    observaciones:''
+    observaciones:'',
+    facturaAsociada:''
   };
   _renderMovForm(c);
 }
@@ -5403,6 +5405,7 @@ function editMovimiento(numero){
     documento:m.documento||'',
     proveedor:m.proveedor||'',destino:m.destino||'',
     observaciones:m.observaciones||'',
+    facturaAsociada:m.facturaAsociada||'',
     motivo:'',
     lineas:(m.detalles||[]).map(d=>({...d}))
   };
@@ -5508,6 +5511,23 @@ function _renderMovForm(c){
             </div>
             <div class="form-field required"><label>Número del documento</label><input type="text" id="mvNumDoc" value="${escapeHtml(movDraft.numeroDoc||'')}" placeholder="Ej: 12345" inputmode="numeric"><div class="hint">Folio del documento (SII u interno)</div></div>
             <div class="form-field span-2"><label>Fecha vencimiento documento</label><input type="date" id="mvVencDoc" value="${escapeHtml(movDraft.fechaVencDoc||'')}"><div class="hint">Vencimiento de pago (opcional)</div></div>
+          </div>
+        </div>
+      </div>`:''}
+
+      ${(movDraft.tipoMovimiento==='DEVOLUCION PROVEEDOR' && movDraft.tipoDoc==='NOTA DE CREDITO')?`
+      <!-- 2a-bis. Factura asociada (obligatoria para Nota de Crédito) -->
+      <div class="card" style="margin-top:14px;border:2px solid #e9730c">
+        <div class="card-header"><div class="card-title">🔗 Factura asociada <span style="color:#e9730c;font-size:11px">· obligatoria para Nota de Crédito</span></div>
+          <button class="btn btn-secondary btn-sm" onclick="_mvRefreshFacturas()">🔄 Actualizar lista</button></div>
+        <div style="padding:18px">
+          <div class="form-field required">
+            <label>Factura del proveedor que contiene el producto devuelto</label>
+            <select id="mvFacturaAsoc" onchange="_mvFacturaAsocChange()">
+              <option value="">- Seleccionar factura -</option>
+              ${_mvFacturasProveedor().map(f=>`<option value="${escapeHtml(f.numero)}" ${movDraft.facturaAsociada===f.numero?'selected':''}>${escapeHtml((f.tipoDoc==='FACTURA EXENTA'?'FAC.EX':'FAC')+' '+(f.numeroDoc||'')+' · '+fmtDateOnly(f.fecha)+' · '+((f.detalles||[]).length)+' ítem(s)')}</option>`).join('')}
+            </select>
+            <div class="hint">${(function(){ if(!movDraft.proveedorCodigo) return '⚠ Seleccione primero el proveedor.'; var fs=_mvFacturasProveedor(); if(!fs.length) return '⚠ No hay facturas de este proveedor que contengan el/los producto(s) del detalle. Agregue el producto y pulse “Actualizar lista”.'; return 'El costo de la devolución se tomará de esta factura. La cantidad devuelta no puede superar la comprada (menos devoluciones previas).'; })()}</div>
           </div>
         </div>
       </div>`:''}
@@ -5671,6 +5691,11 @@ function _renderMovForm(c){
       if(document.getElementById('mvTipoDoc'))movDraft.tipoDoc=document.getElementById('mvTipoDoc').value;
       if(document.getElementById('mvNumDoc'))movDraft.numeroDoc=document.getElementById('mvNumDoc').value.trim();
       if(document.getElementById('mvVencDoc'))movDraft.fechaVencDoc=document.getElementById('mvVencDoc').value;
+      // En devolución a proveedor, al elegir/quitar Nota de Crédito se muestra u
+      // oculta la tarjeta de factura asociada → re-render.
+      if(id==='mvTipoDoc' && movDraft.tipoMovimiento==='DEVOLUCION PROVEEDOR'){
+        _renderMovForm(document.getElementById('mainContent'));
+      }
     });
   });
   const numDocEl=document.getElementById('mvNumDoc');
@@ -5785,6 +5810,7 @@ function _captureMovHeader(){
   if(document.getElementById('mvBodDest'))movDraft.bodegaDestinoId=get('mvBodDest');
   if(document.getElementById('mvFechaCosecha'))movDraft.fechaCosecha=get('mvFechaCosecha');
   if(document.getElementById('mvObs'))movDraft.observaciones=get('mvObs');
+  if(document.getElementById('mvFacturaAsoc'))movDraft.facturaAsociada=get('mvFacturaAsoc');
   if(document.getElementById('mvCbEquipo'))movDraft.cbEquipo=get('mvCbEquipo');
   if(document.getElementById('mvCbKm'))movDraft.cbKm=get('mvCbKm');
   if(document.getElementById('mvCbOperador'))movDraft.cbOperador=get('mvCbOperador');
@@ -5840,6 +5866,40 @@ function calcCostoConImpuestos(neto, cantidad, montoEspecifico, montoILA){
   var netoUnit = Number(neto)||0;
   return netoUnit + (espNoRecup + ilaCosto)/cantidad;
 }
+
+/* ── Devolución a proveedor con Nota de Crédito: facturas asociables ──
+   Facturas de COMPRA (FACTURA / FACTURA EXENTA) del proveedor seleccionado que
+   contengan TODOS los productos actualmente en el detalle de la devolución. */
+function _mvFacturasProveedor(){
+  var prov=movDraft.proveedorCodigo;
+  var codigos=(movDraft.lineas||[]).map(function(l){return l.codigoInterno;}).filter(Boolean);
+  return (STATE.cache.movements||[]).filter(function(m){
+    if(m.anulado) return false;
+    if(m.tipo!=='ENT' || m.tipoMovimiento!=='COMPRA') return false;
+    if(!(m.tipoDoc==='FACTURA'||m.tipoDoc==='FACTURA EXENTA')) return false;
+    if(prov && m.proveedorCodigo!==prov) return false;
+    if(codigos.length){
+      var prods=(m.detalles||[]).map(function(d){return d.codigoInterno;});
+      for(var i=0;i<codigos.length;i++){ if(prods.indexOf(codigos[i])<0) return false; }
+    }
+    return true;
+  }).sort(function(a,b){ return (b.fecha||'').localeCompare(a.fecha||''); });
+}
+function _mvRefreshFacturas(){ _captureMovHeader(); _renderMovForm(document.getElementById('mainContent')); }
+function _mvFacturaAsocChange(){
+  _captureMovHeader();
+  // Tomar el costo unitario de cada línea desde la factura asociada.
+  var f=(STATE.cache.movements||[]).find(function(m){return m.numero===movDraft.facturaAsociada;});
+  if(f){
+    (movDraft.lineas||[]).forEach(function(l){
+      if(!l.codigoInterno) return;
+      var d=(f.detalles||[]).find(function(x){return x.codigoInterno===l.codigoInterno;});
+      if(d){ l.costo=(d.costoNeto!=null?d.costoNeto:d.costo)||0; }
+    });
+  }
+  _renderMovForm(document.getElementById('mainContent'));
+}
+try{ window._mvFacturasProveedor=_mvFacturasProveedor; window._mvRefreshFacturas=_mvRefreshFacturas; window._mvFacturaAsocChange=_mvFacturaAsocChange; }catch(e){}
 
 function renderMovDetalle(){
   const w=document.getElementById('mvDetalleWrap');
@@ -6160,6 +6220,33 @@ async function saveMovimiento(){
   const lineas=movDraft.lineas.filter(l=>l.codigoInterno&&Number(l.cantidad)>0);
   if(lineas.length===0){toast('Sin productos','Agregue al menos un producto con cantidad','error');return}
 
+  // Devolución a proveedor con NOTA DE CRÉDITO: debe asociarse a una factura del
+  // proveedor que contenga el producto; se valida cantidad (no superar lo
+  // comprado, descontando devoluciones previas) y el costo se toma de la factura.
+  if(movDraft.tipoMovimiento==='DEVOLUCION PROVEEDOR' && movDraft.tipoDoc==='NOTA DE CREDITO'){
+    if(!movDraft.facturaAsociada){ toast('Falta factura','La Nota de Crédito debe asociarse a una factura del proveedor','error'); return; }
+    const fact=STATE.cache.movements.find(m=>m.numero===movDraft.facturaAsociada && !m.anulado);
+    if(!fact){ toast('Factura no válida','La factura asociada no existe o fue anulada','error'); return; }
+    if(fact.proveedorCodigo!==movDraft.proveedorCodigo){ toast('Proveedor no coincide','La factura asociada es de otro proveedor','error'); return; }
+    for(const l of lineas){
+      const pr=getProduct(l.codigoInterno);
+      const d=(fact.detalles||[]).find(x=>x.codigoInterno===l.codigoInterno);
+      if(!d){ toast('Producto no está en la factura',`${pr?pr.descripcion:l.codigoInterno} no figura en ${fact.tipoDoc} ${fact.numeroDoc}`,'error'); return; }
+      const comprada=Number(d.cantidad)||0;
+      let prev=0;
+      (STATE.cache.movements||[]).forEach(m=>{
+        if(m.anulado||m.tipoMovimiento!=='DEVOLUCION PROVEEDOR'||m.facturaAsociada!==fact.numero) return;
+        if(movDraft.editId && m.numero===movDraft.editId) return;
+        (m.detalles||[]).forEach(x=>{ if(x.codigoInterno===l.codigoInterno) prev+=Number(x.cantidad)||0; });
+      });
+      if((Number(l.cantidad)||0)+prev > comprada){
+        toast('Cantidad excede la factura',`${pr?pr.descripcion:l.codigoInterno}: comprado ${fmtNum(comprada,2)}, ya devuelto ${fmtNum(prev,2)}, solicitado ${fmtNum(Number(l.cantidad)||0,2)}`,'error'); return;
+      }
+      // Costo desde la factura (revierte bien la valorización).
+      l.costo=(d.costoNeto!=null?d.costoNeto:d.costo)||0;
+    }
+  }
+
   // Validaciones por línea
   for(const l of lineas){
     const p=getProduct(l.codigoInterno);
@@ -6258,6 +6345,13 @@ async function saveMovimiento(){
         updated.numeroDoc=movDraft.numeroDoc;
         updated.fechaVencDoc=movDraft.fechaVencDoc||null;
       }
+      if(movDraft.tipoMovimiento==='DEVOLUCION PROVEEDOR'){
+        if(movDraft.facturaAsociada){
+          updated.facturaAsociada=movDraft.facturaAsociada;
+          var _faU=STATE.cache.movements.find(x=>x.numero===movDraft.facturaAsociada);
+          if(_faU) updated.facturaAsociadaDoc=((_faU.tipoDoc||'')+' '+(_faU.numeroDoc||'')).trim();
+        } else { updated.facturaAsociada=''; updated.facturaAsociadaDoc=''; }
+      }
       if(cfg.reqProv){
         updated.proveedorCodigo=movDraft.proveedorCodigo;
         updated.proveedorNombre=movDraft.proveedorNombre;
@@ -6327,6 +6421,11 @@ async function saveMovimiento(){
         m.tipoDoc=movDraft.tipoDoc;
         m.numeroDoc=movDraft.numeroDoc;
         m.fechaVencDoc=movDraft.fechaVencDoc||null;
+      }
+      if(movDraft.tipoMovimiento==='DEVOLUCION PROVEEDOR' && movDraft.facturaAsociada){
+        m.facturaAsociada=movDraft.facturaAsociada;
+        var _fa=STATE.cache.movements.find(x=>x.numero===movDraft.facturaAsociada);
+        if(_fa) m.facturaAsociadaDoc=((_fa.tipoDoc||'')+' '+(_fa.numeroDoc||'')).trim();
       }
       if(cfg.reqProv){
         m.proveedorCodigo=movDraft.proveedorCodigo;
