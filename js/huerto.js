@@ -16,6 +16,9 @@ var CTE_N_FIJOS = 3;       // árboles fijos representativos por paño
 var CTE_N_ALEATORIOS = 5;  // árboles al azar por conteo
 var _cteEtapa = '';          // etapa fenológica de la sesión
 var _cteTipoArbol = null;    // 'fijo' | 'aleatorio' en el árbol actual
+var _cteGrafMetrica = 'centros'; // métrica del gráfico de evolución
+var _cteGrafPorVar = false;      // mostrar una línea por variedad
+var _cteChart = null;            // instancia Chart.js del gráfico
 
 // Lee los paños del Cuaderno de Campo (objeto global S)
 function ctePanos(){
@@ -75,11 +78,15 @@ function cteRender(c){
     html += cteRenderSesion();
   } else if(_cteVista==='lista'){
     html += cteRenderLista();
+  } else if(_cteVista==='grafico'){
+    html += cteRenderGrafico();
   } else {
     html += cteRenderInicio();
   }
   html += '</div>';
   cont.innerHTML = html;
+  // El gráfico se dibuja después de insertar el canvas en el DOM.
+  if(_cteVista==='grafico'){ try{ _cteDrawChart(); }catch(e){ console.error('[CTE gráfico]',e); } }
 }
 
 function cteRenderInicio(){
@@ -414,6 +421,7 @@ function cteRenderLista(){
   var html = '<button class="cte-big-btn cte-btn-gray" onclick="cteVolverInicio()" style="padding:14px;font-size:16px">‹ Volver</button>';
   if(can('conteos.revisar') && sesiones.length){
     html += '<button class="cte-big-btn cte-btn-amber" onclick="cteExportarExcel()">📊 Exportar registros a Excel</button>';
+    html += '<button class="cte-big-btn cte-btn-primary" onclick="cteVerGrafico()">📈 Evolución por temporada</button>';
   }
   if(!sesiones.length){
     html += '<div class="cte-card" style="text-align:center;color:#999;padding:30px">Sin conteos guardados todavía.</div>';
@@ -437,6 +445,107 @@ function cteRenderLista(){
   html += '</div>';
   return html;
 }
+
+/* ═══════════════ GRÁFICO: evolución de conteos por temporada ═══════════════ */
+var _CTE_METRICAS=[
+  ['centros','Centros florales (prom.)'],
+  ['cuaja','Cuaja (prom.)'],
+  ['frutos','Frutos (prom.)'],
+  ['ramas','Ramas (prom.)'],
+  ['dardos','Dardos (prom.)']
+];
+function _cteMetricaLabel(m){ for(var i=0;i<_CTE_METRICAS.length;i++){ if(_CTE_METRICAS[i][0]===m) return _CTE_METRICAS[i][1]; } return 'Valor'; }
+function _cteMetricaVal(s,m){
+  switch(m){
+    case 'cuaja':  return (s.cuajaSesion!=null)?s.cuajaSesion:null;
+    case 'frutos': return (s.promedioFrutos!=null)?s.promedioFrutos:null;
+    case 'ramas':  return (s.promedioRamas!=null)?s.promedioRamas:null;
+    case 'dardos': return (s.promedioDardos!=null)?s.promedioDardos:null;
+    default:       return (s.promedioCentros!=null)?s.promedioCentros:null;
+  }
+}
+function cteVerGrafico(){ _cteVista='grafico'; cteRender(); }
+function cteVolverLista(){ _cteVista='lista'; cteRender(); }
+function cteSetGrafMetrica(m){ _cteGrafMetrica=m||'centros'; try{ _cteDrawChart(); }catch(e){} }
+function cteToggleGrafPorVar(v){ _cteGrafPorVar=!!v; try{ _cteDrawChart(); }catch(e){} }
+try{ window.cteVerGrafico=cteVerGrafico; window.cteVolverLista=cteVolverLista; window.cteSetGrafMetrica=cteSetGrafMetrica; window.cteToggleGrafPorVar=cteToggleGrafPorVar; }catch(e){}
+
+function cteRenderGrafico(){
+  var sesiones=(STATE.cache.conteos||[]).filter(function(s){ return s.temporada; });
+  var html='<button class="cte-big-btn cte-btn-gray" onclick="cteVolverLista()" style="padding:14px;font-size:16px">‹ Volver</button>';
+  html+='<div class="cte-card">'+
+    '<div style="font-size:18px;font-weight:800;color:#23303d;margin-bottom:10px">📈 Evolución por temporada</div>'+
+    '<div class="cte-field" style="margin-bottom:10px"><label>Métrica</label><select onchange="cteSetGrafMetrica(this.value)">'+
+      _CTE_METRICAS.map(function(m){ return '<option value="'+m[0]+'"'+(_cteGrafMetrica===m[0]?' selected':'')+'>'+escapeHtml(m[1])+'</option>'; }).join('')+
+    '</select></div>'+
+    '<label style="display:flex;align-items:center;gap:8px;font-size:14px;font-weight:700;color:#444;margin-bottom:12px;cursor:pointer">'+
+      '<input type="checkbox" onchange="cteToggleGrafPorVar(this.checked)"'+(_cteGrafPorVar?' checked':'')+' style="width:18px;height:18px"> Ver por variedad'+
+    '</label>';
+  if(!sesiones.length){
+    html+='<div style="text-align:center;color:#999;padding:24px">Aún no hay conteos con temporada para graficar.</div></div>';
+    return html;
+  }
+  html+='<div style="position:relative;height:320px"><canvas id="cteChart"></canvas></div>'+
+    '<div style="font-size:11px;color:#888;margin-top:8px">Promedio de la métrica seleccionada entre todos los conteos de cada temporada. Con “por variedad”, una línea por cada variedad.</div>'+
+  '</div>';
+  return html;
+}
+
+/* Agrupa: devuelve {temporadas:[...], global:[...], porVar:{variedad:[...]}} con
+   el promedio de la métrica por temporada (y por variedad). */
+function _cteAgregar(metrica){
+  var sesiones=(STATE.cache.conteos||[]).filter(function(s){ return s.temporada; });
+  var temps=[]; sesiones.forEach(function(s){ if(temps.indexOf(s.temporada)<0) temps.push(s.temporada); });
+  temps.sort(); // "AAAA-AAAA" ordena cronológicamente como texto
+  function prom(arr){ var v=arr.filter(function(x){ return x!=null && !isNaN(x); }); return v.length? v.reduce(function(a,b){return a+b;},0)/v.length : null; }
+  var global=temps.map(function(t){
+    return prom(sesiones.filter(function(s){ return s.temporada===t; }).map(function(s){ return _cteMetricaVal(s,metrica); }));
+  });
+  var vars=[]; sesiones.forEach(function(s){ var v=s.variedad||'(sin variedad)'; if(vars.indexOf(v)<0) vars.push(v); });
+  vars.sort();
+  var porVar={};
+  vars.forEach(function(v){
+    porVar[v]=temps.map(function(t){
+      return prom(sesiones.filter(function(s){ return s.temporada===t && (s.variedad||'(sin variedad)')===v; }).map(function(s){ return _cteMetricaVal(s,metrica); }));
+    });
+  });
+  return {temporadas:temps, global:global, porVar:porVar, variedades:vars};
+}
+
+var _CTE_COLORS=['#0a6ed1','#e9730c','#1a7e3e','#8e44ad','#c0392b','#16a085','#d4ac0d','#2c3e50','#e84393'];
+function _cteDrawChart(){
+  var cv=document.getElementById('cteChart'); if(!cv || typeof Chart==='undefined') return;
+  if(_cteChart){ try{ _cteChart.destroy(); }catch(e){} _cteChart=null; }
+  var m=_cteGrafMetrica;
+  var ag=_cteAgregar(m);
+  var round=function(v){ return v==null?null:Math.round(v*100)/100; };
+  var datasets=[];
+  if(_cteGrafPorVar){
+    ag.variedades.forEach(function(v,i){
+      var col=_CTE_COLORS[i%_CTE_COLORS.length];
+      datasets.push({label:v, data:ag.porVar[v].map(round), borderColor:col, backgroundColor:col, spanGaps:true, tension:.25, pointRadius:4, borderWidth:2});
+    });
+    // Global como referencia (negra, punteada)
+    datasets.push({label:'Global', data:ag.global.map(round), borderColor:'#111', backgroundColor:'#111', borderDash:[6,4], spanGaps:true, tension:.25, pointRadius:3, borderWidth:2});
+  } else {
+    datasets.push({label:_cteMetricaLabel(m), data:ag.global.map(round), borderColor:'#0a6ed1', backgroundColor:'rgba(10,110,209,.12)', fill:true, spanGaps:true, tension:.25, pointRadius:5, borderWidth:3});
+  }
+  _cteChart=new Chart(cv.getContext('2d'),{
+    type:'line',
+    data:{ labels:ag.temporadas, datasets:datasets },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      interaction:{mode:'index',intersect:false},
+      plugins:{
+        legend:{ display:_cteGrafPorVar, labels:{boxWidth:12,font:{size:11}} },
+        title:{ display:true, text:_cteMetricaLabel(m)+' por temporada', font:{size:13,weight:'700'} },
+        tooltip:{ callbacks:{ label:function(ctx){ return (ctx.dataset.label||'')+': '+(ctx.parsed.y!=null?ctx.parsed.y:'s/d'); } } }
+      },
+      scales:{ y:{ beginAtZero:true, title:{display:true,text:_cteMetricaLabel(m)} }, x:{ title:{display:true,text:'Temporada'} } }
+    }
+  });
+}
+try{ window._cteDrawChart=_cteDrawChart; }catch(e){}
 
 // Detalle completo de una sesión de conteo (modal)
 function cteVerSesionDetalle(id){
