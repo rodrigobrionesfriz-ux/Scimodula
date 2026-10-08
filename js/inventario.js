@@ -1004,7 +1004,6 @@ function renderDashboard(c){
           <div style="flex:1 1 300px;min-width:240px">
             <div style="display:flex;flex-wrap:wrap;gap:4px 20px;align-items:baseline;margin-bottom:8px">
               <div><span class="stat-value">${fmtMon(valorInv)}</span> <span class="stat-sub">inventariables · costo PPP</span></div>
-              <div><span class="stat-label" style="margin:0">Servicios</span> <span style="font-size:17px;font-weight:800">${fmtMon(valorServ)}</span></div>
             </div>
             <div style="font-size:10px;color:var(--mu);text-transform:uppercase;letter-spacing:.4px;margin-bottom:2px">Por tipo de producto · toca para ver el detalle</div>
             ${porTipoHtml}
