@@ -4755,31 +4755,47 @@ function cbToggleEquipo(id){
 }
 try{ window.cbToggleEquipo=cbToggleEquipo; }catch(e){}
 /* ═══════════ REPORTE GERENCIAL (carta, 1 página, gráfico semanal x vehículo) ═══════════ */
-function _cbWeekStart(dateStr){
-  var d=new Date(dateStr); if(isNaN(d)) return null;
-  var x=new Date(d.getFullYear(),d.getMonth(),d.getDate());
+/* Fecha local (AAAA-MM-DD) del registro, con el mismo criterio que la app. */
+function _cbLocalYMD(r){
+  try{ if(typeof _helFechaLocal==='function') return _helFechaLocal(r.fecha); }catch(e){}
+  return String(r.fecha||'').slice(0,10);
+}
+/* Lunes de la semana a partir de una fecha AAAA-MM-DD, construida en hora LOCAL
+   (sin reparsear como UTC, que corría las fechas un día y partía mal las semanas). */
+function _cbWeekStart(ymd){
+  var m=String(ymd||'').match(/^(\d{4})-(\d{1,2})-(\d{1,2})/); if(!m) return null;
+  var x=new Date(+m[1], +m[2]-1, +m[3]);
   var day=(x.getDay()+6)%7;            // 0 = lunes
   x.setDate(x.getDate()-day);
   return x;
 }
-/* Rendimiento ponderado por semana. porHora: L/h (torres); si no, km/L. */
+/* Rendimiento por semana, con el MISMO criterio del resumen de la app:
+   - Odómetro (km/L): km de los tramos ÷ litros de la carga anterior.
+   - Horómetro (L/h): litros cargados en la semana ÷ horas de la semana
+     (incremento del horómetro), de modo que el agregado coincide con el
+     promedio del resumen (total litros ÷ horas totales). */
 function _cbSerieSemanal(lista, porHora){
-  var buckets={}, order=[];
+  var wk={}, order=[];
+  function bucket(r){ var ws=_cbWeekStart(_cbLocalYMD(r)); if(!ws) return null; var k=ws.getTime(); if(!wk[k]){ wk[k]={rec:0,lit:0,litLoads:0,date:ws}; order.push(k); } return wk[k]; }
+  // Tramos (horas/distancia) atribuidos a la semana de la carga final.
   for(var i=1;i<lista.length;i++){
     var dif=(lista[i].km||0)-(lista[i-1].km||0);
     var litrosPrev=lista[i-1].cantidad||0;
-    if(dif>0 && litrosPrev>0){
-      var ws=_cbWeekStart(lista[i].fecha); if(!ws) continue;
-      var key=ws.getTime();
-      if(!buckets[key]){ buckets[key]={rec:0,lit:0,date:ws}; order.push(key); }
-      buckets[key].rec+=dif; buckets[key].lit+=litrosPrev;
+    if(dif>0){
+      var b=bucket(lista[i]); if(!b) continue;
+      b.rec+=dif;
+      if(litrosPrev>0) b.lit+=litrosPrev;
     }
+  }
+  // Horómetro: litros de cada carga atribuidos a la semana de esa carga.
+  if(porHora){
+    for(var j=0;j<lista.length;j++){ var b2=bucket(lista[j]); if(b2) b2.litLoads+=(lista[j].cantidad||0); }
   }
   order.sort(function(a,b){return a-b;});
   var labels=[], vals=[];
   order.forEach(function(k){
-    var b=buckets[k];
-    var r = porHora ? (b.rec>0? b.lit/b.rec : null) : (b.lit>0? b.rec/b.lit : null);
+    var b=wk[k];
+    var r = porHora ? (b.rec>0? b.litLoads/b.rec : null) : (b.lit>0? b.rec/b.lit : null);
     var dd=('0'+b.date.getDate()).slice(-2), mm=('0'+(b.date.getMonth()+1)).slice(-2);
     labels.push(dd+'/'+mm);
     vals.push(r!=null? Math.round(r*100)/100 : null);
@@ -4820,9 +4836,22 @@ function cbReporteGerencial(){
     var porHora=(typeof _cbUsaHorometro==='function') ? _cbUsaHorometro(eq) : false;
     var serie=_cbSerieSemanal(lista, porHora);
     var totalLitros=lista.reduce(function(s,r){return s+(r.cantidad||0);},0);
-    var sumRec=0,sumLit=0;
-    for(var i=1;i<lista.length;i++){ var dif=(lista[i].km||0)-(lista[i-1].km||0); var lp=lista[i-1].cantidad||0; if(dif>0&&lp>0){ sumRec+=dif; sumLit+=lp; } }
-    var prom = porHora ? (sumRec>0? sumLit/sumRec : null) : (sumLit>0? sumRec/sumLit : null);
+    // Promedio IDÉNTICO al resumen de la app:
+    //  · Horómetro: total litros ÷ horas (helConsumoHoraTorre, o hFin−hIni).
+    //  · Odómetro: km de tramos ÷ litros de la carga anterior.
+    var prom=null;
+    if(porHora){
+      var fL=function(r){ return (typeof _helFechaLocal==='function')?_helFechaLocal(r.fecha):String(r.fecha||'').slice(0,10); };
+      var cargas=lista.map(function(r){ return {fecha:fL(r),litros:Number(r.cantidad)||0,horom:Number(r.km)||0}; });
+      var res=null;
+      try{ if(typeof helConsumoHoraTorre==='function') res=helConsumoHoraTorre(eq,cargas,null); }catch(e){}
+      if(!res){ var lect=cargas.map(function(c){return c.horom;}).filter(function(v){return v>0;}); var hi=lect.length?Math.min.apply(null,lect):0, hf=lect.length?Math.max.apply(null,lect):0; res={horas:hf-hi}; }
+      prom = (res && res.horas>0) ? totalLitros/res.horas : null;
+    } else {
+      var sumRec=0,sumLit=0;
+      for(var i=1;i<lista.length;i++){ var dif=(lista[i].km||0)-(lista[i-1].km||0); var lp=lista[i-1].cantidad||0; if(dif>0&&lp>0){ sumRec+=dif; sumLit+=lp; } }
+      prom = (sumLit>0) ? sumRec/sumLit : null;
+    }
     var hasData = serie.vals.some(function(v){return v!=null;});
     bloques.push({ eq:eq, porHora:porHora, nCargas:lista.length, totalLitros:totalLitros, prom:prom,
                    img: hasData ? _cbChartToImg(serie.labels, serie.vals) : '' });
