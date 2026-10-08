@@ -790,6 +790,44 @@ function verStockPorTipo(tipo){
 }
 try{ window.verStockPorTipo=verStockPorTipo; }catch(e){}
 
+/* Detalle del valor por tipo de producto en una ventana emergente (sin salir
+   del dashboard). Muestra los productos inventariables de ese tipo con su
+   stock total y valor. */
+function verDetalleTipoModal(tipo){
+  if(typeof showModal!=='function') { verStockPorTipo(tipo); return; }
+  var sinClasif = (tipo==='Sin clasificar');
+  var acc={};
+  (STATE.cache.stock||[]).forEach(function(x){
+    var p=getProduct(x.codigoInterno);
+    if(p && p.inventariable===false) return;                 // servicios/no inventariables fuera
+    var t=(p && p.tipoProducto) ? p.tipoProducto : 'Sin clasificar';
+    if(sinClasif){ if(p && p.tipoProducto) return; } else if(t!==tipo) return;
+    var val=(x.cantidad*x.costoPromedio)||0;
+    if(!acc[x.codigoInterno]) acc[x.codigoInterno]={desc:(p?p.descripcion:x.codigoInterno), um:(p?p.unidadMedida:''), cant:0, val:0};
+    acc[x.codigoInterno].cant+=(x.cantidad||0);
+    acc[x.codigoInterno].val+=val;
+  });
+  var rows=Object.keys(acc).map(function(k){ var o=acc[k]; o.cod=k; return o; })
+    .filter(function(r){ return r.val!==0 || r.cant!==0; })
+    .sort(function(a,b){ return b.val-a.val; });
+  var total=rows.reduce(function(s,r){ return s+r.val; },0);
+  var body = rows.length
+    ? '<div style="max-height:60vh;overflow:auto;border:1px solid var(--bo);border-radius:6px"><table class="data" style="margin:0;width:100%">'+
+        '<thead><tr><th>Producto</th><th class="num">Stock</th><th class="num">Valor</th><th class="num">%</th></tr></thead><tbody>'+
+        rows.map(function(r){ var pct=total>0?(r.val/total*100):0; return '<tr><td><strong>'+escapeHtml(r.cod)+'</strong> · '+escapeHtml(r.desc)+'</td>'+
+          '<td class="num">'+fmtNum(r.cant,2)+(r.um?(' '+escapeHtml(r.um)):'')+'</td>'+
+          '<td class="num">'+fmtMon(r.val)+'</td>'+
+          '<td class="num" style="color:var(--mu)">'+pct.toFixed(1)+'%</td></tr>'; }).join('')+
+        '</tbody><tfoot><tr style="background:var(--gp);font-weight:700"><td style="text-align:right">Total ('+rows.length+' producto(s))</td><td></td><td class="num">'+fmtMon(total)+'</td><td></td></tr></tfoot>'+
+      '</table></div>'
+    : '<div style="padding:22px;text-align:center;color:var(--mu)">Sin productos valorizados en este tipo.</div>';
+  var argEsc=String(tipo).replace(/'/g,"\\'");
+  var footer='<button class="btn btn-secondary" onclick="closeModal()">Cerrar</button>'+
+    ((typeof can==='function' && can('stock.ver'))?'<button class="btn btn-primary" onclick="closeModal();verStockPorTipo(\''+argEsc+'\')">Ver en Stock ↗</button>':'');
+  showModal('Detalle · '+escapeHtml(tipo), body, footer, 'lg');
+}
+try{ window.verDetalleTipoModal=verDetalleTipoModal; }catch(e){}
+
 // Detalle de productos bajo stock mínimo (desde la tarjeta del dashboard)
 function verStockBajo(){
   var filas=[];
@@ -878,7 +916,7 @@ function _dashDibujarDonutInv(data){
       plugins:{ legend:{display:false},
         tooltip:{callbacks:{label:function(ctx){ var tot=ctx.dataset.data.reduce(function(a,b){return a+b;},0); var p=tot>0?(ctx.parsed/tot*100):0; return ' '+ctx.label+': '+fmtMon(ctx.parsed)+' ('+p.toFixed(1)+'%)'; }}}
       },
-      onClick:function(e,els){ if(els&&els.length){ var i=els[0].index; var t=data[i]&&data[i].tipo; if(t && typeof verStockPorTipo==='function') verStockPorTipo(t); } }
+      onClick:function(e,els){ if(els&&els.length){ var i=els[0].index; var t=data[i]&&data[i].tipo; if(t && typeof verDetalleTipoModal==='function') verDetalleTipoModal(t); } }
     }
   });
 }
@@ -924,7 +962,7 @@ function renderDashboard(c){
   const porTipoHtml = porTipo.length
     ? porTipo.map(t=>{
         const arg=String(t.tipo).replace(/'/g,"\\'");
-        return `<div onclick="verStockPorTipo('${escapeHtml(arg)}')" title="Ver el stock de ${escapeHtml(t.tipo)}"
+        return `<div onclick="verDetalleTipoModal('${escapeHtml(arg)}')" title="Ver el detalle de ${escapeHtml(t.tipo)}"
              style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:5px 0;border-top:1px solid rgba(0,0,0,.06);cursor:pointer"
              onmouseover="this.style.background='rgba(0,0,0,.03)'" onmouseout="this.style.background=''">
           <span style="font-size:12px;color:var(--mu);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(t.tipo)}</span>
