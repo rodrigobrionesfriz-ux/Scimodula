@@ -4740,7 +4740,8 @@ function renderReporteCombustible(c){
   c.innerHTML=`
     <div class="page-header"><div><div class="page-title">⛽ Rendimiento de combustible</div>
       <div class="page-subtitle">Consumo y rendimiento por equipo · haz clic en un equipo para ver el detalle</div></div>
-      <button class="btn btn-secondary" onclick="exportarReporteCombustible()">📥 Exportar Excel</button></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-secondary" onclick="exportarReporteCombustible()">📥 Exportar Excel</button>
+      <button class="btn btn-primary" onclick="cbReporteGerencial()">📄 Reporte gerencial</button></div></div>
     <div class="hint" style="margin-bottom:14px">Los equipos con <strong>horómetro</strong> (🗼 torres, generadores) se miden en <strong>litros por hora</strong> de funcionamiento; los que llevan <strong>odómetro</strong> (🚜 tractores, vehículos) en <strong>km por litro</strong>. En cada fila se usan los litros de la carga anterior, que son los que alimentaron ese tramo. El <strong>consumo promedio por hora</strong> de las torres es la suma de todas las cargas dividida por las horas entre el horómetro inicial y el final. El saldo declarado en el último registro de helada se muestra solo como validador.</div>
     ${bloques}`;
 }
@@ -4753,6 +4754,128 @@ function cbToggleEquipo(id){
   if(chev) chev.textContent=abierto?'▸':'▾';
 }
 try{ window.cbToggleEquipo=cbToggleEquipo; }catch(e){}
+/* ═══════════ REPORTE GERENCIAL (carta, 1 página, gráfico semanal x vehículo) ═══════════ */
+function _cbWeekStart(dateStr){
+  var d=new Date(dateStr); if(isNaN(d)) return null;
+  var x=new Date(d.getFullYear(),d.getMonth(),d.getDate());
+  var day=(x.getDay()+6)%7;            // 0 = lunes
+  x.setDate(x.getDate()-day);
+  return x;
+}
+/* Rendimiento ponderado por semana. porHora: L/h (torres); si no, km/L. */
+function _cbSerieSemanal(lista, porHora){
+  var buckets={}, order=[];
+  for(var i=1;i<lista.length;i++){
+    var dif=(lista[i].km||0)-(lista[i-1].km||0);
+    var litrosPrev=lista[i-1].cantidad||0;
+    if(dif>0 && litrosPrev>0){
+      var ws=_cbWeekStart(lista[i].fecha); if(!ws) continue;
+      var key=ws.getTime();
+      if(!buckets[key]){ buckets[key]={rec:0,lit:0,date:ws}; order.push(key); }
+      buckets[key].rec+=dif; buckets[key].lit+=litrosPrev;
+    }
+  }
+  order.sort(function(a,b){return a-b;});
+  var labels=[], vals=[];
+  order.forEach(function(k){
+    var b=buckets[k];
+    var r = porHora ? (b.rec>0? b.lit/b.rec : null) : (b.lit>0? b.rec/b.lit : null);
+    var dd=('0'+b.date.getDate()).slice(-2), mm=('0'+(b.date.getMonth()+1)).slice(-2);
+    labels.push(dd+'/'+mm);
+    vals.push(r!=null? Math.round(r*100)/100 : null);
+  });
+  return {labels:labels, vals:vals};
+}
+/* Renderiza un mini-gráfico de líneas en un canvas fuera de pantalla y devuelve PNG. */
+function _cbChartToImg(labels, vals){
+  var cv=document.createElement('canvas'); cv.width=560; cv.height=230;
+  var tmp=document.createElement('div'); tmp.style.cssText='position:fixed;left:-99999px;top:0';
+  document.body.appendChild(tmp); tmp.appendChild(cv);
+  var url='';
+  try{
+    var ch=new Chart(cv.getContext('2d'),{
+      type:'line',
+      data:{labels:labels,datasets:[{data:vals,borderColor:'#0a6ed1',backgroundColor:'rgba(10,110,209,.12)',fill:true,tension:.25,pointRadius:3,borderWidth:2,spanGaps:true}]},
+      options:{responsive:false,animation:false,
+        plugins:{legend:{display:false},title:{display:false}},
+        scales:{x:{ticks:{font:{size:11},maxRotation:0,autoSkip:true}},y:{beginAtZero:true,ticks:{font:{size:11}}}}}
+    });
+    url=cv.toDataURL('image/png');
+    try{ ch.destroy(); }catch(e){}
+  }catch(e){ console.error('[cbChartToImg]',e); }
+  tmp.remove();
+  return url;
+}
+function cbReporteGerencial(){
+  if(STATE.user.role!=='admin'){ toast('Solo administrador','Este reporte es solo para administradores','error'); return; }
+  if(typeof Chart==='undefined'){ toast('Sin librería','La librería de gráficos no está disponible','error'); return; }
+  var regs=getCombustibleReal().sort(function(a,b){return new Date(a.fecha)-new Date(b.fecha);});
+  if(!regs.length){ toast('Sin datos','No hay registros de combustible','error'); return; }
+  var porEquipo={};
+  regs.forEach(function(r){ var k=normEquipo(r.equipo); (porEquipo[k]=porEquipo[k]||[]).push(r); });
+  var equipos=Object.keys(porEquipo).sort();
+  var bloques=[];
+  equipos.forEach(function(eq){
+    var lista=porEquipo[eq];
+    var porHora=(typeof _cbUsaHorometro==='function') ? _cbUsaHorometro(eq) : false;
+    var serie=_cbSerieSemanal(lista, porHora);
+    var totalLitros=lista.reduce(function(s,r){return s+(r.cantidad||0);},0);
+    var sumRec=0,sumLit=0;
+    for(var i=1;i<lista.length;i++){ var dif=(lista[i].km||0)-(lista[i-1].km||0); var lp=lista[i-1].cantidad||0; if(dif>0&&lp>0){ sumRec+=dif; sumLit+=lp; } }
+    var prom = porHora ? (sumRec>0? sumLit/sumRec : null) : (sumLit>0? sumRec/sumLit : null);
+    var hasData = serie.vals.some(function(v){return v!=null;});
+    bloques.push({ eq:eq, porHora:porHora, nCargas:lista.length, totalLitros:totalLitros, prom:prom,
+                   img: hasData ? _cbChartToImg(serie.labels, serie.vals) : '' });
+  });
+  var n=bloques.length;
+  var cols = n<=2 ? 1 : (n<=8 ? 2 : 3);
+  var emp=(STATE.cache.config && STATE.cache.config.empresa) || {};
+  var fecha=new Date().toLocaleDateString('es-CL',{day:'2-digit',month:'long',year:'numeric'});
+  var unidad=function(pH){ return pH?'L/hora':'km/L'; };
+  var logoHtml = emp.logo ? '<img src="'+emp.logo+'" style="height:44px;margin-right:12px">' : '';
+  var blkHtml = bloques.map(function(b){
+    return '<div class="blk">'+
+      '<h3>'+escapeHtml(b.eq)+' <span style="font-weight:400;color:#64748b;font-size:10px">('+(b.porHora?'horómetro · L/h':'odómetro · km/L')+')</span></h3>'+
+      '<div class="st">'+b.nCargas+' carga(s) · '+fmtNum(b.totalLitros,1)+' L · Prom: <b>'+(b.prom!=null?fmtNum(b.prom,2):'—')+'</b> '+unidad(b.porHora)+'</div>'+
+      (b.img ? '<img src="'+b.img+'">' : '<div style="font-size:10px;color:#94a3b8;padding:16px 0;text-align:center">Sin tramos suficientes para calcular rendimiento.</div>')+
+    '</div>';
+  }).join('');
+  var html='<!doctype html><html><head><meta charset="utf-8"><title>Rendimiento de Combustible</title><style>'+
+    '@page{size:letter;margin:12mm}*{box-sizing:border-box}'+
+    'body{font-family:Arial,Helvetica,sans-serif;color:#1e293b;margin:0;font-size:11px}'+
+    '.hdr{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #354a5f;padding-bottom:7px;margin-bottom:8px}'+
+    '.emp{display:flex;align-items:center}'+
+    '.emp .nm{font-size:15px;font-weight:800;color:#23303d;line-height:1.15}'+
+    '.emp .sb{font-size:10px;color:#64748b;margin-top:2px}'+
+    '.right{font-size:10px;color:#64748b;text-align:right}'+
+    '.ttl{font-size:15px;font-weight:800;text-align:center;margin:4px 0 1px;color:#23303d}'+
+    '.per{font-size:11px;text-align:center;color:#64748b;margin-bottom:9px}'+
+    '.grid{display:grid;grid-template-columns:repeat('+cols+',1fr);gap:7px}'+
+    '.blk{border:1px solid #cbd5e1;border-radius:6px;padding:5px 7px;break-inside:avoid;page-break-inside:avoid}'+
+    '.blk h3{margin:0 0 1px;font-size:12px;color:#23303d}'+
+    '.blk .st{font-size:10px;color:#475569;margin-bottom:3px}'+
+    '.blk img{width:100%;height:auto;display:block}'+
+    '.ft{margin-top:9px;font-size:9px;color:#94a3b8;text-align:center;border-top:1px solid #e2e8f0;padding-top:5px}'+
+    '@media print{.noprint{display:none}}'+
+    '.noprint{position:fixed;top:8px;right:8px}'+
+    '.noprint button{padding:8px 14px;border:none;border-radius:7px;background:#1565c0;color:#fff;font-weight:700;cursor:pointer}'+
+    '</style></head><body>'+
+    '<div class="noprint"><button onclick="window.print()">🖨 Imprimir / Guardar PDF</button></div>'+
+    '<div class="hdr"><div class="emp">'+logoHtml+'<div><div class="nm">'+escapeHtml(emp.nombre||'Empresa')+'</div>'+
+      '<div class="sb">'+[emp.rut?('RUT '+emp.rut):'', emp.direccion||''].filter(Boolean).map(escapeHtml).join(' · ')+'</div></div></div>'+
+      '<div class="right">Fecha de emisión<br><b>'+fecha+'</b></div></div>'+
+    '<div class="ttl">Reporte de Rendimiento de Combustible por Vehículo</div>'+
+    '<div class="per">Evolución semanal del rendimiento · '+bloques.length+' vehículo(s)</div>'+
+    '<div class="grid">'+blkHtml+'</div>'+
+    '<div class="ft">Equipos con horómetro: litros por hora de funcionamiento. Equipos con odómetro: kilómetros por litro. Cada punto es el rendimiento ponderado de la semana. · Generado por SCI</div>'+
+    '</body></html>';
+  var w=window.open('','_blank');
+  if(!w){ toast('Ventana bloqueada','Permita ventanas emergentes para generar el reporte','error'); return; }
+  w.document.open(); w.document.write(html); w.document.close(); w.focus();
+  setTimeout(function(){ try{ w.print(); }catch(e){} }, 500);
+}
+try{ window.cbReporteGerencial=cbReporteGerencial; }catch(e){}
+
 function exportarReporteCombustible(){
   const regs=getCombustibleReal().sort((a,b)=>a.equipo.localeCompare(b.equipo)||new Date(a.fecha)-new Date(b.fecha));
   const rows=[['Equipo','Medicion','Fecha','Km/Horometro','Recorrido u horas','Litros','Km por litro','Litros por hora','Operador','Producto','Centro Costo','N Movimiento']];
