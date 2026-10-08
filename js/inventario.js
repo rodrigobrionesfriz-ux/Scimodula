@@ -5403,7 +5403,7 @@ function _mvInjectStyles(){
   st.textContent=''+
     '.mv-form-overlay{position:fixed;top:56px;left:240px;right:0;bottom:0;background:rgba(15,23,42,.45);z-index:150;display:flex;align-items:flex-start;justify-content:center;padding:18px;overflow:auto}'+
     '@media(max-width:880px){.mv-form-overlay{left:0}}'+
-    '.mv-form-modal{background:#fff;width:100%;max-width:760px;max-height:calc(100vh - 92px);border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,.3);display:flex;flex-direction:column;overflow:hidden}'+
+    '.mv-form-modal{background:#fff;width:100%;max-width:900px;max-height:calc(100vh - 92px);border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,.3);display:flex;flex-direction:column;overflow:hidden}'+
     '.mv-form-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:13px 18px;border-bottom:1px solid var(--bo,#e3e8ee);background:#fff;flex-shrink:0}'+
     '.mv-form-head h3{font-size:17px;font-weight:700;margin:0;color:var(--gd,#23303d)}'+
     '.mv-form-x{border:none;background:#f1f5f9;width:34px;height:34px;border-radius:8px;font-size:17px;cursor:pointer;color:#475569;line-height:1}'+
@@ -5981,16 +5981,16 @@ function renderMovDetalle(){
   const isEnt=movDraft.tipo==='ENT';
   const bod=movDraft.bodegaId;
   let total=0;
-  let html=`<table class="detalle-table" style="margin-top:14px">
+  let html=`<div style="overflow-x:auto;margin-top:14px"><table class="detalle-table" style="min-width:1060px">
     <thead><tr>
-      <th style="width:160px">Producto</th>
-      <th>Descripción</th>
-      <th class="num" style="width:90px">${isEnt?'Saldo prev.':'Disponible'}</th>
-      <th class="num" style="width:90px">Cantidad</th>
-      <th class="num" style="width:110px">${isEnt?'Costo unit.':'Costo PPP'}</th>
-      <th class="num" style="width:100px">Total</th>
-      <th style="width:120px">Lote</th>
-      <th style="width:130px">Vence</th>
+      <th style="min-width:150px">Producto</th>
+      <th style="min-width:140px">Descripción</th>
+      <th class="num" style="min-width:80px">${isEnt?'Saldo prev.':'Disponible'}</th>
+      <th class="num" style="min-width:135px">Cantidad</th>
+      <th class="num" style="min-width:135px">${isEnt?'Costo unit.':'Costo PPP'}</th>
+      <th class="num" style="min-width:140px">Total</th>
+      <th style="min-width:120px">Lote</th>
+      <th style="min-width:155px">Vence</th>
       <th class="col-action"></th>
     </tr></thead><tbody>`;
   movDraft.lineas.forEach((l,i)=>{
@@ -6038,7 +6038,7 @@ function renderMovDetalle(){
       <td colspan="3"></td>
     </tr></tfoot>
   </table>
-  <datalist id="prodList"></datalist>`;
+  <datalist id="prodList"></datalist></div>`;
 
 // Puebla el datalist de productos SOLO cuando el usuario ha escrito ≥1 carácter,
 // filtrando por código, EAN o descripción. Evita desplegar el catálogo completo.
