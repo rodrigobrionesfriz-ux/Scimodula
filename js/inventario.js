@@ -4714,12 +4714,15 @@ function renderReporteCombustible(c){
     const promBadge = hayProm
       ? `<span style="font-size:15px;font-weight:800;color:var(--gd)">${fmtNum(rendProm,2)}</span> <span style="font-size:11px;color:var(--mu)">${unidadProm}</span>`
       : `<span style="font-size:12px;color:var(--mu)">sin promedio</span>`;
+    // Sparkline de evolución semanal (línea gruesa, sin ejes ni leyenda).
+    const _spark = _cbSparkline(_cbSerieSemanal(lista, porHora).vals);
     bloques+=`<div class="card" style="margin-bottom:10px;padding:0;overflow:hidden">
       <div onclick="cbToggleEquipo('${_id}')" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;padding:14px 16px;cursor:pointer;user-select:none">
         <div style="display:flex;align-items:center;gap:10px">
           <span id="${_id}-chev" style="font-size:12px;color:var(--mu);transition:transform .15s">▸</span>
           <span style="font-weight:800;font-size:16px">${icono} ${escapeHtml(eq)}</span>
         </div>
+        <div style="flex:1 1 110px;min-width:70px;display:flex;justify-content:center;align-items:center">${_spark||''}</div>
         <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
           <span style="font-size:12px;color:var(--mu)">${lista.length} carga(s) · ${fmtNum(totalLitros,1)} L</span>
           <span style="text-align:right">${promBadge}</span>
@@ -4802,6 +4805,22 @@ function _cbSerieSemanal(lista, porHora){
   });
   return {labels:labels, vals:vals};
 }
+/* Sparkline SVG (línea gruesa, sin ejes ni leyenda) de la evolución semanal. */
+function _cbSparkline(vals){
+  var pts=[]; (vals||[]).forEach(function(v,i){ if(v!=null && !isNaN(v)) pts.push({i:i,v:v}); });
+  if(pts.length<2) return '';
+  var w=130,h=30,pad=3, n=vals.length;
+  var xs=(n>1)?(w-2*pad)/(n-1):0;
+  var vs=pts.map(function(p){return p.v;});
+  var min=Math.min.apply(null,vs), max=Math.max.apply(null,vs), rng=(max-min)||1;
+  function X(i){return pad+i*xs;}
+  function Y(v){return pad+(h-2*pad)*(1-(v-min)/rng);}
+  var d=pts.map(function(p,k){return (k?'L':'M')+X(p.i).toFixed(1)+' '+Y(p.v).toFixed(1);}).join(' ');
+  return '<svg width="'+w+'" height="'+h+'" viewBox="0 0 '+w+' '+h+'" preserveAspectRatio="none" style="display:block">'+
+    '<path d="'+d+'" fill="none" stroke="#0a6ed1" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+}
+try{ window._cbSparkline=_cbSparkline; }catch(e){}
+
 /* Renderiza un mini-gráfico de líneas en un canvas fuera de pantalla y devuelve PNG. */
 function _cbChartToImg(labels, vals){
   var cv=document.createElement('canvas'); cv.width=560; cv.height=230;
