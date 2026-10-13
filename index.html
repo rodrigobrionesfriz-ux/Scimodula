@@ -1839,19 +1839,34 @@ function renderPresupuesto(main){
     </div>
   </div>
 
-  <!-- TOP ROW: Bar chart (tipo) + Evolución mensual — side by side -->
-  <div class="top-row">
+  <!-- GRÁFICOS DE LÍNEAS: 2 por fila, fondo crema, sin grilla -->
+  <div class="top-row line-charts">
 
-    <!-- LEFT: Tipo de Costo línea -->
-    <div class="panel chart-main">
+    <div class="panel chart-main line-panel" style="background:#faf6ea">
       <div class="panel-title">Por Tipo de Costo <span>Presupuesto vs Real</span></div>
-      <div class="chart-main-wrap"><canvas id="chartTipo"></canvas></div>
+      <div class="chart-main-wrap" style="height:230px"><canvas id="chartTipo"></canvas></div>
     </div>
 
-    <!-- RIGHT: Línea de tiempo -->
-    <div class="panel chart-main">
+    <div class="panel chart-main line-panel" style="background:#faf6ea">
       <div class="panel-title">Evolución Mensual <span>Presupuesto vs Real</span></div>
-      <div class="chart-main-wrap"><canvas id="chartLinea"></canvas></div>
+      <div class="chart-main-wrap" style="height:230px"><canvas id="chartLinea"></canvas></div>
+    </div>
+
+    <div class="panel chart-main line-panel" style="background:#faf6ea">
+      <div class="panel-title">Presupuesto vs Real por Descripción <span>Top ítems con movimiento</span></div>
+      <div class="chart-main-wrap" style="height:230px"><canvas id="chartDesc"></canvas></div>
+    </div>
+
+    <div class="panel chart-main line-panel" style="background:#faf6ea">
+      <div class="panel-title" style="flex-wrap:wrap; gap:8px; align-items:center;">
+        Comparación de Temporadas
+        <span>Gasto real por mes</span>
+        <span style="margin-left:auto; display:inline-flex; gap:6px;">
+          <button id="tcmp-mensual" onclick="pzToggleTempCmp(false)" style="font-size:11px;padding:3px 10px;border:1px solid #cbd5e1;border-radius:6px;cursor:pointer;background:#1565c0;color:#fff;font-weight:700">Mensual</button>
+          <button id="tcmp-acum" onclick="pzToggleTempCmp(true)" style="font-size:11px;padding:3px 10px;border:1px solid #cbd5e1;border-radius:6px;cursor:pointer;background:#fff;color:#334155;font-weight:700">Acumulado</button>
+        </span>
+      </div>
+      <div class="chart-main-wrap" style="height:230px"><canvas id="chartTempCmp"></canvas></div>
     </div>
 
   </div>
@@ -1992,30 +2007,6 @@ function renderPresupuesto(main){
       </div>
     </div>
 
-  </div>
-
-  <!-- FULL WIDTH: Por Descripción -->
-  <div class="panel chart-bar-panel">
-    <div class="panel-title" style="flex-wrap:wrap; gap:8px;">
-      Presupuesto vs Real por Descripción
-      <span>Real vs Ppto ($K) · Top ítems con movimiento</span>
-    </div>
-    <div class="chart-desc-wrap" style="height: 320px;">
-      <canvas id="chartDesc" style="box-sizing: border-box; display: block; height: 320px; width: 1849px;" width="1849" height="320"></canvas>
-    </div>
-  </div>
-
-  <!-- FULL WIDTH: Comparación de temporadas (gasto real por mes) -->
-  <div class="panel chart-bar-panel">
-    <div class="panel-title" style="flex-wrap:wrap; gap:8px; align-items:center;">
-      Comparación de Temporadas · Gasto Real por Mes
-      <span>Cada línea es una temporada disponible</span>
-      <span style="margin-left:auto; display:inline-flex; gap:6px;">
-        <button id="tcmp-mensual" onclick="pzToggleTempCmp(false)" style="font-size:11px;padding:4px 11px;border:1px solid #cbd5e1;border-radius:6px;cursor:pointer;background:#1565c0;color:#fff;font-weight:700">Mensual</button>
-        <button id="tcmp-acum" onclick="pzToggleTempCmp(true)" style="font-size:11px;padding:4px 11px;border:1px solid #cbd5e1;border-radius:6px;cursor:pointer;background:#fff;color:#334155;font-weight:700">Acumulado</button>
-      </span>
-    </div>
-    <div style="position:relative; width:100%; height:320px;"><canvas id="chartTempCmp"></canvas></div>
   </div>
 
   <!-- FULL WIDTH: Desviaciones por Descripción -->

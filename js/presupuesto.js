@@ -685,7 +685,7 @@ function refrescarComparador(){
     return '<tr onclick="PZ.verDetalleComparado('+i+')" style="border-bottom:1px solid #eee;cursor:pointer" '+
         'onmouseover="this.style.background=\'#f8fafc\'" onmouseout="this.style.background=\'\'">'+
       '<td style="padding:8px 9px">'+escapeHtml(f.desc)+
-        (f.tipo?'<div style="font-size:10px;color:#94a3b8">'+escapeHtml(f.tipo)+(f.sub?(' · '+escapeHtml(f.sub)):'')+'</div>':'')+'</td>'+
+        (f.tipo?'<div style="font-size:10px;color:#475569">'+escapeHtml(f.tipo)+(f.sub?(' · '+escapeHtml(f.sub)):'')+'</div>':'')+'</td>'+
       '<td style="padding:8px 9px;text-align:right;white-space:nowrap">'+fmtVal(f.act)+'</td>'+
       '<td style="padding:8px 9px;text-align:right;white-space:nowrap;color:#64748b">'+fmtVal(f.prev)+'</td>'+
       '<td style="padding:8px 9px;text-align:right;white-space:nowrap;font-weight:700;color:'+colD+'">'+
@@ -717,7 +717,7 @@ function _cmpCard(titulo,valor,sub,color){
   return '<div style="border:1px solid #e3e8ee;border-radius:9px;padding:10px 12px">'+
     '<div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.4px">'+escapeHtml(titulo)+'</div>'+
     '<div style="font-size:19px;font-weight:800;color:'+color+';margin:2px 0">'+valor+'</div>'+
-    '<div style="font-size:10px;color:#94a3b8">'+escapeHtml(sub)+'</div></div>';
+    '<div style="font-size:10px;color:#475569">'+escapeHtml(sub)+'</div></div>';
 }
 
 /* Abre el detalle SOBRE el comparador, sin cerrarlo: al salir del detalle se
@@ -1534,13 +1534,13 @@ function renderTempCompareChart(allData){
       layout:{ padding:{ top:4, right:8, bottom:2, left:2 } },
       interaction:{ mode:'index', intersect:false },
       plugins:{
-        legend:{ labels:{ color:'#94a3b8', font:{size:11}, boxWidth:12, padding:10 } },
+        legend:{ labels:{ color:'#475569', font:{size:11}, boxWidth:12, padding:10 } },
         tooltip:{ backgroundColor:'#1a2235', borderColor:'#1e2d45', borderWidth:1,
           callbacks:{ label:function(ctx){ return ' '+ctx.dataset.label+': '+fmtVal(ctx.parsed.y==null?0:ctx.parsed.y); } } }
       },
       scales:{
-        x:{ ticks:{ color:'#64748b', font:{size:10}, autoSkip:true, maxRotation:0 }, grid:{ color:'rgba(30,45,69,0.5)' } },
-        y:{ beginAtZero:true, ticks:{ color:'#64748b', font:{size:10}, maxTicksLimit:5, callback:function(v){ return fmtVal(v); } }, grid:{ color:'rgba(30,45,69,0.5)' } }
+        x:{ ticks:{ color:'#64748b', font:{size:10}, autoSkip:true, maxRotation:0 }, grid:{ display:false } },
+        y:{ beginAtZero:true, ticks:{ color:'#64748b', font:{size:10}, maxTicksLimit:5, callback:function(v){ return fmtVal(v); } }, grid:{ display:false } }
       }
     }
   });
@@ -1604,7 +1604,7 @@ function renderLineChart(data) {
       layout: { padding: { top: 4, right: 8, bottom: 2, left: 2 } },
       interaction: { mode: 'index', intersect: false },
       plugins: {
-        legend: { labels: { color: '#94a3b8', font: { size: 11 }, boxWidth: 12, padding: 10 } },
+        legend: { labels: { color: '#475569', font: { size: 11 }, boxWidth: 12, padding: 10 } },
         tooltip: {
           backgroundColor: '#1a2235', borderColor: '#1e2d45', borderWidth: 1,
           callbacks: {
@@ -1615,12 +1615,12 @@ function renderLineChart(data) {
       scales: {
         x: {
           ticks: { color: '#64748b', font:{size:10}, autoSkip: true, maxRotation: 0, minRotation: 0 },
-          grid: { color: 'rgba(30,45,69,0.5)' }
+          grid: { display: false }
         },
         y: {
           beginAtZero: true,
           ticks: { color: '#64748b', font:{size:10}, maxTicksLimit: 5, callback: v => fmtVal(v) },
-          grid: { color: 'rgba(30,45,69,0.5)' }
+          grid: { display: false }
         }
       }
     }
@@ -1649,22 +1649,22 @@ function renderTipoChart(data) {
         {
           label: 'Presupuesto',
           data: pptoV,
-          borderColor: '#3b82f6',
-          backgroundColor: 'rgba(59,130,246,0.08)',
+          borderColor: '#7c3aed',
+          backgroundColor: 'rgba(124,58,237,0.08)',
           borderWidth: 2.5,
           pointRadius: 4,
-          pointBackgroundColor: '#3b82f6',
+          pointBackgroundColor: '#7c3aed',
           tension: 0.3,
           fill: true,
         },
         {
           label: 'Real',
           data: realV,
-          borderColor: '#16c784',
-          backgroundColor: 'rgba(22,199,132,0.08)',
+          borderColor: '#0d9488',
+          backgroundColor: 'rgba(13,148,136,0.08)',
           borderWidth: 2.5,
           pointRadius: 5,
-          pointBackgroundColor: '#16c784',
+          pointBackgroundColor: '#0d9488',
           tension: 0.3,
           fill: true,
           spanGaps: false,
@@ -1676,7 +1676,7 @@ function renderTipoChart(data) {
       layout: { padding: { top: 4, right: 8, bottom: 2, left: 2 } },
       interaction: { mode: 'index', intersect: false },
       plugins: {
-        legend: { labels: { color: '#94a3b8', font: { size: 11 }, boxWidth: 12, padding: 10 } },
+        legend: { labels: { color: '#475569', font: { size: 11 }, boxWidth: 12, padding: 10 } },
         tooltip: {
           backgroundColor: '#1a2235', borderColor: '#1e2d45', borderWidth: 1,
           callbacks: {
@@ -1695,12 +1695,12 @@ function renderTipoChart(data) {
               return t.length > 12 ? t.slice(0,11) + '…' : t;
             }
           },
-          grid: { color: 'rgba(30,45,69,0.5)' }
+          grid: { display: false }
         },
         y: {
           beginAtZero: true,
           ticks: { color: '#64748b', font:{size:9}, maxTicksLimit: 5, callback: v => fmtVal(v) },
-          grid: { color: 'rgba(30,45,69,0.5)' }
+          grid: { display: false }
         }
       }
     }
@@ -1825,7 +1825,7 @@ function renderSubgrupoChart(data) {
         .map(([tipo, tval]) => {
           const tpct = val ? ((tval/val)*100).toFixed(0) : '0';
           const shortTipo = tipo.replace('COSTOS ', '').replace('GASTOS ', '');
-          return `<div style="display:flex;justify-content:space-between;gap:6px;font-size:9px;color:#94a3b8;line-height:1.4;">
+          return `<div style="display:flex;justify-content:space-between;gap:6px;font-size:9px;color:#475569;line-height:1.4;">
             <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:110px;" title="${tipo}">${shortTipo}</span>
             <span style="color:#64748b;flex-shrink:0;">${tpct}%</span>
           </div>`;
@@ -1883,9 +1883,9 @@ function renderDescChart(data) {
         {
           label: 'Presupuesto',
           data: pptoV,
-          borderColor: '#3b82f6',
-          backgroundColor: 'rgba(59,130,246,0.12)',
-          pointBackgroundColor: '#3b82f6',
+          borderColor: '#d97706',
+          backgroundColor: 'rgba(217,119,6,0.12)',
+          pointBackgroundColor: '#d97706',
           pointBorderColor: '#fff',
           pointBorderWidth: 1.5,
           pointRadius: 4,
@@ -1897,9 +1897,9 @@ function renderDescChart(data) {
         {
           label: 'Real',
           data: realV,
-          borderColor: '#16c784',
-          backgroundColor: 'rgba(22,199,132,0.08)',
-          pointBackgroundColor: items.map(([,v]) => v.r > v.p ? '#ef4444' : '#16c784'),
+          borderColor: '#059669',
+          backgroundColor: 'rgba(5,150,105,0.08)',
+          pointBackgroundColor: items.map(([,v]) => v.r > v.p ? '#ef4444' : '#059669'),
           pointBorderColor: '#fff',
           pointBorderWidth: 1.5,
           pointRadius: 4,
@@ -1916,7 +1916,7 @@ function renderDescChart(data) {
       interaction: { mode: 'index', intersect: false },
       plugins: {
         legend: {
-          labels: { color: '#94a3b8', font:{size:10}, boxWidth:10, padding:12 }
+          labels: { color: '#475569', font:{size:10}, boxWidth:10, padding:12 }
         },
         tooltip: {
           backgroundColor: '#1a2235',
@@ -1939,7 +1939,7 @@ function renderDescChart(data) {
       scales: {
         x: {
           ticks: {
-            color: '#94a3b8',
+            color: '#475569',
             font: { size: 9 },
             maxRotation: 45,
             minRotation: 30,
@@ -1948,7 +1948,7 @@ function renderDescChart(data) {
               return lbl.length > 18 ? lbl.slice(0, 18) + '…' : lbl;
             }
           },
-          grid: { color: 'rgba(30,45,69,0.3)' }
+          grid: { display: false }
         },
         y: {
           ticks: {
@@ -1956,7 +1956,7 @@ function renderDescChart(data) {
             font: { size: 9 },
             callback: v => fmtVal(v)
           },
-          grid: { color: 'rgba(30,45,69,0.4)' }
+          grid: { display: false }
         }
       }
     }
@@ -2682,7 +2682,7 @@ window.pzRenderCriterios = function(){
       html+='<div style="background:#fff;border:1px solid #e3e8ee;border-radius:8px;padding:12px 14px;margin-bottom:8px">'+
         '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">'+
           '<span style="background:#eff6ff;color:#1e40af;font-size:11px;font-weight:700;padding:3px 10px;border-radius:6px">'+escapeHtml(c.tipo||'')+'</span>'+
-          '<span style="font-size:10px;color:#94a3b8">'+escapeHtml(fechaFmt)+(c.usuario?' · '+escapeHtml(c.usuario):'')+'</span>'+
+          '<span style="font-size:10px;color:#475569">'+escapeHtml(fechaFmt)+(c.usuario?' · '+escapeHtml(c.usuario):'')+'</span>'+
         '</div>'+
         '<div style="font-size:13px;color:#334155;line-height:1.5;white-space:pre-wrap">'+escapeHtml(c.detalle||'')+'</div>'+
         (puedeEditar?'<div style="margin-top:8px;display:flex;gap:6px">'+
@@ -3005,7 +3005,7 @@ function pzBuildEERHaHTML(){
   H+='</table>';
 
   // Parametros
-  var boxItem=function(l,v){ return '<div style="border:1px solid #e3e8ee;border-radius:8px;padding:8px 12px"><div style="font-size:10px;color:#94a3b8;font-weight:700;text-transform:uppercase">'+l+'</div><div style="font-size:14px;font-weight:700;color:#23303d">'+(v||'—')+'</div></div>'; };
+  var boxItem=function(l,v){ return '<div style="border:1px solid #e3e8ee;border-radius:8px;padding:8px 12px"><div style="font-size:10px;color:#475569;font-weight:700;text-transform:uppercase">'+l+'</div><div style="font-size:14px;font-weight:700;color:#23303d">'+(v||'—')+'</div></div>'; };
   var params='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:14px">'+
     boxItem('Variedad', _eerTxt('eer-variedad'))+
     boxItem('Nombre Cuartel/Huerto', _eerTxt('eer-cuartel'))+
@@ -3022,7 +3022,7 @@ function pzBuildEERHaHTML(){
   var avisoGtt = CT.falta ? '<div style="background:#fff8e1;border:1px solid #ffe082;color:#8a6d00;border-radius:9px;padding:10px 14px;font-size:12.5px;margin-bottom:12px">\u26a0\ufe0f No hay datos con clasificaci\u00f3n GTT cargados para este huerto. Los costos aparecer\u00e1n en blanco hasta que uses \u201cActualizar datos\u201d y vuelvas a seleccionar el Excel (las columnas GTT no se guardan en la nube).</div>' : '';
   var Hwrap='<div style="overflow-x:auto;-webkit-overflow-scrolling:touch">'+H+'</div>';
   return titulo+avisoGtt+Hwrap+params+
-    '<div style="font-size:10.5px;color:#94a3b8;margin-top:10px">Fuente: Control de Presupuesto SCI · costos reales del huerto/temporada; producción y precios ingresados manualmente.</div>';
+    '<div style="font-size:10.5px;color:#475569;margin-top:10px">Fuente: Control de Presupuesto SCI · costos reales del huerto/temporada; producción y precios ingresados manualmente.</div>';
 }
 
 window.pzRenderEERHa=function(){
