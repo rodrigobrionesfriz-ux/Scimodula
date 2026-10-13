@@ -1997,16 +1997,10 @@ function renderDevChart(data) {
       datasets: [{
         label: 'Desviación (Real − Ppto)',
         data: devVals,
-        backgroundColor: devVals.map(v => v > 0
-          ? 'rgba(239,68,68,0.92)'
-          : 'rgba(22,163,74,0.92)'
-        ),
-        borderColor: devVals.map(v => v > 0 ? '#dc2626' : '#15803d'),
-        borderWidth: 1,
-        borderRadius: 4,
-        borderSkipped: false,
-        barPercentage: 0.78,
-        categoryPercentage: 0.82,
+        backgroundColor: devVals.map(v => v > 0 ? 'rgba(227,73,72,0.55)' : 'rgba(27,175,122,0.55)'),
+        borderWidth: 0,
+        barThickness: 3,
+        categoryPercentage: 0.9,
       }]
     },
     options: {
@@ -2060,6 +2054,23 @@ function renderDevChart(data) {
         ctx.lineWidth   = 1.5;
         ctx.setLineDash([4, 3]);
         ctx.stroke();
+        ctx.restore();
+      }
+    }, {
+      id: 'devDots',
+      afterDatasetsDraw(chart) {
+        const { ctx, scales } = chart;
+        ctx.save();
+        chart.getDatasetMeta(0).data.forEach((bar, i) => {
+          const v = devVals[i]; if (v === 0) return;
+          const x = scales.x.getPixelForValue(v);
+          const y = bar.tooltipPosition().y;
+          ctx.beginPath();
+          ctx.arc(x, y, 6, 0, Math.PI * 2);
+          ctx.fillStyle = v > 0 ? '#e34948' : '#1baf7a';
+          ctx.fill();
+          ctx.lineWidth = 2; ctx.strokeStyle = '#ffffff'; ctx.stroke();
+        });
         ctx.restore();
       }
     }, {
