@@ -1981,8 +1981,11 @@ function renderDevChart(data) {
 
   if (!items.length) return;
 
-  const labels  = items.map(x => x.label);
-  const devVals = items.map(x => Math.round(x.dev));
+  const labels   = items.map(x => x.label);
+  const devVals  = items.map(x => Math.round(x.dev));
+  const realVals = items.map(x => Math.round(x.r));
+  const pptoVals = items.map(x => Math.round(x.p));
+  const maxX     = Math.max(...items.map(x => Math.max(x.p, x.r)), 1);
 
   // Dynamic height — barras más gruesas para mejor lectura
   const h = Math.max(220, items.length * 32);
@@ -1995,12 +1998,14 @@ function renderDevChart(data) {
     data: {
       labels,
       datasets: [{
-        label: 'Desviación (Real − Ppto)',
-        data: devVals,
-        backgroundColor: devVals.map(v => v > 0 ? 'rgba(227,73,72,0.55)' : 'rgba(27,175,122,0.55)'),
+        label: 'Gasto real',
+        data: realVals,
+        backgroundColor: items.map(x => x.dev > 0 ? 'rgba(227,73,72,0.9)' : 'rgba(27,175,122,0.9)'),
         borderWidth: 0,
-        barThickness: 3,
-        categoryPercentage: 0.9,
+        borderRadius: 3,
+        borderSkipped: false,
+        barThickness: 14,
+        categoryPercentage: 0.8,
       }]
     },
     options: {
@@ -2016,10 +2021,11 @@ function renderDevChart(data) {
           borderWidth: 1,
           callbacks: {
             label: ctx => {
-              const v   = ctx.parsed.x;
               const itm = items[ctx.dataIndex];
-              const pct = itm.p ? ((v / Math.abs(itm.p)) * 100).toFixed(1) : '—';
-              return ` ${v >= 0 ? '+' : ''}${fmtVal(Math.abs(v))}  (${v >= 0 ? '+' : ''}${pct}%)`;
+              const pct = itm.p ? ((itm.dev / Math.abs(itm.p)) * 100).toFixed(1) : '—';
+              return [' Real: ' + fmtVal(itm.r),
+                      ' Presupuesto: ' + fmtVal(itm.p),
+                      ' Desviación: ' + (itm.dev >= 0 ? '+' : '-') + fmtVal(Math.abs(itm.dev)) + '  (' + (itm.dev >= 0 ? '+' : '') + pct + '%)'];
             },
             title: ctx => ctx[0].label + '  👆 clic en etiqueta para ver detalle'
           }
@@ -2027,11 +2033,12 @@ function renderDevChart(data) {
       },
       scales: {
         x: {
+          min: 0, max: maxX * 1.14,
           ticks: {
             color: '#475569', font: {size:10},
             callback: v => fmtVal(v)
           },
-          grid: { color: 'rgba(148,163,184,0.25)' },
+          grid: { color: 'rgba(148,163,184,0.2)' },
           border: { color: '#cbd5e1' }
         },
         y: {
@@ -2041,73 +2048,59 @@ function renderDevChart(data) {
       }
     },
     plugins: [{
-      id: 'devZeroLine',
-      afterDraw(chart) {
-        const { ctx, chartArea, scales } = chart;
-        const xZero = scales.x.getPixelForValue(0);
-        if (xZero < chartArea.left || xZero > chartArea.right) return;
-        ctx.save();
-        ctx.beginPath();
-        ctx.moveTo(xZero, chartArea.top);
-        ctx.lineTo(xZero, chartArea.bottom);
-        ctx.strokeStyle = '#475569';
-        ctx.lineWidth   = 1.5;
-        ctx.setLineDash([4, 3]);
-        ctx.stroke();
-        ctx.restore();
-      }
-    }, {
-      id: 'devDots',
-      afterDatasetsDraw(chart) {
+      id: 'bulletTrack',
+      beforeDatasetsDraw(chart) {
         const { ctx, scales } = chart;
+        const x0 = scales.x.getPixelForValue(0);
+        const xM = scales.x.getPixelForValue(maxX);
         ctx.save();
-        chart.getDatasetMeta(0).data.forEach((bar, i) => {
-          const v = devVals[i]; if (v === 0) return;
-          const x = scales.x.getPixelForValue(v);
-          const y = bar.tooltipPosition().y;
+        ctx.fillStyle = 'rgba(148,163,184,0.14)';
+        chart.getDatasetMeta(0).data.forEach(bar => {
+          const y = bar.y;
           ctx.beginPath();
-          ctx.arc(x, y, 6, 0, Math.PI * 2);
-          ctx.fillStyle = v > 0 ? '#e34948' : '#1baf7a';
+          if (ctx.roundRect) ctx.roundRect(x0, y - 8, xM - x0, 16, 3);
+          else ctx.rect(x0, y - 8, xM - x0, 16);
           ctx.fill();
-          ctx.lineWidth = 2; ctx.strokeStyle = '#ffffff'; ctx.stroke();
         });
         ctx.restore();
       }
     }, {
-      id: 'devValueLabels',
+      id: 'bulletPpto',
       afterDatasetsDraw(chart) {
         const { ctx, scales } = chart;
-        const xZero = scales.x.getPixelForValue(0);
         ctx.save();
+        ctx.strokeStyle = '#2c2c2a';
+        ctx.lineWidth = 2.6;
         chart.getDatasetMeta(0).data.forEach((bar, i) => {
-          const v = devVals[i];
-          if (v === 0) return;
-          const itm = items[i];
-          const pct = itm.p ? Math.round((v / Math.abs(itm.p)) * 100) : null;
-          const montoTxt = (v >= 0 ? '+' : '-') + fmtVal(Math.abs(v));
-          const pctTxt = (pct === null) ? '' : '  (' + (pct >= 0 ? '+' : '') + pct + '%)';
-          const label = montoTxt + pctTxt;
-          const y = bar.tooltipPosition().y;
-          ctx.font = '700 10px Roboto, Inter, sans-serif';
-          ctx.textBaseline = 'middle';
-          // Colocar la etiqueta SIEMPRE del lado del cero, hacia afuera de la
-          // barra, para que no se encime con el color de la barra y se lea bien.
-          if (v >= 0) {
-            // barra crece a la derecha → etiqueta a la izquierda del cero
-            ctx.textAlign = 'right';
-            ctx.fillStyle = '#b91c1c';
-            ctx.fillText(label, xZero - 6, y);
-          } else {
-            // barra crece a la izquierda → etiqueta a la derecha del cero
-            ctx.textAlign = 'left';
-            ctx.fillStyle = '#15803d';
-            ctx.fillText(label, xZero + 6, y);
-          }
+          const xp = scales.x.getPixelForValue(pptoVals[i]);
+          const y = bar.y;
+          ctx.beginPath();
+          ctx.moveTo(xp, y - 11);
+          ctx.lineTo(xp, y + 11);
+          ctx.stroke();
         });
         ctx.restore();
       }
     }, {
-      // Clickable y-axis labels with hover underline effect
+      id: 'bulletLabels',
+      afterDatasetsDraw(chart) {
+        const { ctx, scales, chartArea } = chart;
+        const xM = scales.x.getPixelForValue(maxX);
+        ctx.save();
+        ctx.font = '700 10px Roboto, Inter, sans-serif';
+        ctx.textBaseline = 'middle';
+        ctx.textAlign = 'left';
+        chart.getDatasetMeta(0).data.forEach((bar, i) => {
+          const itm = items[i];
+          const pct = itm.p ? Math.round((itm.dev / Math.abs(itm.p)) * 100) : null;
+          if (pct === null) return;
+          ctx.fillStyle = itm.dev > 0 ? '#b91c1c' : '#15803d';
+          ctx.fillText((pct >= 0 ? '+' : '') + pct + '%', Math.min(xM + 8, chartArea.right - 2), bar.y);
+        });
+        ctx.restore();
+      }
+    }, {
+            // Clickable y-axis labels with hover underline effect
       id: 'yAxisClickable',
       _hoveredIdx: -1,
       afterEvent(chart, args) {

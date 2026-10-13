@@ -73,7 +73,7 @@ var FBCOUNT = (function(){
   });
 })();
 </script>
-<link rel="stylesheet" href="css/styles.css?v=168">
+<link rel="stylesheet" href="css/styles.css?v=169">
 </head>
 <body>
 <!-- Hoja de estilo dinámica para el tema forestal (se llena vía JS) -->
@@ -768,7 +768,7 @@ document.addEventListener('click', function(e){
   if(dd && dd.classList.contains('open') && !dd.contains(e.target)) dd.classList.remove('open');
 });
 </script>
-<script src="js/core.js?v=168"></script>
+<script src="js/core.js?v=169"></script>
 <script>
 /* ═══════════════ MÓDULO: CONTROL DE PRESUPUESTO ═══════════════ */
 /* Integra el dashboard de Control de Presupuesto (Huerto Cerezos 2018) como
@@ -2012,8 +2012,8 @@ function renderPresupuesto(main){
   <!-- FULL WIDTH: Desviaciones por Descripción -->
   <div class="panel chart-bar-panel">
     <div class="panel-title" style="flex-wrap:wrap; gap:8px;">
-      Desviación Real vs Presupuesto por Descripción
-      <span>▲ Sobre presupuesto &nbsp;·&nbsp; ▼ Bajo presupuesto</span>
+      Gasto Real vs Presupuesto por Descripción
+      <span>Barra = gasto real &nbsp;·&nbsp; marca | = presupuesto &nbsp;·&nbsp; verde bajo / rojo sobre ppto</span>
     </div>
     <div class="chart-dev-wrap" style="position: relative; width: 100%; min-height: 160px; height: 638px;">
       <canvas id="chartDev" title="Haz clic en el nombre del ítem (eje izquierdo) para ver el detalle de gastos" style="box-sizing: border-box; display: block; height: 638px; width: 1849px;" width="1849" height="638"></canvas>
@@ -2076,11 +2076,11 @@ function renderPresupuesto(main){
 }
 
 </script>
-<script src="js/inventario.js?v=168"></script>
-<script src="js/ordencompra.js?v=168"></script>
-<script src="js/huerto.js?v=168"></script>
-<script src="js/actualizacion.js?v=168"></script>
-<script src="js/helada.js?v=168"></script>
+<script src="js/inventario.js?v=169"></script>
+<script src="js/ordencompra.js?v=169"></script>
+<script src="js/huerto.js?v=169"></script>
+<script src="js/actualizacion.js?v=169"></script>
+<script src="js/helada.js?v=169"></script>
 <script>
 
 /* ═══════════════ MÓDULO: MANTENCIONES ═══════════════ */
@@ -2841,7 +2841,7 @@ var S = { panos:[], registros:[], productos:[], ordenes:[], oCounter:1, confirma
 };
 
 </script>
-<script src="js/cuaderno.js?v=168"></script>
+<script src="js/cuaderno.js?v=169"></script>
 <script>
 
 /* ═══════════════ INTEGRACIÓN CUADERNO DE CAMPO ═══════════════ */
@@ -2898,8 +2898,8 @@ function renderCuaderno(main){
 </script>
 
 
-<script src="data/presupuesto-data.js?v=168"></script>
-<script src="js/presupuesto.js?v=168"></script>
+<script src="data/presupuesto-data.js?v=169"></script>
+<script src="js/presupuesto.js?v=169"></script>
 <script>
 /* ── Normalización global a MAYÚSCULAS en la entrada de datos ──
    Aplica a inputs de texto y textareas de todo el sistema.
