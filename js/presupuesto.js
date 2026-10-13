@@ -1176,7 +1176,9 @@ function safeDestroy(instance, canvasId) {
   } catch(e) {}
 }
 
-let chartLinea, chartTipo, chartSubgrupo, chartDesc, chartDev;
+let chartLinea, chartTipo, chartSubgrupo, chartDesc, chartDev, chartTempCmp;
+var _tempCmpAcum = false;   // vista mensual (false) o acumulada (true)
+var _tempCmpData = null;    // último dataset para re-render al cambiar el toggle
 
 function rebuildFilters(data) {
   const temporadas = [...new Set(data.map(d => _getTemporada(d)).filter(t => t))].sort();
@@ -1488,8 +1490,71 @@ function renderWithData(data, allData) {
   renderTopDev(data, byDesc);
   renderDescChart(data);
   renderDevChart(data);
+  // Comparación entre temporadas: usa TODO el dataset (no el filtrado por
+  // temporada), para ver cómo se comporta la temporada actual vs las anteriores.
+  renderTempCompareChart(allData);
   // renderExecSummary removed
 }  // end renderWithData
+
+/* Gráfico de líneas: gasto REAL por mes, una línea por temporada disponible.
+   No se filtra por la temporada seleccionada (la gracia es comparar entre
+   temporadas). Respeta la moneda activa (CLP/USD). Toggle mensual/acumulado. */
+function renderTempCompareChart(allData){
+  var cv=document.getElementById('chartTempCmp'); if(!cv) return;
+  var rows = allData || [];
+  _tempCmpData = rows;
+  var temps=[]; rows.forEach(function(d){ var t=_getTemporada(d); if(t && temps.indexOf(t)<0) temps.push(t); });
+  temps.sort();
+  var map={}; temps.forEach(function(t){ map[t]={}; MONTH_ORDER.forEach(function(m){ map[t][m]=0; }); });
+  rows.forEach(function(d){
+    var t=_getTemporada(d); if(!map[t]) return;
+    if(!(d.MES in map[t])) return;
+    map[t][d.MES] += (getReal(d)||0);
+  });
+  var labels = MONTH_ORDER.map(function(m){ return m.slice(0,3); });
+  var colors = ['#16c784','#3b82f6','#e9730c','#8e44ad','#c0392b','#d4ac0d','#2c3e50','#e84393'];
+  var datasets = temps.map(function(t,i){
+    var mesesConDatos = MONTH_ORDER.filter(function(m){ return (map[t][m]||0)>0; });
+    var lastIdx = mesesConDatos.length ? MONTH_ORDER.indexOf(mesesConDatos[mesesConDatos.length-1]) : -1;
+    var running=0;
+    var vals = MONTH_ORDER.map(function(m,idx){
+      running += (map[t][m]||0);
+      if(_tempCmpAcum){ return (idx<=lastIdx) ? Math.round(running) : null; }
+      var v=map[t][m]||0; return v>0 ? Math.round(v) : null;
+    });
+    var col=colors[i%colors.length];
+    return { label:t, data:vals, borderColor:col, backgroundColor:col, borderWidth:2.5, pointRadius:3, pointBackgroundColor:col, tension:0.3, fill:false, spanGaps:true };
+  });
+  safeDestroy(chartTempCmp, 'chartTempCmp');
+  chartTempCmp = new Chart(cv, {
+    type:'line',
+    data:{ labels:labels, datasets:datasets },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      layout:{ padding:{ top:4, right:8, bottom:2, left:2 } },
+      interaction:{ mode:'index', intersect:false },
+      plugins:{
+        legend:{ labels:{ color:'#94a3b8', font:{size:11}, boxWidth:12, padding:10 } },
+        tooltip:{ backgroundColor:'#1a2235', borderColor:'#1e2d45', borderWidth:1,
+          callbacks:{ label:function(ctx){ return ' '+ctx.dataset.label+': '+fmtVal(ctx.parsed.y==null?0:ctx.parsed.y); } } }
+      },
+      scales:{
+        x:{ ticks:{ color:'#64748b', font:{size:10}, autoSkip:true, maxRotation:0 }, grid:{ color:'rgba(30,45,69,0.5)' } },
+        y:{ beginAtZero:true, ticks:{ color:'#64748b', font:{size:10}, maxTicksLimit:5, callback:function(v){ return fmtVal(v); } }, grid:{ color:'rgba(30,45,69,0.5)' } }
+      }
+    }
+  });
+}
+function pzToggleTempCmp(acum){
+  _tempCmpAcum=!!acum;
+  var bm=document.getElementById('tcmp-mensual'), ba=document.getElementById('tcmp-acum');
+  if(bm&&ba){
+    bm.style.background=_tempCmpAcum?'#fff':'#1565c0'; bm.style.color=_tempCmpAcum?'#334155':'#fff';
+    ba.style.background=_tempCmpAcum?'#1565c0':'#fff'; ba.style.color=_tempCmpAcum?'#fff':'#334155';
+  }
+  try{ renderTempCompareChart(_tempCmpData); }catch(e){}
+}
+try{ window.pzToggleTempCmp=pzToggleTempCmp; }catch(e){}
 
 function renderLineChart(data) {
   const byMes = {};
