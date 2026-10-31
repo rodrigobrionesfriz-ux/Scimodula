@@ -256,7 +256,7 @@ async function recalcularStock(){
       const _guard=setTimeout(()=>{ try{ hideLoading(); }catch(e){} }, 60000);
       try{
         const resultado=await _ejecutarRecalculoStock();
-        toast('Stock recalculado',`${resultado.movProcesados} movimientos procesados, ${resultado.stockEntries} saldos actualizados${resultado.stockHuerfanos?`, ${resultado.stockHuerfanos} saldo(s) huérfano(s) eliminado(s)`:''}`);
+        toast('Stock recalculado',`${resultado.movProcesados} movimientos procesados, ${resultado.stockEntries} saldos actualizados`);
         await audit('mantenimiento.recalcularStock',`Recálculo manual: ${resultado.movProcesados} movimientos vigentes`,STATE.user.id);
         if(STATE.page==='config')renderConfig(document.getElementById('mainContent'));
       }catch(e){
@@ -300,10 +300,6 @@ async function _ejecutarRecalculoStock(){
   };
 
   // 3. Procesar movimientos vigentes en orden cronológico (fecha asc, luego numero asc)
-  //    Se leen SIEMPRE desde IndexedDB: si el llamador acaba de guardar un
-  //    movimiento y no refrescó el cache, el recálculo lo omitía y el saldo
-  //    no bajaba hasta reabrir la app (bug de consumos de combustible, v142).
-  try{ STATE.cache.movements=await dbAll('movements'); }catch(e){}
   const mov=STATE.cache.movements.filter(m=>!m.anulado).slice().sort((a,b)=>{
     const fa=(a.fecha||'')+(a.creado||'')+(a.numero||'');
     const fb=(b.fecha||'')+(b.creado||'')+(b.numero||'');
@@ -372,20 +368,6 @@ async function _ejecutarRecalculoStock(){
   }
 
   // 4. Persistir resultados
-  // 4a. Purgar saldos HUÉRFANOS: claves que existen en el store pero que los
-  // movimientos vigentes ya no justifican. Sin esto, un registro corrupto
-  // (ej. snapshot vacío/erróneo sincronizado desde otro dispositivo) sobrevive
-  // al recálculo y la detección de inconsistencias nunca deja de alertar.
-  let stockHuerfanos=0;
-  try{
-    const actuales=await dbAll('stock');
-    for(const s of (actuales||[])){
-      if(!Object.prototype.hasOwnProperty.call(stockMap, s.key)){
-        await dbDel('stock', s.key);
-        stockHuerfanos++;
-      }
-    }
-  }catch(e){ console.error('Purga de stock huérfano:', e); }
   let stockEntries=0;
   for(const k of Object.keys(stockMap)){
     const st=stockMap[k];
@@ -424,7 +406,7 @@ async function _ejecutarRecalculoStock(){
   }catch(e){ console.error('Error al sepultar lotes huérfanos en recálculo:',e); }
 
   await reloadCache();
-  return {movProcesados:procesados,stockEntries,lotEntries,lotesSepultados,stockHuerfanos};
+  return {movProcesados:procesados,stockEntries,lotEntries,lotesSepultados};
 }
 
 /* ═══════════════ DETECCIÓN DE INCONSISTENCIAS DE STOCK ═══════════════
@@ -764,70 +746,6 @@ async function importBackup(file){
 }
 
 /* ═══════════════ PAGE: DASHBOARD ═══════════════ */
-/* Desde el desglose por tipo de la tarjeta de valor: abre la página Stock ya
-   filtrada por ese tipo. "Sin clasificar" no es un tipo real del catálogo, así
-   que en ese caso se limpia el filtro y se avisa, en vez de dejar la tabla
-   vacía sin explicación. */
-function verStockPorTipo(tipo){
-  if(typeof stockFilter==='undefined') return;
-  // navigate() no valida permisos, así que se comprueba aquí: un usuario sin
-  // acceso a Stock vería la página igual al tocar la tarjeta.
-  if(typeof can==='function' && !can('stock.ver')){
-    if(typeof toast==='function') toast('Sin acceso','No tiene permiso para ver el stock por bodega','error');
-    return;
-  }
-  var sinClasificar = (tipo==='Sin clasificar');
-  stockFilter.tipo        = sinClasificar ? '' : (tipo||'');
-  stockFilter.bodega      = '';
-  stockFilter.grupo       = '';
-  stockFilter.subgrupo    = '';
-  stockFilter.search      = '';
-  stockFilter.soloConSaldo= true;
-  navigate('stock');
-  if(sinClasificar && typeof toast==='function'){
-    toast('Sin clasificar','Son productos sin tipo asignado en su ficha. Se muestra el stock completo.','info');
-  }
-}
-try{ window.verStockPorTipo=verStockPorTipo; }catch(e){}
-
-/* Detalle del valor por tipo de producto en una ventana emergente (sin salir
-   del dashboard). Muestra los productos inventariables de ese tipo con su
-   stock total y valor. */
-function verDetalleTipoModal(tipo){
-  if(typeof showModal!=='function') { verStockPorTipo(tipo); return; }
-  var sinClasif = (tipo==='Sin clasificar');
-  var acc={};
-  (STATE.cache.stock||[]).forEach(function(x){
-    var p=getProduct(x.codigoInterno);
-    if(p && p.inventariable===false) return;                 // servicios/no inventariables fuera
-    var t=(p && p.tipoProducto) ? p.tipoProducto : 'Sin clasificar';
-    if(sinClasif){ if(p && p.tipoProducto) return; } else if(t!==tipo) return;
-    var val=(x.cantidad*x.costoPromedio)||0;
-    if(!acc[x.codigoInterno]) acc[x.codigoInterno]={desc:(p?p.descripcion:x.codigoInterno), um:(p?p.unidadMedida:''), cant:0, val:0};
-    acc[x.codigoInterno].cant+=(x.cantidad||0);
-    acc[x.codigoInterno].val+=val;
-  });
-  var rows=Object.keys(acc).map(function(k){ var o=acc[k]; o.cod=k; return o; })
-    .filter(function(r){ return r.val!==0 || r.cant!==0; })
-    .sort(function(a,b){ return b.val-a.val; });
-  var total=rows.reduce(function(s,r){ return s+r.val; },0);
-  var body = rows.length
-    ? '<div style="max-height:60vh;overflow:auto;border:1px solid var(--bo);border-radius:6px"><table class="data" style="margin:0;width:100%">'+
-        '<thead><tr><th>Producto</th><th class="num">Stock</th><th class="num">Valor</th><th class="num">%</th></tr></thead><tbody>'+
-        rows.map(function(r){ var pct=total>0?(r.val/total*100):0; return '<tr><td><strong>'+escapeHtml(r.cod)+'</strong> · '+escapeHtml(r.desc)+'</td>'+
-          '<td class="num">'+fmtNum(r.cant,2)+(r.um?(' '+escapeHtml(r.um)):'')+'</td>'+
-          '<td class="num">'+fmtMon(r.val)+'</td>'+
-          '<td class="num" style="color:var(--mu)">'+pct.toFixed(1)+'%</td></tr>'; }).join('')+
-        '</tbody><tfoot><tr style="background:var(--gp);font-weight:700"><td style="text-align:right">Total ('+rows.length+' producto(s))</td><td></td><td class="num">'+fmtMon(total)+'</td><td></td></tr></tfoot>'+
-      '</table></div>'
-    : '<div style="padding:22px;text-align:center;color:var(--mu)">Sin productos valorizados en este tipo.</div>';
-  var argEsc=String(tipo).replace(/'/g,"\\'");
-  var footer='<button class="btn btn-secondary" onclick="closeModal()">Cerrar</button>'+
-    ((typeof can==='function' && can('stock.ver'))?'<button class="btn btn-primary" onclick="closeModal();verStockPorTipo(\''+argEsc+'\')">Ver en Stock ↗</button>':'');
-  showModal('Detalle · '+escapeHtml(tipo), body, footer, 'lg');
-}
-try{ window.verDetalleTipoModal=verDetalleTipoModal; }catch(e){}
-
 // Detalle de productos bajo stock mínimo (desde la tarjeta del dashboard)
 function verStockBajo(){
   var filas=[];
@@ -893,35 +811,6 @@ function verPorVencer(){
     'lg');
 }
 
-/* ── Donut de distribución del inventario (dashboard) ── */
-var _dashInvChart=null;
-var _DASH_DONUT_COLORS=['#0a6ed1','#e9730c','#1a7e3e','#8e44ad','#c0392b','#16a085','#d4ac0d','#2c3e50','#e84393','#2563eb'];
-function _dashInjectCss(){
-  if(document.getElementById('dashCompactCss')) return;
-  var s=document.createElement('style'); s.id='dashCompactCss';
-  s.textContent='@media(max-width:760px){.dash-top-grid{grid-template-columns:1fr!important}}';
-  document.head.appendChild(s);
-}
-function _dashDibujarDonutInv(data){
-  var cv=document.getElementById('dashInvDonut'); if(!cv||typeof Chart==='undefined') return;
-  if(_dashInvChart){ try{_dashInvChart.destroy();}catch(e){} _dashInvChart=null; }
-  if(!data||!data.length) return;
-  var vals=data.map(function(t){return Math.round(t.valor);});
-  var colors=data.map(function(_,i){return _DASH_DONUT_COLORS[i%_DASH_DONUT_COLORS.length];});
-  _dashInvChart=new Chart(cv.getContext('2d'),{
-    type:'doughnut',
-    data:{labels:data.map(function(t){return t.tipo;}),datasets:[{data:vals,backgroundColor:colors,borderWidth:1,borderColor:'#fff'}]},
-    options:{
-      responsive:true,maintainAspectRatio:false,cutout:'60%',
-      plugins:{ legend:{display:false},
-        tooltip:{callbacks:{label:function(ctx){ var tot=ctx.dataset.data.reduce(function(a,b){return a+b;},0); var p=tot>0?(ctx.parsed/tot*100):0; return ' '+ctx.label+': '+fmtMon(ctx.parsed)+' ('+p.toFixed(1)+'%)'; }}}
-      },
-      onClick:function(e,els){ if(els&&els.length){ var i=els[0].index; var t=data[i]&&data[i].tipo; if(t && typeof verDetalleTipoModal==='function') verDetalleTipoModal(t); } }
-    }
-  });
-}
-try{ window._dashDibujarDonutInv=_dashDibujarDonutInv; }catch(e){}
-
 function renderDashboard(c){
   // OP. CONTEOS no tiene acceso al dashboard: mostrar su menú de conteos.
   if(STATE.user && STATE.user.role==='opconteos'){
@@ -941,36 +830,6 @@ function renderDashboard(c){
     if(!p || p.inventariable!==false) return s;
     return s+(x.cantidad*x.costoPromedio||0);
   },0);
-  // Desglose del valor por TIPO DE PRODUCTO (campo `tipoProducto`, el mismo que
-  // usa el filtro de la página Productos, para que ambas vistas coincidan).
-  // Los productos sin tipo van a "Sin clasificar": si se descartaran, la suma
-  // de las líneas no cuadraría con el total y parecería un error de cálculo.
-  const porTipo=(()=>{
-    const acc={};
-    STATE.cache.stock.forEach(x=>{
-      const p=getProduct(x.codigoInterno);
-      if(p && p.inventariable===false) return;      // los servicios van aparte
-      const val=(x.cantidad*x.costoPromedio)||0;
-      if(!val) return;
-      const k=(p && p.tipoProducto) ? p.tipoProducto : 'Sin clasificar';
-      acc[k]=(acc[k]||0)+val;
-    });
-    return Object.keys(acc)
-      .map(k=>({tipo:k, valor:acc[k], pct: valorInv>0 ? (acc[k]/valorInv*100) : 0}))
-      .sort((a,b)=>b.valor-a.valor);
-  })();
-  const porTipoHtml = porTipo.length
-    ? porTipo.map(t=>{
-        const arg=String(t.tipo).replace(/'/g,"\\'");
-        return `<div onclick="verDetalleTipoModal('${escapeHtml(arg)}')" title="Ver el detalle de ${escapeHtml(t.tipo)}"
-             style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:5px 0;border-top:1px solid rgba(0,0,0,.06);cursor:pointer"
-             onmouseover="this.style.background='rgba(0,0,0,.03)'" onmouseout="this.style.background=''">
-          <span style="font-size:12px;color:var(--mu);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(t.tipo)}</span>
-          <span style="white-space:nowrap"><strong style="font-size:14px">${fmtMon(t.valor)}</strong>
-            <span style="font-size:11px;color:var(--mu);margin-left:5px">${t.pct.toFixed(1)}%</span></span>
-        </div>`;
-      }).join('')
-    : '<div style="font-size:12px;color:var(--mu);padding:6px 0">Sin existencias valorizadas.</div>';
   // Stock bajo: recorrer PRODUCTOS con stock mínimo definido y comparar su existencia total.
   // Incluye productos en 0 o sin registro en cache.stock (que antes quedaban fuera).
   const lowStock=(()=>{
@@ -1021,8 +880,8 @@ function renderDashboard(c){
     }
   }catch(e){}
   c.innerHTML=`
-    <div class="page-header" style="align-items:flex-start">
-      <div style="flex:0 1 auto">
+    <div class="page-header">
+      <div>
         <div class="page-title">Bienvenido, ${escapeHtml(STATE.user.nombre||STATE.user.id)}</div>
         <div class="page-subtitle">Resumen del estado actual del inventario</div>
         ${STATE.user.role==='admin'?`<div style="margin-top:6px;display:flex;align-items:center;gap:8px">
@@ -1030,39 +889,27 @@ function renderDashboard(c){
           <button onclick="FBCOUNT.reset()" title="Reiniciar contador" style="font-size:11px;border:none;background:#eee;border-radius:10px;padding:3px 8px;cursor:pointer">↺</button>
         </div>`:''}
       </div>
-      <div id="dash-clima" style="flex:1 1 560px;min-width:300px;max-width:100%"></div>
     </div>
 
     ${_cuHtml}
 
-    <div class="dash-top-grid" style="display:grid;grid-template-columns:2fr 1fr;gap:14px;margin-bottom:16px">
-      <div class="stat-card gold">
+    <div class="stats-grid dash3">
+      <div class="stat-card gold dash-wide">
         <div class="stat-label">Valor inventario</div>
-        <div style="display:flex;flex-wrap:wrap;gap:14px 24px;align-items:flex-start;justify-content:space-between">
-          <div style="flex:1 1 300px;min-width:240px">
-            <div style="display:flex;flex-wrap:wrap;gap:4px 20px;align-items:baseline;margin-bottom:8px">
-              <div><span class="stat-value">${fmtMon(valorInv)}</span> <span class="stat-sub">inventariables · costo PPP</span></div>
-            </div>
-            <div style="font-size:10px;color:var(--mu);text-transform:uppercase;letter-spacing:.4px;margin-bottom:2px">Por tipo de producto · toca para ver el detalle</div>
-            ${porTipoHtml}
-          </div>
-          <div style="flex:0 0 auto;width:188px;max-width:46vw;align-self:center">
-            <div style="position:relative;height:188px"><canvas id="dashInvDonut"></canvas></div>
-            <div style="text-align:center;font-size:10.5px;color:var(--mu);margin-top:2px">Toca un segmento para ver el detalle</div>
-          </div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px 22px;align-items:baseline">
+          <div><span class="stat-value">${fmtMon(valorInv)}</span> <span class="stat-sub">inventariables · costo PPP</span></div>
+          <div><span class="stat-label">Servicios</span> <span style="font-size:18px;font-weight:800">${fmtMon(valorServ)}</span></div>
         </div>
       </div>
-      <div style="display:flex;flex-direction:column;gap:14px">
-        <div class="stat-card amber" style="flex:1${(new Set(lowStock.map(s=>s.codigoInterno)).size)>0?';cursor:pointer':''}" ${(new Set(lowStock.map(s=>s.codigoInterno)).size)>0?'onclick="verStockBajo()"':''}>
-          <div class="stat-label">Stock bajo ${(new Set(lowStock.map(s=>s.codigoInterno)).size)>0?'<span style="font-size:11px;color:#0a6ed1">› ver</span>':''}</div>
-          <div class="stat-value">${new Set(lowStock.map(s=>s.codigoInterno)).size}</div>
-          <div class="stat-sub">productos bajo mínimo</div>
-        </div>
-        <div class="stat-card red" style="flex:1${lotsExp.length>0?';cursor:pointer':''}" ${lotsExp.length>0?'onclick="verPorVencer()"':''}>
-          <div class="stat-label">Por vencer ${lotsExp.length>0?'<span style="font-size:11px;color:#0a6ed1">› ver</span>':''}</div>
-          <div class="stat-value">${lotsExp.length}</div>
-          <div class="stat-sub">lotes en próximos 30 días</div>
-        </div>
+      <div class="stat-card amber" ${(new Set(lowStock.map(s=>s.codigoInterno)).size)>0?'onclick="verStockBajo()" style="cursor:pointer"':''}>
+        <div class="stat-label">Stock bajo ${(new Set(lowStock.map(s=>s.codigoInterno)).size)>0?'<span style="font-size:11px;color:#0a6ed1">› ver</span>':''}</div>
+        <div class="stat-value">${new Set(lowStock.map(s=>s.codigoInterno)).size}</div>
+        <div class="stat-sub">productos bajo mínimo</div>
+      </div>
+      <div class="stat-card red" ${lotsExp.length>0?'onclick="verPorVencer()" style="cursor:pointer"':''}>
+        <div class="stat-label">Por vencer ${lotsExp.length>0?'<span style="font-size:11px;color:#0a6ed1">› ver</span>':''}</div>
+        <div class="stat-value">${lotsExp.length}</div>
+        <div class="stat-sub">lotes en próximos 30 días</div>
       </div>
     </div>
 
@@ -1126,10 +973,6 @@ function renderDashboard(c){
         </table></div>
       </div>`:''}
   `;
-  // El chip del clima se pinta aparte: depende de GPS y de red, y no debe
-  // retrasar ni romper el dashboard si algo de eso falla.
-  try{ if(typeof renderDashClima==='function') renderDashClima(); }catch(e){}
-  try{ _dashInjectCss(); _dashDibujarDonutInv(porTipo); }catch(e){ console.error('[dash donut]',e); }
 }
 function tipoLabel(t){return {ENT:'Entrada',SAL:'Salida',TRA:'Traspaso',AJU:'Ajuste'}[t]||t}
 function tipoMovLabel(m){
@@ -1689,7 +1532,7 @@ async function aplicarLimpiezaProductos(){
   }
 }
 
-function viewProduct(codigo, verTodos){
+function viewProduct(codigo){
   const p=getProduct(codigo);if(!p)return;
   const stocks=STATE.cache.stock.filter(s=>s.codigoInterno===codigo&&s.cantidad>0);
   const lots=(function(){
@@ -1713,18 +1556,12 @@ function viewProduct(codigo, verTodos){
   const movsAll=STATE.cache.movements.filter(m=>!m.anulado&&(m.detalles||[]).some(d=>d.codigoInterno===codigo))
     .sort((a,b)=>(a.fecha||'').localeCompare(b.fecha||'')||String(a.numero).localeCompare(String(b.numero)));
   let saldoAcum=0;
-  const movRowsAll=movsAll.map(m=>{
+  const movRows=movsAll.map(m=>{
     const cant=(m.detalles||[]).filter(d=>d.codigoInterno===codigo).reduce((s,d)=>s+(Number(d.cantidad)||0),0);
     const delta=m.tipo==='ENT'?cant:(m.tipo==='SAL'?-cant:0);
     saldoAcum+=delta;
     return {m, delta, saldo:saldoAcum};
-  });
-  // Por defecto se muestran los últimos 15; los anteriores se resumen en una
-  // fila "Saldo anterior" para que la tabla cuadre con los informes (v143).
-  const LIM_MOV=15;
-  const ocultos=(!verTodos && movRowsAll.length>LIM_MOV)?movRowsAll.length-LIM_MOV:0;
-  const movRows=ocultos?movRowsAll.slice(-LIM_MOV):movRowsAll;
-  const saldoAnterior=ocultos?movRowsAll[ocultos-1].saldo:0;
+  }).slice(-15);
   const saldoFinal=getStockTotal(codigo);
   showModal(`Producto · ${p.codigoInterno}`,
     `<div class="form-grid">
@@ -1745,13 +1582,10 @@ function viewProduct(codigo, verTodos){
       <table class="detalle-table"><thead><tr><th>Bodega</th><th>Lote</th><th>Vence</th><th class="num">Cantidad</th><th class="num">Costo</th></tr></thead>
       <tbody>${lots.map(l=>{const b=getWarehouse(l.bodegaId);const venc=l.fechaVenc?new Date(l.fechaVenc):null;const venceClass=venc&&venc<new Date(Date.now()+30*86400000)?'badge-amber':'';
         return `<tr><td>${escapeHtml(b?b.nombre:l.bodegaId)}</td><td class="mono">${escapeHtml(l.lote)}</td><td><span class="badge ${venceClass}">${fmtDateOnly(l.fechaVenc)}</span></td><td class="num">${fmtNum(l.cantidad,2)}</td><td class="num">${fmtMon(l.costo)}</td></tr>`}).join('')}</tbody></table>`:''}
-    <div style="display:flex;align-items:center;justify-content:space-between;margin:18px 0 8px">
-      <h4 style="margin:0;color:var(--gd);font-size:13px">Movimientos (${ocultos?`últimos ${movRows.length} de ${movRowsAll.length}`:`${movRows.length}`})</h4>
-      ${movRowsAll.length>LIM_MOV?`<button class="btn btn-secondary btn-sm" onclick="viewProduct('${codigo}',${ocultos?'true':'false'})">${ocultos?`Ver todos (${movRowsAll.length})`:`Ver solo últimos ${LIM_MOV}`}</button>`:''}
-    </div>
+    <h4 style="margin:18px 0 8px;color:var(--gd);font-size:13px">Movimientos (últimos ${movRows.length})</h4>
     ${movRows.length===0?'<div style="color:var(--mu);font-size:13px">Sin movimientos</div>':
       `<table class="detalle-table"><thead><tr><th>N°</th><th>Tipo</th><th>Fecha</th><th class="num">Cantidad</th><th class="num">Saldo</th></tr></thead>
-      <tbody>${ocultos?`<tr style="background:var(--bg2,#f4f6f8)"><td colspan="4" style="color:var(--mu);font-style:italic">Saldo anterior · ${ocultos} movimiento(s) previo(s) no mostrados</td><td class="num"><strong>${fmtNum(saldoAnterior,2)}</strong></td></tr>`:''}${movRows.map(r=>`<tr class="row-link" onclick="closeModal();viewMovimiento('${r.m.numero}')">
+      <tbody>${movRows.map(r=>`<tr class="row-link" onclick="closeModal();viewMovimiento('${r.m.numero}')">
         <td class="mono">${r.m.numero}</td>
         <td><span class="badge ${r.m.tipo==='ENT'?'badge-green':(r.m.tipo==='SAL'?'badge-amber':'badge-blue')}">${tipoMovLabel(r.m)}</span></td>
         <td>${fmtDate(r.m.fecha)}</td>
@@ -3481,6 +3315,7 @@ async function _aplicarAjustesToma(t){
       anulado:false
     };
     await dbPut('movements',m);
+    await applyMovementToStock(m,false);
     movimientosGenerados.push(numero);
     await audit('movimiento.crear',`Ajuste por toma: ${numero} (${sobrantes.length} línea(s))`,numero);
   }
@@ -3517,12 +3352,10 @@ async function _aplicarAjustesToma(t){
       anulado:false
     };
     await dbPut('movements',m);
+    await applyMovementToStock(m,false);
     movimientosGenerados.push(numero);
     await audit('movimiento.crear',`Ajuste por toma: ${numero} (${faltantes.length} línea(s))`,numero);
   }
-
-  // Saldos: recálculo completo desde movimientos (regla general del SCI).
-  if(movimientosGenerados.length) await _ejecutarRecalculoStock();
 
   // Marcar la toma como aplicada
   t.estado='APLICADA';
@@ -4398,7 +4231,6 @@ function viewMovimiento(numero){
       <div class="form-field"><label>Documento</label><div class="mono">${escapeHtml(m.documento||'-')}</div></div>
       <div class="form-field"><label>${isEnt?'Proveedor':'Destino'}</label><div>${escapeHtml(m.proveedor||m.destino||'-')}</div></div>
       `}
-      ${m.facturaAsociada?`<div class="form-field span-2"><label>🔗 Factura asociada (Nota de Crédito)</label><div><strong>${escapeHtml(m.facturaAsociadaDoc||m.facturaAsociada)}</strong> <span style="color:var(--mu);font-size:12px">· mov. ${escapeHtml(m.facturaAsociada)}</span></div></div>`:''}
       <div class="form-field span-2"><label>Observaciones</label><div>${escapeHtml(m.observaciones||'-')}</div></div>
       <div class="form-field"><label>Usuario</label><div>${escapeHtml(m.usuario||'-')}</div></div>
       <div class="form-field"><label>Total</label><div><strong>${fmtMon(valor)}</strong></div></div>
@@ -4417,7 +4249,7 @@ function viewMovimiento(numero){
     ${m.editado?`<div class="alert alert-info" style="margin-top:12px;font-size:12px">📝 Editado el ${fmtDate(m.editado)} por ${escapeHtml(m.editadoPor||'')}${m.editadoMotivo?' — '+escapeHtml(m.editadoMotivo):''}</div>`:''}`,
     `<button class="btn btn-secondary" onclick="closeModal()">Cerrar</button>
      ${can('movimientos.editar')&&!m.anulado?`<button class="btn btn-secondary" onclick="closeModal();editMovimiento('${numero}')">✏️ Editar</button>`:''}
-     ${can('movimientos.anular')?`<button class="btn btn-danger" onclick="confirmEliminar('${numero}')">🗑️ Eliminar</button>`:''}`,
+     ${can('movimientos.anular')&&!m.anulado?`<button class="btn btn-danger" onclick="confirmAnular('${numero}')">🚫 Anular</button>`:''}`,
     'xl');
 }
 
@@ -4454,255 +4286,37 @@ async function anularMovimiento(numero){
   }catch(e){hideLoading();toast('Error',e.message,'error');console.error(e)}
 }
 
-/* ── Eliminar movimiento (borrado definitivo) ──
-   Borra el movimiento por completo y sus registros de combustible vinculados
-   (store `combustible`, por movNumero) para que no queden huérfanos en el
-   informe de rendimiento; luego recalcula stock desde los movimientos
-   restantes. A diferencia de "anular", no deja rastro en la lista. Queda en
-   auditoría. */
-function confirmEliminar(numero){
-  closeModal();
-  setTimeout(()=>{
-    showModal('Eliminar movimiento',
-      `<div style="margin-bottom:14px">¿Confirma <strong>eliminar definitivamente</strong> el movimiento <strong>${numero}</strong>?</div>
-       <div class="alert alert-warning" style="margin-top:4px">⚠️ Se borra el registro por completo (incluido su registro de combustible, si corresponde) y se recalcula el stock. Esta acción no se puede deshacer y queda en auditoría.</div>`,
-      `<button class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
-       <button class="btn btn-danger" onclick="eliminarMovimiento('${numero}')">Eliminar definitivamente</button>`,
-      'md');
-  },50);
-}
-async function eliminarMovimiento(numero){
-  showLoading('Eliminando movimiento y recalculando stock...');
-  try{
-    const m=await dbGet('movements',numero);
-    if(!m){hideLoading();closeModal();toast('Error','Movimiento no encontrado','error');return}
-    // Lápida ANTES de borrar: movements y combustible son stores acumulativos;
-    // sin la lápida, el merge con Firebase los vuelve a agregar (reaparecían en
-    // el informe de combustible tras eliminarlos).
-    await sciMarcarEliminado('movements', numero);
-    await dbDel('movements',numero);
-    // Borrar registros de combustible vinculados (por N° de movimiento) para
-    // que no queden huérfanos en el informe de rendimiento.
-    let cbDel=0;
-    const cbs=(STATE.cache.combustible||[]).filter(r=>r.movNumero===numero);
-    for(const r of cbs){ await sciMarcarEliminado('combustible', r.id); await dbDel('combustible', r.id); cbDel++; }
-    await reloadCache();
-    await _ejecutarRecalculoStock();
-    // Subida INMEDIATA para que el listener remoto no restaure lo eliminado.
-    try{ if(typeof sciFbPush==='function') sciFbPush(true); }catch(e){}
-    await audit('movimiento.eliminar',`Eliminación definitiva${cbDel?(' · '+cbDel+' reg. combustible'):''}`,numero);
-    hideLoading();closeModal();
-    toast('Movimiento eliminado',`${numero} · Stock recalculado`);
-    if(STATE.page==='movimientos')renderMovimientosTable();else navigate(STATE.page);
-  }catch(e){hideLoading();toast('Error',e.message,'error');console.error(e)}
-}
-try{ window.confirmEliminar=confirmEliminar; window.eliminarMovimiento=eliminarMovimiento; }catch(e){}
-
 /* ═══════════════ MOVIMIENTO FORM (ENTRADA / SALIDA) ═══════════════ */
 let movDraft={lineas:[],tipo:'ENT',editId:null};
 
 /* ═══════════════ SALIDAS: selector normal vs combustible ═══════════════ */
-/* Semilla histórica: se usa solo la primera vez para poblar el catálogo de
-   equipos (config → store `equipos`) si aún no existe ninguno. */
-const CB_EQUIPOS_SEED=['TRACTOR 1','TRACTOR 2','CAMIONETA ADM.','TORRE CONTROL HELADA 1','TORRE CONTROL HELADA 2','MAQ. AUXILIARES'];
-/* Nombre canónico de equipo/torre: MAYÚSCULAS, sin espacios dobles (v144).
-   El normalizador global de mayúsculas hizo que convivieran "Torre Control
-   Helada 1" y "TORRE CONTROL HELADA 1", y los informes las separaban. */
-function normEquipo(n){ return String(n==null?'':n).replace(/\s+/g,' ').trim().toUpperCase(); }
-try{ window.normEquipo=normEquipo; }catch(e){}
-const EQUIPO_OTRO='Otro (especificar)';
-/* Catálogo de tipos y medidores para el alta de equipos. */
-const EQUIPO_TIPOS=['Tractor','Camioneta','Camión','Torre de helada','Generador','Motobomba','Maquinaria','Otro'];
-const EQUIPO_MEDIDORES=[['km','Kilómetros (odómetro)'],['horometro','Horómetro (horas)'],['ninguno','Sin medidor']];
-
-/* Lista de equipos desde config.equipos (o semilla la primera vez, en memoria). */
-function getEquipos(){
-  try{
-    const cfg=(STATE.cache.config||{}).equipos;
-    if(cfg && Array.isArray(cfg.lista)) return cfg.lista.slice();
-  }catch(e){}
-  // Sin catálogo aún: devolver la semilla como equipos activos de tipo genérico.
-  return CB_EQUIPOS_SEED.map(n=>({id:'seed-'+n,nombre:n,tipo:'',medidor:/torre/i.test(n)?'horometro':'km',estado:'activo'}));
-}
-function getEquiposActivos(){
-  return getEquipos().filter(e=>e.estado!=='inactivo')
-    .sort((a,b)=>String(a.nombre||'').localeCompare(String(b.nombre||'')));
-}
-function getEquipoByNombre(nom){
-  const k=normEquipo(nom);
-  return getEquipos().find(e=>normEquipo(e.nombre)===k)||null;
-}
-
-/* Migración idempotente (v144): lleva a nombre canónico los equipos y torres
-   en catálogos (config.equipos, helTorres, cbEquiposHora), registros de
-   combustible, registros de helada y movimientos de consumo de combustible.
-   Solo escribe lo que cambia; se ejecuta en cada arranque tras la sync. Sella
-   _mod para que la fusión con la nube prefiera la versión normalizada. */
-async function sciNormalizarNombresEquipos(){
-  let cambios=0; const ahora=Date.now();
-  const dedup=(arr)=>{ const vistos={}, out=[]; (arr||[]).forEach(n=>{ const k=normEquipo(n); if(k && !vistos[k]){ vistos[k]=1; out.push(k); } }); return out; };
-  const cfg=STATE.cache.config||{};
-  try{
-    const eq=cfg.equipos;
-    if(eq && Array.isArray(eq.lista)){
-      const mapa={}, orden=[];
-      eq.lista.forEach(e=>{
-        const k=normEquipo(e.nombre); if(!k) return;
-        if(!mapa[k]){ mapa[k]=Object.assign({},e,{nombre:k}); orden.push(k); }
-        else{
-          const t=mapa[k];
-          if(e.estado!=='inactivo') t.estado=e.estado||'activo';
-          if(!t.tipo && e.tipo) t.tipo=e.tipo;
-          if(!t.medidor && e.medidor) t.medidor=e.medidor;
-        }
-      });
-      const nueva=orden.map(k=>mapa[k]);
-      if(JSON.stringify(nueva)!==JSON.stringify(eq.lista)){ await saveEquiposLista(nueva); cambios++; }
-    }
-  }catch(e){ console.error('[normEquipo] catálogo equipos:',e); }
-  for(const key of ['helTorres','cbEquiposHora']){
-    try{
-      const o=cfg[key];
-      if(o && Array.isArray(o.lista)){
-        const nueva=dedup(o.lista);
-        if(JSON.stringify(nueva)!==JSON.stringify(o.lista)){
-          const obj=Object.assign({},o,{key:key,lista:nueva});
-          await dbPut('config',obj); STATE.cache.config[key]=obj; cambios++;
-        }
-      }
-    }catch(e){ console.error('[normEquipo] '+key+':',e); }
-  }
-  for(const r of (await dbAll('combustible'))){
-    const k=normEquipo(r.equipo);
-    if(r.equipo && r.equipo!==k){ r.equipo=k; r._mod=ahora; await dbPut('combustible',r); cambios++; }
-  }
-  for(const r of (await dbAll('heladas'))){
-    const k=normEquipo(r.torre);
-    if(r.torre && r.torre!==k){ r.torre=k; r.updatedAt=new Date().toISOString(); await dbPut('heladas',r); cambios++; }
-  }
-  for(const m of (await dbAll('movements'))){
-    if(m.tipoMovimiento!=='CONSUMO COMBUSTIBLE') continue;
-    let mod=false;
-    const k=normEquipo(m.destino);
-    if(m.destino && m.destino!==k){ m.destino=k; mod=true; }
-    if(m.observaciones){
-      const obs=m.observaciones.replace(/^Equipo: ([^·]+?)( ·|$)/,(x,n,t)=>'Equipo: '+normEquipo(n)+t);
-      if(obs!==m.observaciones){ m.observaciones=obs; mod=true; }
-    }
-    if(mod){ await dbPut('movements',m); cambios++; }
-  }
-  if(cambios){
-    await reloadCache();
-    console.log('[normEquipo] '+cambios+' registro(s) normalizados');
-  }
-  return cambios;
-}
-try{ window.sciNormalizarNombresEquipos=sciNormalizarNombresEquipos; }catch(e){}
-/* Persiste el catálogo completo de equipos en config (se sincroniza). */
-async function saveEquiposLista(lista){
-  const obj={key:'equipos',lista:lista};
-  await dbPut('config',obj);
-  STATE.cache.config=STATE.cache.config||{};
-  STATE.cache.config.equipos=obj;
-}
-
-/* Registros de combustible reconciliados contra sus movimientos.
-   El store `combustible` guarda una COPIA de cantidad y fecha; el movimiento es
-   la fuente de verdad. Desde v117 la edición sincroniza ambos, pero los
-   registros editados ANTES de esa versión siguen con la copia antigua, así que
-   aquí se prefiere siempre el dato del movimiento. Además descarta los
-   movimientos anulados, que antes seguían sumando en los informes. */
-function getCombustibleReal(){
-  const movs=STATE.cache.movements||[];
-  return (STATE.cache.combustible||[]).map(r=>{
-    const mov=movs.find(m=>m.numero===r.movNumero);
-    // Huérfano: el registro apuntaba a un movimiento que ya no existe (fue
-    // eliminado) → se descarta. Los registros sin movNumero (legado real) se
-    // conservan.
-    if(!mov) return Object.assign({},r,{_orphan: !!r.movNumero});
-    let det=(mov.detalles||[]).find(d=>d.codigoInterno===r.codigoProducto);
-    if(!det) det=(mov.detalles||[])[0];
-    return Object.assign({},r,{
-      cantidad: det?(Number(det.cantidad)||0):(Number(r.cantidad)||0),
-      costoUnit: det?(Number(det.costo)||0):0,
-      fecha: mov.fecha||r.fecha,
-      centroCosto: mov.centroCosto||r.centroCosto,
-      bodegaId: mov.bodegaId||r.bodegaId,
-      _anulado: !!mov.anulado
-    });
-  }).filter(r=>!r._anulado && !r._orphan);
-}
-try{ window.getCombustibleReal=getCombustibleReal; }catch(e){}
+const CB_EQUIPOS=['Tractor 1','Tractor 2','Camioneta adm.','Torre Control Helada 1','Torre Control Helada 2','Maq. Auxiliares','Otro (especificar)'];
 
 /* ═══════════════ REPORTE: rendimiento de combustible (solo admin) ═══════════════ */
-/* ¿Este equipo se mide con HORÓMETRO (horas) o con odómetro (km)?
-   El campo del formulario es genérico ("Kilometraje / Horómetro"), así que el
-   tipo se deduce del equipo. Para una torre, el indicador útil es litros por
-   hora de funcionamiento; para un vehículo, kilómetros por litro. Son inversos
-   entre sí, y mostrar el de vehículo en una torre daba cifras como "0,02" que
-   no significan nada operativamente. */
-function _cbUsaHorometro(equipo){
-  // 1) Catálogo de equipos: el medidor definido en el alta manda.
-  try{
-    const eq=getEquipoByNombre(equipo);
-    if(eq && eq.medidor){ return eq.medidor==='horometro'; }
-  }catch(e){}
-  try{
-    const cfg=(STATE.cache.config||{}).cbEquiposHora;
-    if(cfg && Array.isArray(cfg.lista) && cfg.lista.length) return cfg.lista.indexOf(equipo)>=0;
-  }catch(e){}
-  // Catálogo compartido con Control de Heladas: sus torres siempre son horómetro
-  try{ if(typeof _helTorres==='function' && _helTorres().indexOf(equipo)>=0) return true; }catch(e){}
-  return /torre|generador|motobomba|bomba|motor/i.test(equipo||'');
-}
-
-/* Iconos SVG por tipo de equipo para el reporte de combustible. */
-const _CB_ICONS={
- torre:`<svg viewBox="0 0 24 24" width="22" height="22" style="vertical-align:-6px"><g stroke="#e6552e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"><path d="M8.5 21h7"/><path d="M10 21 11.3 9M14 21 12.7 9"/></g><g stroke="#e6552e" stroke-width="2" stroke-linecap="round"><path d="M12 7.5V4.3"/><path d="M12 7.5 8.8 9.4"/><path d="M12 7.5 15.2 9.4"/></g><circle cx="12" cy="7.5" r="1.9" fill="#e6552e"/></svg>`,
- camioneta:`<svg viewBox="0 0 24 24" width="22" height="22" style="vertical-align:-6px"><path d="M2 14.5h8.5V9h4l3 3.2H21a1 1 0 0 1 1 1v2.3h-2.1a2.5 2.5 0 0 0-4.9 0h-5a2.5 2.5 0 0 0-4.9 0H2z" fill="#3f7d57"/><g fill="#1e293b"><circle cx="7.4" cy="17.3" r="2"/><circle cx="17.6" cy="17.3" r="2"/></g><g fill="#cde7d8"><circle cx="7.4" cy="17.3" r="0.8"/><circle cx="17.6" cy="17.3" r="0.8"/></g></svg>`,
- tractor:`<svg viewBox="0 0 24 24" width="22" height="22" style="vertical-align:-6px"><path d="M4 7.5h5.5l1.6 4.2H15V7.5h3.5v6.2h-2a3.6 3.6 0 0 0-6.8.6A3 3 0 0 0 4.8 13V7.5z" fill="#2563eb"/><g fill="#1e293b"><circle cx="8" cy="16.3" r="3.6"/><circle cx="18" cy="16.6" r="2.5"/></g><g fill="#93c5fd"><circle cx="8" cy="16.3" r="1.5"/><circle cx="18" cy="16.6" r="1"/></g></svg>`,
- generador:`<svg viewBox="0 0 24 24" width="22" height="22" style="vertical-align:-6px"><rect x="2.5" y="7" width="19" height="11" rx="2" fill="#475569"/><rect x="2.5" y="7" width="19" height="3.4" rx="2" fill="#64748b"/><path d="M13.2 9l-3.2 4.3h2.4l-.9 3.1 3.2-4.3h-2.4z" fill="#facc15"/><circle cx="6" cy="15.3" r="1.1" fill="#cbd5e1"/><path d="M17 14.5h2.5" stroke="#cbd5e1" stroke-width="1.4" stroke-linecap="round"/></svg>`
-};
-function _cbIconoEquipo(eq){
-  var tipo='';
-  try{ if(typeof getEquipoByNombre==='function'){ var e=getEquipoByNombre(eq); if(e&&e.tipo) tipo=String(e.tipo); } }catch(_){}
-  var s=(tipo+' '+(eq||'')).toLowerCase();
-  var key = /torre|helad/.test(s) ? 'torre'
-          : /tractor/.test(s) ? 'tractor'
-          : /camioneta|cami[oó]n|pick|veh[ií]culo/.test(s) ? 'camioneta'
-          : /generad|motobomba|bomba|auxiliar|maquin|motor/.test(s) ? 'generador'
-          : (typeof _cbUsaHorometro==='function' && _cbUsaHorometro(eq) ? 'torre' : 'camioneta');
-  return _CB_ICONS[key]||_CB_ICONS.camioneta;
-}
 function renderReporteCombustible(c){
   if(STATE.user.role!=='admin'){ c.innerHTML='<div class="empty-state">Solo disponible para administrador.</div>'; return; }
-  const regs=getCombustibleReal().sort((a,b)=>new Date(a.fecha)-new Date(b.fecha));
+  const regs=[...(STATE.cache.combustible||[])].sort((a,b)=>new Date(a.fecha)-new Date(b.fecha));
   // Agrupar por equipo
   const porEquipo={};
-  regs.forEach(r=>{ const k=normEquipo(r.equipo); (porEquipo[k]=porEquipo[k]||[]).push(r); });
+  regs.forEach(r=>{ (porEquipo[r.equipo]=porEquipo[r.equipo]||[]).push(r); });
 
   let bloques='';
-  Object.keys(porEquipo).sort().forEach((eq,_eqIdx)=>{
-    const _id='cbEq'+_eqIdx;
+  Object.keys(porEquipo).sort().forEach(eq=>{
     const lista=porEquipo[eq];
-    const porHora=_cbUsaHorometro(eq);
-    let filas=''; let totalLitros=0, totalRecorrido=0, litrosEnTramos=0;
+    let filas=''; let totalLitros=0, totalRecorrido=0;
     for(let i=0;i<lista.length;i++){
       const r=lista[i];
       totalLitros+=(r.cantidad||0);
       let rend='—', recorrido='—';
-      // Indicador entre esta carga y la anterior: los litros de la carga
-      // ANTERIOR son los que se gastaron para recorrer/funcionar este tramo.
+      // Rendimiento entre esta carga y la anterior (con km válido)
       if(i>0){
         const prev=lista[i-1];
         const dif=(r.km||0)-(prev.km||0);
         if(dif>0 && (prev.cantidad||0)>0){
           recorrido=fmtNum(dif,1);
-          rend = porHora
-            ? fmtNum((prev.cantidad||0)/dif, 2)   // litros por hora
-            : fmtNum(dif/(prev.cantidad||1), 2);  // km por litro
+          // rendimiento = distancia u horas recorridas / litros de la carga ANTERIOR
+          rend=fmtNum(dif/(prev.cantidad||1),2);
           totalRecorrido+=dif;
-          litrosEnTramos+=(prev.cantidad||0);
         }
       }
       filas+=`<tr>
@@ -4715,275 +4329,41 @@ function renderReporteCombustible(c){
         <td>${escapeHtml(r.centroCosto||'')}</td>
       </tr>`;
     }
-    // Promedio del bloque.
-    // Horómetro (v148): suma de cargas ÷ (horómetro final − inicial). Cada
-    // salida es una carga a la torre y todo lo cargado se quema; el saldo de
-    // estanque solo se muestra como validador.
-    // Odómetro: km de los tramos / litros de la carga anterior.
-    let horasTot=0, detProm='', detVal='';
-    if(porHora){
-      const fL=r=>(typeof _helFechaLocal==='function')?_helFechaLocal(r.fecha):String(r.fecha||'').slice(0,10);
-      const cargas=lista.map(r=>({fecha:fL(r), litros:Number(r.cantidad)||0, horom:Number(r.km)||0}));
-      let res=null;
-      try{ if(typeof helConsumoHoraTorre==='function') res=helConsumoHoraTorre(eq, cargas, null); }catch(e){ console.warn('[Rendimiento]',e); }
-      if(!res){
-        const lect=cargas.map(c=>c.horom).filter(v=>v>0);
-        const hi=lect.length?Math.min(...lect):0, hf=lect.length?Math.max(...lect):0;
-        res={horas:hf-hi,hIni:hi,hFin:hf,validador:null};
-      }
-      horasTot=res.horas;
-      if(horasTot>0) detProm=`${fmtNum(totalLitros,1)} L cargados ÷ ${fmtNum(horasTot,1)} h (horómetro ${fmtNum(res.hIni,1)} → ${fmtNum(res.hFin,1)})`;
-      if(res.validador){
-        const v=res.validador;
-        detVal=`Validador: saldo declarado ${fmtNum(v.saldo,1)} L al ${new Date(v.fecha+'T12:00:00').toLocaleDateString('es-CL')}`+
-               (v.cargasPost>0?` · cargas posteriores ${fmtNum(v.cargasPost,1)} L`:'');
-      }
-    }
-    const rendProm = porHora
-      ? (horasTot>0 ? totalLitros/horasTot : 0)
-      : (litrosEnTramos>0 ? totalRecorrido/litrosEnTramos : 0);
-    const hayProm = porHora ? horasTot>0 : totalRecorrido>0;
-    const unidadProm = porHora ? 'L por hora' : 'km por litro';
-    const colRend    = porHora ? 'L/Hora' : 'Rend/L';
-    const colRec     = porHora ? 'Horas'  : 'Recorrido';
-    const colMedida  = porHora ? 'Horómetro' : 'Km';
-    const icono      = _cbIconoEquipo(eq);
-    const promBadge = hayProm
-      ? `<span style="font-size:15px;font-weight:800;color:var(--gd)">${fmtNum(rendProm,2)}</span> <span style="font-size:11px;color:var(--mu)">${unidadProm}</span>`
-      : `<span style="font-size:12px;color:var(--mu)">sin promedio</span>`;
-    // Sparkline de evolución semanal (línea gruesa, sin ejes ni leyenda).
-    const _spark = _cbSparkline(_cbSerieSemanal(lista, porHora).vals);
-    bloques+=`<div class="card" style="margin-bottom:10px;padding:0;overflow:hidden">
-      <div onclick="cbToggleEquipo('${_id}')" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;padding:14px 16px;cursor:pointer;user-select:none">
-        <div style="display:flex;align-items:center;gap:10px">
-          <span id="${_id}-chev" style="font-size:12px;color:var(--mu);transition:transform .15s">▸</span>
-          <span style="font-weight:800;font-size:16px">${icono} ${escapeHtml(eq)}</span>
-        </div>
-        <div style="flex:1 1 110px;min-width:70px;display:flex;justify-content:center;align-items:center">${_spark||''}</div>
-        <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
-          <span style="font-size:12px;color:var(--mu)">${lista.length} carga(s) · ${fmtNum(totalLitros,1)} L</span>
-          <span style="text-align:right">${promBadge}</span>
+    const rendProm = totalLitros>0 ? (totalRecorrido/totalLitros) : 0;
+    bloques+=`<div class="card" style="margin-bottom:16px">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px">
+        <div style="font-weight:800;font-size:16px">🚜 ${escapeHtml(eq)}</div>
+        <div style="font-size:13px;color:var(--mu)">
+          ${lista.length} carga(s) · ${fmtNum(totalLitros,1)} L total
+          ${totalRecorrido>0?` · Rend. prom: <strong style="color:var(--gd)">${fmtNum(rendProm,2)}</strong> por litro`:''}
         </div>
       </div>
-      <div id="${_id}-det" style="display:none;padding:0 16px 16px">
-        ${porHora&&hayProm&&detProm?`<div style="font-size:11px;margin-bottom:4px;color:var(--mu)">${detProm}</div>`:''}
-        ${porHora&&detVal?`<div style="font-size:11px;margin-bottom:6px;color:#92600a">${detVal}</div>`:''}
-        <div class="table-wrap"><table class="data" style="width:100%">
-          <thead><tr><th>Fecha</th><th class="num">${colMedida}</th><th class="num">${colRec}</th><th class="num">Litros</th><th class="num">${colRend}</th><th>Operador</th><th>C.Costo</th></tr></thead>
-          <tbody>${filas}</tbody>
-        </table></div>
-      </div>
+      <div class="table-wrap"><table class="data" style="width:100%">
+        <thead><tr><th>Fecha</th><th class="num">Km/Hr</th><th class="num">Recorrido</th><th class="num">Litros</th><th class="num">Rend/L</th><th>Operador</th><th>C.Costo</th></tr></thead>
+        <tbody>${filas}</tbody>
+      </table></div>
     </div>`;
   });
   if(!bloques) bloques='<div class="empty-state">Aún no hay registros de combustible.</div>';
 
   c.innerHTML=`
     <div class="page-header"><div><div class="page-title">⛽ Rendimiento de combustible</div>
-      <div class="page-subtitle">Consumo y rendimiento por equipo · haz clic en un equipo para ver el detalle</div></div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-secondary" onclick="exportarReporteCombustible()">📥 Exportar Excel</button>
-      <button class="btn btn-primary" onclick="cbReporteGerencial()">📄 Reporte gerencial</button></div></div>
-    <div class="hint" style="margin-bottom:14px">Los equipos con <strong>horómetro</strong> (🗼 torres, generadores) se miden en <strong>litros por hora</strong> de funcionamiento; los que llevan <strong>odómetro</strong> (🚜 tractores, vehículos) en <strong>km por litro</strong>. En cada fila se usan los litros de la carga anterior, que son los que alimentaron ese tramo. El <strong>consumo promedio por hora</strong> de las torres es la suma de todas las cargas dividida por las horas entre el horómetro inicial y el final. El saldo declarado en el último registro de helada se muestra solo como validador.</div>
+      <div class="page-subtitle">Consumo y rendimiento por equipo entre cargas</div></div>
+      <button class="btn btn-secondary" onclick="exportarReporteCombustible()">📥 Exportar Excel</button></div>
+    <div class="hint" style="margin-bottom:14px">El <strong>rendimiento</strong> es el recorrido (km u horas) logrado por cada litro de la carga anterior. Requiere al menos 2 cargas con horómetro para calcularse.</div>
     ${bloques}`;
 }
-/* Expande/colapsa el detalle de un equipo en el reporte de combustible. */
-function cbToggleEquipo(id){
-  var det=document.getElementById(id+'-det'); if(!det) return;
-  var chev=document.getElementById(id+'-chev');
-  var abierto=det.style.display!=='none';
-  det.style.display=abierto?'none':'block';
-  if(chev) chev.textContent=abierto?'▸':'▾';
-}
-try{ window.cbToggleEquipo=cbToggleEquipo; }catch(e){}
-/* ═══════════ REPORTE GERENCIAL (carta, 1 página, gráfico semanal x vehículo) ═══════════ */
-/* Fecha local (AAAA-MM-DD) del registro, con el mismo criterio que la app. */
-function _cbLocalYMD(r){
-  try{ if(typeof _helFechaLocal==='function') return _helFechaLocal(r.fecha); }catch(e){}
-  return String(r.fecha||'').slice(0,10);
-}
-/* Lunes de la semana a partir de una fecha AAAA-MM-DD, construida en hora LOCAL
-   (sin reparsear como UTC, que corría las fechas un día y partía mal las semanas). */
-function _cbWeekStart(ymd){
-  var m=String(ymd||'').match(/^(\d{4})-(\d{1,2})-(\d{1,2})/); if(!m) return null;
-  var x=new Date(+m[1], +m[2]-1, +m[3]);
-  var day=(x.getDay()+6)%7;            // 0 = lunes
-  x.setDate(x.getDate()-day);
-  return x;
-}
-/* Rendimiento por semana, con el MISMO criterio del resumen de la app:
-   - Odómetro (km/L): km de los tramos ÷ litros de la carga anterior.
-   - Horómetro (L/h): litros cargados en la semana ÷ horas de la semana
-     (incremento del horómetro), de modo que el agregado coincide con el
-     promedio del resumen (total litros ÷ horas totales). */
-function _cbSerieSemanal(lista, porHora){
-  var wk={}, order=[];
-  function bucket(r){ var ws=_cbWeekStart(_cbLocalYMD(r)); if(!ws) return null; var k=ws.getTime(); if(!wk[k]){ wk[k]={rec:0,lit:0,litLoads:0,date:ws}; order.push(k); } return wk[k]; }
-  // Tramos (horas/distancia) atribuidos a la semana de la carga final.
-  for(var i=1;i<lista.length;i++){
-    var dif=(lista[i].km||0)-(lista[i-1].km||0);
-    var litrosPrev=lista[i-1].cantidad||0;
-    if(dif>0){
-      var b=bucket(lista[i]); if(!b) continue;
-      b.rec+=dif;
-      if(litrosPrev>0) b.lit+=litrosPrev;
-    }
-  }
-  // Horómetro: litros de cada carga atribuidos a la semana de esa carga.
-  if(porHora){
-    for(var j=0;j<lista.length;j++){ var b2=bucket(lista[j]); if(b2) b2.litLoads+=(lista[j].cantidad||0); }
-  }
-  order.sort(function(a,b){return a-b;});
-  var labels=[], vals=[];
-  order.forEach(function(k){
-    var b=wk[k];
-    var r = porHora ? (b.rec>0? b.litLoads/b.rec : null) : (b.lit>0? b.rec/b.lit : null);
-    var dd=('0'+b.date.getDate()).slice(-2), mm=('0'+(b.date.getMonth()+1)).slice(-2);
-    labels.push(dd+'/'+mm);
-    vals.push(r!=null? Math.round(r*100)/100 : null);
-  });
-  return {labels:labels, vals:vals};
-}
-/* Sparkline SVG (línea gruesa, sin ejes ni leyenda) de la evolución semanal. */
-function _cbSparkline(vals){
-  var pts=[]; (vals||[]).forEach(function(v,i){ if(v!=null && !isNaN(v)) pts.push({i:i,v:v}); });
-  if(pts.length<2) return '';
-  var w=130,h=30,pad=3, n=vals.length;
-  var xs=(n>1)?(w-2*pad)/(n-1):0;
-  var vs=pts.map(function(p){return p.v;});
-  var min=Math.min.apply(null,vs), max=Math.max.apply(null,vs), rng=(max-min)||1;
-  function X(i){return pad+i*xs;}
-  function Y(v){return pad+(h-2*pad)*(1-(v-min)/rng);}
-  var d=pts.map(function(p,k){return (k?'L':'M')+X(p.i).toFixed(1)+' '+Y(p.v).toFixed(1);}).join(' ');
-  return '<svg width="'+w+'" height="'+h+'" viewBox="0 0 '+w+' '+h+'" preserveAspectRatio="none" style="display:block">'+
-    '<path d="'+d+'" fill="none" stroke="#0a6ed1" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-}
-try{ window._cbSparkline=_cbSparkline; }catch(e){}
-
-/* Renderiza un mini-gráfico de líneas en un canvas fuera de pantalla y devuelve PNG. */
-function _cbChartToImg(labels, vals){
-  var cv=document.createElement('canvas'); cv.width=560; cv.height=230;
-  var tmp=document.createElement('div'); tmp.style.cssText='position:fixed;left:-99999px;top:0';
-  document.body.appendChild(tmp); tmp.appendChild(cv);
-  var url='';
-  try{
-    var ch=new Chart(cv.getContext('2d'),{
-      type:'line',
-      data:{labels:labels,datasets:[{data:vals,borderColor:'#0a6ed1',backgroundColor:'rgba(10,110,209,.12)',fill:true,tension:.25,pointRadius:3,borderWidth:2,spanGaps:true}]},
-      options:{responsive:false,animation:false,
-        plugins:{legend:{display:false},title:{display:false}},
-        scales:{x:{ticks:{font:{size:11},maxRotation:0,autoSkip:true}},y:{beginAtZero:true,ticks:{font:{size:11}}}}}
-    });
-    url=cv.toDataURL('image/png');
-    try{ ch.destroy(); }catch(e){}
-  }catch(e){ console.error('[cbChartToImg]',e); }
-  tmp.remove();
-  return url;
-}
-function cbReporteGerencial(){
-  if(STATE.user.role!=='admin'){ toast('Solo administrador','Este reporte es solo para administradores','error'); return; }
-  if(typeof Chart==='undefined'){ toast('Sin librería','La librería de gráficos no está disponible','error'); return; }
-  var regs=getCombustibleReal().sort(function(a,b){return new Date(a.fecha)-new Date(b.fecha);});
-  if(!regs.length){ toast('Sin datos','No hay registros de combustible','error'); return; }
-  var porEquipo={};
-  regs.forEach(function(r){ var k=normEquipo(r.equipo); (porEquipo[k]=porEquipo[k]||[]).push(r); });
-  var equipos=Object.keys(porEquipo).sort();
-  var bloques=[];
-  equipos.forEach(function(eq){
-    var lista=porEquipo[eq];
-    var porHora=(typeof _cbUsaHorometro==='function') ? _cbUsaHorometro(eq) : false;
-    var serie=_cbSerieSemanal(lista, porHora);
-    var totalLitros=lista.reduce(function(s,r){return s+(r.cantidad||0);},0);
-    // Promedio IDÉNTICO al resumen de la app:
-    //  · Horómetro: total litros ÷ horas (helConsumoHoraTorre, o hFin−hIni).
-    //  · Odómetro: km de tramos ÷ litros de la carga anterior.
-    var prom=null;
-    if(porHora){
-      var fL=function(r){ return (typeof _helFechaLocal==='function')?_helFechaLocal(r.fecha):String(r.fecha||'').slice(0,10); };
-      var cargas=lista.map(function(r){ return {fecha:fL(r),litros:Number(r.cantidad)||0,horom:Number(r.km)||0}; });
-      var res=null;
-      try{ if(typeof helConsumoHoraTorre==='function') res=helConsumoHoraTorre(eq,cargas,null); }catch(e){}
-      if(!res){ var lect=cargas.map(function(c){return c.horom;}).filter(function(v){return v>0;}); var hi=lect.length?Math.min.apply(null,lect):0, hf=lect.length?Math.max.apply(null,lect):0; res={horas:hf-hi}; }
-      prom = (res && res.horas>0) ? totalLitros/res.horas : null;
-    } else {
-      var sumRec=0,sumLit=0;
-      for(var i=1;i<lista.length;i++){ var dif=(lista[i].km||0)-(lista[i-1].km||0); var lp=lista[i-1].cantidad||0; if(dif>0&&lp>0){ sumRec+=dif; sumLit+=lp; } }
-      prom = (sumLit>0) ? sumRec/sumLit : null;
-    }
-    var hasData = serie.vals.some(function(v){return v!=null;});
-    bloques.push({ eq:eq, porHora:porHora, nCargas:lista.length, totalLitros:totalLitros, prom:prom,
-                   img: hasData ? _cbChartToImg(serie.labels, serie.vals) : '' });
-  });
-  var n=bloques.length;
-  var cols = n<=2 ? 1 : (n<=8 ? 2 : 3);
-  var emp=(STATE.cache.config && STATE.cache.config.empresa) || {};
-  var fecha=new Date().toLocaleDateString('es-CL',{day:'2-digit',month:'long',year:'numeric'});
-  var unidad=function(pH){ return pH?'L/hora':'km/L'; };
-  var logoHtml = emp.logo ? '<img src="'+emp.logo+'" style="height:44px;margin-right:12px">' : '';
-  var blkHtml = bloques.map(function(b){
-    return '<div class="blk">'+
-      '<h3>'+escapeHtml(b.eq)+' <span style="font-weight:400;color:#64748b;font-size:10px">('+(b.porHora?'horómetro · L/h':'odómetro · km/L')+')</span></h3>'+
-      '<div class="st">'+b.nCargas+' carga(s) · '+fmtNum(b.totalLitros,1)+' L · Prom: <b>'+(b.prom!=null?fmtNum(b.prom,2):'—')+'</b> '+unidad(b.porHora)+'</div>'+
-      (b.img ? '<img src="'+b.img+'">' : '<div style="font-size:10px;color:#94a3b8;padding:16px 0;text-align:center">Sin tramos suficientes para calcular rendimiento.</div>')+
-    '</div>';
-  }).join('');
-  var html='<!doctype html><html><head><meta charset="utf-8"><title>Rendimiento de Combustible</title><style>'+
-    '@page{size:letter;margin:12mm}*{box-sizing:border-box}'+
-    'body{font-family:Arial,Helvetica,sans-serif;color:#1e293b;margin:0;font-size:11px}'+
-    '.hdr{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #354a5f;padding-bottom:7px;margin-bottom:8px}'+
-    '.emp{display:flex;align-items:center}'+
-    '.emp .nm{font-size:15px;font-weight:800;color:#23303d;line-height:1.15}'+
-    '.emp .sb{font-size:10px;color:#64748b;margin-top:2px}'+
-    '.right{font-size:10px;color:#64748b;text-align:right}'+
-    '.ttl{font-size:15px;font-weight:800;text-align:center;margin:4px 0 1px;color:#23303d}'+
-    '.per{font-size:11px;text-align:center;color:#64748b;margin-bottom:9px}'+
-    '.grid{display:grid;grid-template-columns:repeat('+cols+',1fr);gap:7px}'+
-    '.blk{border:1px solid #cbd5e1;border-radius:6px;padding:5px 7px;break-inside:avoid;page-break-inside:avoid}'+
-    '.blk h3{margin:0 0 1px;font-size:12px;color:#23303d}'+
-    '.blk .st{font-size:10px;color:#475569;margin-bottom:3px}'+
-    '.blk img{width:100%;height:auto;display:block}'+
-    '.ft{margin-top:9px;font-size:9px;color:#94a3b8;text-align:center;border-top:1px solid #e2e8f0;padding-top:5px}'+
-    '@media print{.noprint{display:none}}'+
-    '.noprint{position:fixed;top:8px;right:8px}'+
-    '.noprint button{padding:8px 14px;border:none;border-radius:7px;background:#1565c0;color:#fff;font-weight:700;cursor:pointer}'+
-    '</style></head><body>'+
-    '<div class="noprint"><button onclick="window.print()">🖨 Imprimir / Guardar PDF</button></div>'+
-    '<div class="hdr"><div class="emp">'+logoHtml+'<div><div class="nm">'+escapeHtml(emp.nombre||'Empresa')+'</div>'+
-      '<div class="sb">'+[emp.rut?('RUT '+emp.rut):'', emp.direccion||''].filter(Boolean).map(escapeHtml).join(' · ')+'</div></div></div>'+
-      '<div class="right">Fecha de emisión<br><b>'+fecha+'</b></div></div>'+
-    '<div class="ttl">Reporte de Rendimiento de Combustible por Vehículo</div>'+
-    '<div class="per">Evolución semanal del rendimiento · '+bloques.length+' vehículo(s)</div>'+
-    '<div class="grid">'+blkHtml+'</div>'+
-    '<div class="ft">Equipos con horómetro: litros por hora de funcionamiento. Equipos con odómetro: kilómetros por litro. Cada punto es el rendimiento ponderado de la semana. · Generado por SCI</div>'+
-    '</body></html>';
-  var w=window.open('','_blank');
-  if(!w){ toast('Ventana bloqueada','Permita ventanas emergentes para generar el reporte','error'); return; }
-  w.document.open(); w.document.write(html); w.document.close(); w.focus();
-  setTimeout(function(){ try{ w.print(); }catch(e){} }, 500);
-}
-try{ window.cbReporteGerencial=cbReporteGerencial; }catch(e){}
-
 function exportarReporteCombustible(){
-  const regs=getCombustibleReal().sort((a,b)=>a.equipo.localeCompare(b.equipo)||new Date(a.fecha)-new Date(b.fecha));
-  const rows=[['Equipo','Medicion','Fecha','Km/Horometro','Recorrido u horas','Litros','Km por litro','Litros por hora','Operador','Producto','Centro Costo','N Movimiento']];
+  const regs=[...(STATE.cache.combustible||[])].sort((a,b)=>a.equipo.localeCompare(b.equipo)||new Date(a.fecha)-new Date(b.fecha));
+  const rows=[['Equipo','Fecha','Km/Horometro','Recorrido','Litros','Rend/L','Operador','Producto','Centro Costo','N Movimiento']];
   const porEquipo={};
-  regs.forEach(r=>{ const k=normEquipo(r.equipo); (porEquipo[k]=porEquipo[k]||[]).push(r); });
+  regs.forEach(r=>{ (porEquipo[r.equipo]=porEquipo[r.equipo]||[]).push(r); });
   Object.keys(porEquipo).forEach(eq=>{
     const lista=porEquipo[eq];
-    const porHora=_cbUsaHorometro(eq);
     lista.forEach((r,i)=>{
-      // Dos columnas separadas en vez de una ambigua: cada equipo llena la suya
-      let recorrido='', kmL='', lH='';
-      if(i>0){
-        const dif=(r.km||0)-(lista[i-1].km||0);
-        const litrosPrev=lista[i-1].cantidad||0;
-        if(dif>0 && litrosPrev>0){
-          recorrido=dif;
-          if(porHora) lH=(litrosPrev/dif).toFixed(2);
-          else        kmL=(dif/litrosPrev).toFixed(2);
-        }
-      }
-      rows.push([eq,porHora?'Horometro':'Odometro',new Date(r.fecha).toLocaleDateString('es-CL'),
-                 r.km||0,recorrido,r.cantidad||0,kmL,lH,
-                 r.usuario||'',r.producto||'',r.centroCosto||'',r.movNumero||'']);
+      let recorrido='', rend='';
+      if(i>0){ const dif=(r.km||0)-(lista[i-1].km||0); if(dif>0&&(lista[i-1].cantidad||0)>0){ recorrido=dif; rend=(dif/(lista[i-1].cantidad||1)).toFixed(2); } }
+      rows.push([eq,new Date(r.fecha).toLocaleDateString('es-CL'),r.km||0,recorrido,r.cantidad||0,rend,r.usuario||'',r.producto||'',r.centroCosto||'',r.movNumero||'']);
     });
   });
   const ws=XLSX.utils.aoa_to_sheet(rows);
@@ -5001,7 +4381,7 @@ function renderSelectorSalida(c){
   c.innerHTML=`
     <div class="page-header"><div><div class="page-title">Nueva Salida</div>
       <div class="page-subtitle">Elija el tipo de salida</div></div></div>
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;max-width:960px">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;max-width:640px">
       <button class="card" onclick="renderMovimientoForm(document.getElementById('mainContent'),'SAL')"
         style="cursor:pointer;text-align:left;padding:22px;border:2px solid var(--bo);border-radius:12px">
         <div style="font-size:30px;margin-bottom:8px">📦</div>
@@ -5014,342 +4394,9 @@ function renderSelectorSalida(c){
         <div style="font-weight:800;font-size:16px">Salida de combustible</div>
         <div class="stat-sub">Gasolina / Diesel con equipo y horómetro</div>
       </button>
-      <button class="card" onclick="renderCargaMasivaConsumos(document.getElementById('mainContent'))"
-        style="cursor:pointer;text-align:left;padding:22px;border:2px solid #1565c0;border-radius:12px;background:#f1f6fc">
-        <div style="font-size:30px;margin-bottom:8px">📥</div>
-        <div style="font-weight:800;font-size:16px">Carga masiva (Excel)</div>
-        <div class="stat-sub">Consumos y combustible desde una plantilla</div>
-      </button>
     </div>`;
 }
 try{ window.renderSelectorSalida=renderSelectorSalida; }catch(e){}
-
-/* ═══════════════ CARGA MASIVA DE SALIDAS (Excel) ═══════════════ */
-/* Dos hojas: "Consumos" (salida CONSUMO CC) y "Combustible" (salida con
-   equipo/horómetro). La foliación reutiliza nextCounter() — el MISMO
-   correlativo que el flujo manual — por lo que nunca se repiten folios.
-   Identificación por código: producto (codigoInterno), bodega (id),
-   centro de costo (código). */
-const CM_HEAD_CONS=['Fecha','CodigoProducto','Cantidad','BodegaId','CentroCosto','Observaciones'];
-const CM_HEAD_COMB=['Fecha','CodigoProducto','Cantidad','BodegaId','CentroCosto','Equipo','KmHorometro','Operador','Observaciones'];
-
-function renderCargaMasivaConsumos(c){
-  if(!can('movimientos.crear') && !can('combustible.registrar')){
-    c.innerHTML='<div class="empty-state"><div class="empty-state-icon">🔒</div><div class="empty-state-title">Sin permiso</div><div class="empty-state-text">No tiene permiso para registrar salidas.</div></div>';
-    return;
-  }
-  c.innerHTML=`
-    <div class="page-header"><div><div class="page-title">📥 Carga masiva de salidas</div>
-      <div class="page-subtitle">Consumos y combustible desde una plantilla Excel</div></div>
-      <button class="btn btn-secondary" onclick="navigate('salidas')">← Volver</button></div>
-    <div style="max-width:720px">
-      <div class="alert" style="background:#f1f6fc;border:1px solid #d6e4f5;border-radius:10px;padding:16px;margin-bottom:16px;font-size:13px;line-height:1.6;color:#334155">
-        <strong>Cómo funciona</strong><br>
-        1. Descargue la plantilla y complete la hoja <strong>Consumos</strong> y/o <strong>Combustible</strong>.<br>
-        2. Use los <strong>códigos</strong> de las hojas "Listas" (producto, bodega, centro de costo).<br>
-        3. Vuelva aquí e importe el archivo: verá una <strong>vista previa</strong> con validaciones antes de confirmar.<br>
-        4. Los folios se asignan automáticamente siguiendo el correlativo vigente (CCC para consumos, SAL para combustible). No se repiten registros.
-      </div>
-      <div style="display:flex;gap:12px;flex-wrap:wrap">
-        <button class="btn btn-secondary" onclick="downloadPlantillaConsumos()">📥 Descargar plantilla</button>
-        <label class="btn btn-primary" style="cursor:pointer"><span>📤 Importar Excel</span><input type="file" accept=".xlsx,.xls" style="display:none" onchange="if(this.files[0]){previewImportConsumos(this.files[0]);this.value=''}"></label>
-      </div>
-    </div>`;
-}
-try{ window.renderCargaMasivaConsumos=renderCargaMasivaConsumos; }catch(e){}
-
-function downloadPlantillaConsumos(){
-  const ahora=new Date().toLocaleDateString('es-CL');
-  const hoy=new Date().toISOString().slice(0,10);
-  const prods=(STATE.cache.products||[]).filter(p=>p.activo!==false && p.inventariable!==false);
-  const combs=prods.filter(p=>{const t=((p.descripcion||'')+' '+(p.grupo||'')+' '+(p.subGrupo||'')).toLowerCase();return /gasolina|diesel|di[eé]sel|petr[oó]leo|bencina/.test(t);});
-  const bods=STATE.cache.warehouses||[];
-  const ccs=(STATE.cache.costCenters||[]).filter(x=>x.activo!==false);
-  const codProd=(prods[0]&&prods[0].codigoInterno)||'P000001';
-  const codComb=(combs[0]&&combs[0].codigoInterno)||codProd;
-  const codBod=(bods[0]&&bods[0].id)||'BOD1';
-  const codCC=(ccs[0]&&ccs[0].codigo)||'CC1';
-
-  // Hoja Consumos (ejemplo)
-  const ejCons=[{Fecha:hoy,CodigoProducto:codProd,Cantidad:1,BodegaId:codBod,CentroCosto:codCC,Observaciones:'EJEMPLO — borre esta fila'}];
-  const wsC=XLSX.utils.json_to_sheet(ejCons,{header:CM_HEAD_CONS});
-  wsC['!cols']=[{wch:12},{wch:16},{wch:10},{wch:14},{wch:14},{wch:36}];
-  // Hoja Combustible (ejemplo)
-  const ejComb=[{Fecha:hoy,CodigoProducto:codComb,Cantidad:40,BodegaId:codBod,CentroCosto:codCC,Equipo:'TRACTOR 1',KmHorometro:1250,Operador:'JUAN PÉREZ',Observaciones:'EJEMPLO — borre esta fila'}];
-  const wsB=XLSX.utils.json_to_sheet(ejComb,{header:CM_HEAD_COMB});
-  wsB['!cols']=[{wch:12},{wch:16},{wch:10},{wch:14},{wch:14},{wch:18},{wch:14},{wch:22},{wch:30}];
-
-  // Instrucciones
-  const inst=[
-    ['SISTEMA DE CONTROL DE INVENTARIO — Carga masiva de salidas'],
-    ['Generada: '+ahora],
-    [],
-    ['INSTRUCCIONES'],
-    ['1. Complete la hoja "Consumos" (salidas normales) y/o "Combustible". Cada fila = una salida.'],
-    ['2. NO cambie los encabezados (primera fila).'],
-    ['3. Borre las filas de ejemplo antes de importar.'],
-    ['4. Use los CÓDIGOS de la hoja "Listas" para Producto, Bodega y Centro de costo.'],
-    ['5. Fecha en formato AAAA-MM-DD (ej: '+hoy+').'],
-    ['6. El folio se asigna automáticamente al importar (no lo escriba). Consumos → CCC, Combustible → SAL.'],
-    ['7. Al importar verá una vista previa con errores/avisos antes de confirmar.'],
-    [],
-    ['HOJA "Consumos" (CONSUMO de centro de costo)'],
-    ['Campo','Obligatorio','Descripción'],
-    ['Fecha','SÍ','Fecha del consumo (AAAA-MM-DD).'],
-    ['CodigoProducto','SÍ','Código interno del producto (ver Listas).'],
-    ['Cantidad','SÍ','Número > 0. No puede superar el stock disponible en la bodega.'],
-    ['BodegaId','SÍ','Id de la bodega de origen (ver Listas).'],
-    ['CentroCosto','SÍ','Código del centro de costo (ver Listas). Debe estar activo.'],
-    ['Observaciones','No','Texto libre.'],
-    [],
-    ['HOJA "Combustible"'],
-    ['Campo','Obligatorio','Descripción'],
-    ['Fecha','SÍ','Fecha de la carga (AAAA-MM-DD).'],
-    ['CodigoProducto','SÍ','Código interno del combustible (ver Listas).'],
-    ['Cantidad','SÍ','Litros > 0. No puede superar el stock disponible.'],
-    ['BodegaId','SÍ','Id de la bodega de origen.'],
-    ['CentroCosto','SÍ','Código del centro de costo activo.'],
-    ['Equipo','SÍ','Nombre del equipo/máquina.'],
-    ['KmHorometro','No','Km u horómetro. Si se informa, no puede ser menor al último registrado del equipo.'],
-    ['Operador','SÍ','Nombre del operador.'],
-    ['Observaciones','No','Texto libre.'],
-  ];
-  const wsI=XLSX.utils.aoa_to_sheet(inst); wsI['!cols']=[{wch:16},{wch:12},{wch:70}];
-
-  // Listas de códigos
-  const L=[];
-  L.push(['PRODUCTOS (código → descripción)']);
-  L.push(['CodigoProducto','Descripción','UM','¿Combustible?']);
-  prods.forEach(p=>{const t=((p.descripcion||'')+' '+(p.grupo||'')+' '+(p.subGrupo||'')).toLowerCase();L.push([p.codigoInterno,p.descripcion||'',p.unidadMedida||'',/gasolina|diesel|di[eé]sel|petr[oó]leo|bencina/.test(t)?'SÍ':'']);});
-  L.push([]);
-  L.push(['BODEGAS (id → nombre)']);
-  L.push(['BodegaId','Nombre']);
-  bods.forEach(b=>L.push([b.id,b.nombre||'']));
-  L.push([]);
-  L.push(['CENTROS DE COSTO ACTIVOS (código → descripción)']);
-  L.push(['CentroCosto','Descripción','Área']);
-  ccs.forEach(x=>L.push([x.codigo,x.descripcion||'',x.area||'']));
-  const wsL=XLSX.utils.aoa_to_sheet(L); wsL['!cols']=[{wch:18},{wch:44},{wch:14},{wch:14}];
-
-  const wb=XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb,wsC,'Consumos');
-  XLSX.utils.book_append_sheet(wb,wsB,'Combustible');
-  XLSX.utils.book_append_sheet(wb,wsI,'Instrucciones');
-  XLSX.utils.book_append_sheet(wb,wsL,'Listas');
-  XLSX.writeFile(wb,`Plantilla_Consumos_${hoy}.xlsx`);
-  toast('Plantilla descargada','Complete Consumos y/o Combustible y vuelva a importarla');
-}
-try{ window.downloadPlantillaConsumos=downloadPlantillaConsumos; }catch(e){}
-
-/* Normaliza una fecha de Excel (string AAAA-MM-DD, dd-mm-aaaa o Date) → 'AAAA-MM-DD' o null */
-function _cmParseFecha(v){
-  if(v==null||v==='') return null;
-  if(v instanceof Date && !isNaN(v)) return v.toISOString().slice(0,10);
-  var s=String(v).trim();
-  var m=s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/); if(m) return m[1]+'-'+String(m[2]).padStart(2,'0')+'-'+String(m[3]).padStart(2,'0');
-  m=s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/); if(m) return m[3]+'-'+String(m[2]).padStart(2,'0')+'-'+String(m[1]).padStart(2,'0');
-  var d=new Date(s); if(!isNaN(d)) return d.toISOString().slice(0,10);
-  return null;
-}
-
-async function previewImportConsumos(file){
-  if(!can('movimientos.crear') && !can('combustible.registrar')){toast('Sin permiso','No puede registrar salidas','error');return;}
-  showLoading();
-  try{
-    const buf=await file.arrayBuffer();
-    const wb=XLSX.read(buf,{type:'array'});
-    const shC=wb.SheetNames.find(n=>n.trim().toLowerCase()==='consumos');
-    const shB=wb.SheetNames.find(n=>n.trim().toLowerCase()==='combustible');
-    const rowsC=shC?XLSX.utils.sheet_to_json(wb.Sheets[shC],{defval:'',raw:false}):[];
-    const rowsB=shB?XLSX.utils.sheet_to_json(wb.Sheets[shB],{defval:'',raw:false}):[];
-    hideLoading();
-    if(rowsC.length===0 && rowsB.length===0){toast('Excel vacío','No hay filas en Consumos ni Combustible','error');return;}
-    const v=_validateConsumos(rowsC,rowsB);
-    _showConsumosPreview(v,file.name);
-  }catch(e){
-    hideLoading();
-    toast('Error al leer','No se pudo procesar el archivo: '+e.message,'error');
-    console.error('previewImportConsumos:',e);
-  }
-}
-try{ window.previewImportConsumos=previewImportConsumos; }catch(e){}
-
-function _validateConsumos(rowsC,rowsB){
-  const validas=[], invalidas=[];
-  const usado={}; // key prod|bodega → cantidad ya comprometida en este archivo
-  const kmMax={}; // equipo → último km visto (historial + archivo)
-  // Precargar último km por equipo desde historial
-  // Reconciliado: un movimiento anulado no debe seguir fijando el horómetro máximo
-  getCombustibleReal().forEach(r=>{ if(r.equipo && (r.km||0)>0){ kmMax[r.equipo]=Math.max(kmMax[r.equipo]||0, r.km||0); } });
-
-  function chkComun(d, isComb){
-    const errs=[], warns=[];
-    const fecha=_cmParseFecha(d.Fecha);
-    if(!fecha) errs.push('Fecha inválida (use AAAA-MM-DD).');
-    const cod=String(d.CodigoProducto||'').trim();
-    const prod=cod?getProduct(cod):null;
-    if(!cod) errs.push('Falta CodigoProducto.');
-    else if(!prod) errs.push('Producto '+cod+' no existe.');
-    const cant=parseFloat(String(d.Cantidad).replace(',','.'))||0;
-    if(cant<=0) errs.push('Cantidad debe ser > 0.');
-    const bod=String(d.BodegaId||'').trim();
-    const bodObj=bod?getWarehouse(bod):null;
-    if(!bod) errs.push('Falta BodegaId.');
-    else if(!bodObj) errs.push('Bodega '+bod+' no existe.');
-    const ccCod=String(d.CentroCosto||'').trim().toUpperCase();
-    const ccObj=ccCod?(STATE.cache.costCenters||[]).find(x=>x.codigo===ccCod):null;
-    if(!ccCod) errs.push('Falta CentroCosto.');
-    else if(!ccObj) errs.push('Centro de costo '+ccCod+' no existe.');
-    else if(ccObj.activo===false) errs.push('Centro de costo '+ccCod+' está inactivo.');
-    // permiso por tipo
-    if(isComb && !can('combustible.registrar')) errs.push('Sin permiso para registrar combustible.');
-    if(!isComb && !can('movimientos.crear')) errs.push('Sin permiso para registrar consumos.');
-    // stock acumulado por prod|bodega
-    if(prod && bodObj && cant>0){
-      const k=cod+'|'+bod;
-      const disp=(getStock(cod,bod)?.cantidad)||0;
-      const ya=usado[k]||0;
-      if(ya+cant>disp) errs.push('Stock insuficiente en '+(bodObj.nombre||bod)+': disponible '+fmtNum(disp,2)+', ya comprometido '+fmtNum(ya,2)+', solicitado '+fmtNum(cant,2)+'.');
-      else usado[k]=ya+cant;
-    }
-    return {errs,warns,fecha,cod,prod,cant,bod,bodObj,ccCod,ccObj};
-  }
-
-  rowsC.forEach((d,i)=>{
-    if(Object.values(d).every(x=>x===''||x==null)) return;
-    const r=chkComun(d,false);
-    const data={tipo:'NORMAL',fecha:r.fecha,codigo:r.cod,producto:r.prod,cantidad:r.cant,bodegaId:r.bod,bodega:r.bodObj,centroCosto:r.ccCod,cc:r.ccObj,obs:String(d.Observaciones||'').trim()};
-    if(r.errs.length) invalidas.push({hoja:'Consumos',fila:i+2,data,errors:r.errs});
-    else validas.push({hoja:'Consumos',fila:i+2,data,warnings:r.warns});
-  });
-  rowsB.forEach((d,i)=>{
-    if(Object.values(d).every(x=>x===''||x==null)) return;
-    const r=chkComun(d,true);
-    const equipo=String(d.Equipo||'').trim();
-    const operador=String(d.Operador||'').trim();
-    const km=parseFloat(String(d.KmHorometro).replace(',','.'))||0;
-    if(!equipo) r.errs.push('Falta Equipo.');
-    if(!operador) r.errs.push('Falta Operador.');
-    if(r.prod){const t=((r.prod.descripcion||'')+' '+(r.prod.grupo||'')+' '+(r.prod.subGrupo||'')).toLowerCase(); if(!/gasolina|diesel|di[eé]sel|petr[oó]leo|bencina/.test(t)) r.warns.push('El producto no parece combustible.');}
-    if(km>0 && equipo){ if(km<(kmMax[equipo]||0)) r.errs.push('Km/Horómetro ('+km+') menor al último de '+equipo+' ('+kmMax[equipo]+').'); else kmMax[equipo]=km; }
-    const data={tipo:'COMBUSTIBLE',fecha:r.fecha,codigo:r.cod,producto:r.prod,cantidad:r.cant,bodegaId:r.bod,bodega:r.bodObj,centroCosto:r.ccCod,cc:r.ccObj,equipo,km,operador,obs:String(d.Observaciones||'').trim()};
-    if(r.errs.length) invalidas.push({hoja:'Combustible',fila:i+2,data,errors:r.errs});
-    else validas.push({hoja:'Combustible',fila:i+2,data,warnings:r.warns});
-  });
-  return {total:validas.length+invalidas.length, validas, invalidas};
-}
-
-function _showConsumosPreview(v,fileName){
-  const okCount=v.validas.length, errCount=v.invalidas.length;
-  const warnCount=v.validas.filter(x=>x.warnings.length>0).length;
-  let body=`<div style="margin-bottom:14px;font-size:13px;line-height:1.6">
-    <div><strong>Archivo:</strong> ${escapeHtml(fileName)}</div>
-    <div><strong>Total de filas:</strong> ${v.total}</div>
-    <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
-      <span class="badge badge-green">${okCount} válidas</span>
-      ${warnCount>0?`<span class="badge badge-amber">${warnCount} con avisos</span>`:''}
-      ${errCount>0?`<span class="badge badge-red">${errCount} con errores</span>`:''}
-    </div></div>`;
-  if(errCount>0){
-    body+=`<div class="alert alert-warning" style="margin-bottom:12px;font-size:13px">⚠ Las filas con errores NO se cargarán. Corrija el Excel y vuelva a importarlo.</div>`;
-    body+=`<h4 style="color:var(--gd);font-size:13px;margin:14px 0 8px">Filas con errores (${errCount})</h4>
-      <div style="max-height:200px;overflow:auto;border:1px solid var(--bo);border-radius:6px"><table class="detalle-table" style="margin:0">
-      <thead><tr><th>Hoja</th><th style="width:44px">Fila</th><th>Producto</th><th>Errores</th></tr></thead>
-      <tbody>${v.invalidas.slice(0,60).map(it=>`<tr>
-        <td>${it.hoja}</td><td class="mono">${it.fila}</td>
-        <td>${escapeHtml((it.data.producto&&it.data.producto.descripcion)||it.data.codigo||'(?)')}</td>
-        <td style="color:var(--red);font-size:12px">${it.errors.map(e=>escapeHtml(e)).join('<br>')}</td>
-      </tr>`).join('')}</tbody></table></div>`;
-  }
-  if(okCount>0){
-    body+=`<h4 style="color:var(--gd);font-size:13px;margin:14px 0 8px">Filas a cargar (${okCount})</h4>
-      <div style="max-height:260px;overflow:auto;border:1px solid var(--bo);border-radius:6px"><table class="detalle-table" style="margin:0">
-      <thead><tr><th>Hoja</th><th style="width:44px">Fila</th><th>Fecha</th><th>Producto</th><th>Cant.</th><th>Bodega</th><th>C.Costo</th><th>Equipo</th><th>Avisos</th></tr></thead>
-      <tbody>${v.validas.slice(0,120).map(it=>`<tr>
-        <td>${it.hoja}</td><td class="mono">${it.fila}</td>
-        <td>${escapeHtml(it.data.fecha||'')}</td>
-        <td>${escapeHtml((it.data.producto&&it.data.producto.descripcion)||it.data.codigo)}</td>
-        <td class="mono">${fmtNum(it.data.cantidad,2)}</td>
-        <td>${escapeHtml((it.data.bodega&&it.data.bodega.nombre)||it.data.bodegaId)}</td>
-        <td>${escapeHtml(it.data.centroCosto)}</td>
-        <td>${escapeHtml(it.data.equipo||'-')}</td>
-        <td style="color:var(--gm);font-size:11px">${it.warnings.map(w=>escapeHtml(w)).join('<br>')||'-'}</td>
-      </tr>`).join('')}${v.validas.length>120?`<tr><td colspan="9" style="text-align:center;color:var(--mu);font-size:12px;padding:8px">… y ${v.validas.length-120} fila(s) más</td></tr>`:''}</tbody></table></div>`;
-  }
-  STATE._bulkConsumosPending=v;
-  showModal('Vista previa · Carga masiva de salidas',body,
-    `<button class="btn btn-secondary" onclick="closeModal();STATE._bulkConsumosPending=null">Cancelar</button>
-     ${okCount>0?`<button class="btn btn-primary" id="btnConfirmConsumos">✓ Cargar ${okCount} salida(s)</button>`:''}`,
-    'xl');
-  if(okCount>0) document.getElementById('btnConfirmConsumos').onclick=()=>_executeBulkConsumos();
-}
-
-async function _executeBulkConsumos(){
-  const v=STATE._bulkConsumosPending;
-  if(!v||!v.validas.length) return;
-  closeModal();
-  showLoading('Cargando salidas...');
-  let ok=0, fail=0; const fallidos=[];
-  for(const it of v.validas){
-    const d=it.data;
-    try{
-      const prod=d.producto;
-      const costo=(getStock(d.codigo,d.bodegaId)?.costoPromedio)||prod?.costoPromedio||0;
-      const fechaISO=d.fecha+'T'+new Date().toTimeString().slice(0,8);
-      if(d.tipo==='NORMAL'){
-        const cfg=getMovCfg('SAL','CONSUMO CC');
-        const numero=await nextCounter(cfg.prefijo);
-        const m={
-          numero,tipo:'SAL',tipoMovimiento:'CONSUMO CC',
-          fecha:fechaISO,bodegaId:d.bodegaId,
-          documento:'',proveedor:'',destino:d.centroCosto,
-          centroCosto:d.centroCosto,centroCostoNombre:(d.cc&&d.cc.descripcion)||'',centroCostoArea:(d.cc&&d.cc.area)||'',
-          observaciones:d.obs||'',
-          detalles:[{codigoInterno:d.codigo,cantidad:d.cantidad,costo,costoNeto:costo,lote:null,loteId:null,fechaVenc:null}],
-          usuario:STATE.user.id,creado:new Date().toISOString(),anulado:false,cargaMasiva:true
-        };
-        await dbPut('movements',m);
-        if(!(await dbGet('movements',numero))) throw new Error('no persistió');
-        ok++;
-      }else{
-        const numero=await nextCounter('SAL');
-        const m={
-          numero,tipo:'SAL',tipoMovimiento:'CONSUMO COMBUSTIBLE',
-          fecha:fechaISO,bodegaId:d.bodegaId,centroCosto:d.centroCosto,
-          destino:d.equipo,
-          observaciones:`Equipo: ${d.equipo} · Km/Hr: ${d.km} · Operador: ${d.operador}${d.obs?(' · '+d.obs):''}`,
-          detalles:[{codigoInterno:d.codigo,descripcion:prod?.descripcion||d.codigo,cantidad:d.cantidad,costo}],
-          usuario:STATE.user.id,creado:new Date().toISOString(),cargaMasiva:true
-        };
-        await dbPut('movements',m);
-        if(!(await dbGet('movements',numero))) throw new Error('no persistió');
-        const regCb={
-          id:Date.now()+'-'+Math.random().toString(36).slice(2,7),
-          fecha:fechaISO,equipo:d.equipo,km:d.km,usuario:d.operador,
-          codigoProducto:d.codigo,producto:prod?.descripcion||d.codigo,
-          cantidad:d.cantidad,centroCosto:d.centroCosto,bodegaId:d.bodegaId,movNumero:numero,
-          observaciones:d.obs||'',registrado:new Date().toISOString(),registradoPor:STATE.user.id,cargaMasiva:true
-        };
-        await dbPut('combustible',regCb);
-        ok++;
-      }
-    }catch(e){
-      fail++; fallidos.push({hoja:it.hoja,fila:it.fila,err:e.message});
-      console.error('Carga masiva salida fila',it.fila,e);
-    }
-  }
-  // Recalcular stock una sola vez desde todos los movimientos.
-  STATE.cache.movements=await dbAll('movements');
-  await _ejecutarRecalculoStock();
-  await audit('salida.cargaMasiva',`Carga masiva: ${ok} salida(s) creada(s)`,`bulk-${ok}`);
-  await reloadCache();
-  hideLoading();
-  STATE._bulkConsumosPending=null;
-  if(fail===0) toast('Carga exitosa',`Se registraron ${ok} salida(s)`);
-  else { toast('Carga con errores',`${ok} creadas, ${fail} con error`,'warning'); console.warn('Salidas fallidas:',fallidos); }
-  navigate('movimientos');
-}
-try{ window._executeBulkConsumos=_executeBulkConsumos; }catch(e){}
 
 let cbDraft={};
 function renderCombustibleForm(c){
@@ -5359,65 +4406,38 @@ function renderCombustibleForm(c){
     const t=((p.descripcion||'')+' '+(p.grupo||'')+' '+(p.subGrupo||'')).toLowerCase();
     return /gasolina|diesel|di[eé]sel|petr[oó]leo|bencina/.test(t);
   });
-  const bodegasAll=STATE.cache.warehouses||[];
-  // Solo la bodega de combustibles y lubricantes puede ser origen de una salida de combustible.
-  const bodegas=bodegasAll.filter(b=>/combustible/i.test(b.nombre||''));
-  const bodegaUnica = bodegas.length===1 ? bodegas[0] : null;
+  const bodegas=STATE.cache.warehouses||[];
   const centros=STATE.cache.costCenters||[];
-  const equipos=getEquiposActivos();
   cbDraft={fecha:today};
   c.innerHTML=`
     <div class="page-header"><div><div class="page-title">⛽ Salida de combustible</div>
       <div class="page-subtitle">Registro de consumo por equipo</div></div>
       <button class="btn btn-secondary" onclick="navigate('salidas')">← Volver</button></div>
-    <div class="card" style="max-width:760px;margin:24px auto;padding:24px 26px">
-      <div class="form-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:18px 20px">
+    <div class="card" style="max-width:640px;margin:0 auto">
+      <div class="form-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
         <div class="form-field"><label>Fecha</label>
           <input type="date" id="cb-fecha" value="${today}"></div>
         <div class="form-field"><label>Bodega origen</label>
-          <select id="cb-bodega" onchange="cbStockHint()">
-            ${bodegas.length===0?'<option value="">— Sin bodega de combustible —</option>':
-              (bodegaUnica?`<option value="${bodegaUnica.id}" selected>${escapeHtml(bodegaUnica.nombre)}</option>`:
-               '<option value="">— Seleccione —</option>'+bodegas.map(b=>`<option value="${b.id}">${escapeHtml(b.nombre)}</option>`).join(''))}
-          </select>
-          ${bodegas.length===0?'<div class="hint" style="color:#c0392b">No existe una bodega de combustibles y lubricantes. Créela en Bodegas.</div>':''}</div>
+          <select id="cb-bodega"><option value="">— Seleccione —</option>
+            ${bodegas.map(b=>`<option value="${b.id}">${escapeHtml(b.nombre)}</option>`).join('')}</select></div>
         <div class="form-field"><label>Equipo</label>
           <select id="cb-equipo" onchange="cbToggleOtro()">
             <option value="">— Seleccione —</option>
-            ${equipos.map(e=>`<option value="${escapeHtml(e.nombre)}">${escapeHtml(e.nombre)}</option>`).join('')}
-            <option value="${EQUIPO_OTRO}">➕ ${EQUIPO_OTRO}</option></select></div>
-        <div class="span-2" id="cb-otro-wrap" style="display:none;grid-column:1/-1">
-          <div style="border:1px dashed var(--bo);border-radius:10px;padding:16px 18px;background:var(--gs)">
-            <div style="font-weight:700;color:var(--gd);font-size:13px;margin-bottom:12px">➕ Nuevo equipo</div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px 16px">
-              <div class="form-field"><label>Nombre / identificador</label>
-                <input type="text" id="cbeq-nombre" placeholder="Ej: TRACTOR JOHN DEERE 5090"></div>
-              <div class="form-field"><label>Tipo</label>
-                <select id="cbeq-tipo">${EQUIPO_TIPOS.map(t=>`<option value="${t}">${t}</option>`).join('')}</select></div>
-              <div class="form-field"><label>Medidor</label>
-                <select id="cbeq-medidor">${EQUIPO_MEDIDORES.map(m=>`<option value="${m[0]}">${m[1]}</option>`).join('')}</select></div>
-              <div class="form-field"><label>Patente / código (opcional)</label>
-                <input type="text" id="cbeq-patente" placeholder="Ej: ABCD-12"></div>
-            </div>
-            <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px">
-              <button type="button" class="btn btn-primary btn-sm" onclick="cbCrearEquipoInline()">Crear y usar</button>
-            </div>
-            <div class="hint" id="cbeq-err" style="color:#c0392b;display:none;margin-top:6px"></div>
-          </div>
-        </div>
-        <div class="form-field"><label id="cb-km-label">Kilometraje / Horómetro</label>
+            ${CB_EQUIPOS.map(e=>`<option value="${escapeHtml(e)}">${escapeHtml(e)}</option>`).join('')}</select></div>
+        <div class="form-field" id="cb-otro-wrap" style="display:none"><label>Especifique equipo</label>
+          <input type="text" id="cb-otro" placeholder="Nombre del equipo"></div>
+        <div class="form-field"><label>Kilometraje / Horómetro</label>
           <input type="number" id="cb-km" step="0.1" min="0" placeholder="Ej: 1250.5">
           <div class="hint" id="cb-km-hint" style="display:none;color:#0a6ed1"></div></div>
         <div class="form-field"><label>Usuario / Operador</label>
           <input type="text" id="cb-usuario" placeholder="Nombre de quien retira"></div>
         <div class="form-field"><label>Producto</label>
-          <select id="cb-producto" onchange="cbStockHint()">
+          <select id="cb-producto">
             <option value="">— Seleccione —</option>
             ${combustibles.map(p=>`<option value="${p.codigoInterno}">${escapeHtml(p.descripcion)}</option>`).join('')}</select>
           ${combustibles.length===0?'<div class="hint" style="color:#c0392b">No hay productos de combustible en el catálogo</div>':''}</div>
         <div class="form-field"><label>Cantidad (litros)</label>
-          <input type="number" id="cb-cantidad" step="0.01" min="0" placeholder="0.00" oninput="cbStockHint()">
-          <div class="hint" id="cb-stock-hint" style="display:none"></div></div>
+          <input type="number" id="cb-cantidad" step="0.01" min="0" placeholder="0.00"></div>
         <div class="form-field" style="grid-column:1/-1"><label>Centro de costo</label>
           <select id="cb-centro"><option value="">— Seleccione —</option>
             ${centros.filter(cc=>cc.activo!==false).map(cc=>`<option value="${cc.codigo}">${escapeHtml(cc.codigo)} · ${escapeHtml(cc.descripcion||cc.nombre||'')}</option>`).join('')}</select></div>
@@ -5434,85 +4454,20 @@ function renderCombustibleForm(c){
 function cbToggleOtro(){
   const sel=document.getElementById('cb-equipo').value;
   const w=document.getElementById('cb-otro-wrap');
-  if(w) w.style.display = sel===EQUIPO_OTRO ? 'block' : 'none';
-  // Ajustar la etiqueta del medidor según el equipo elegido.
-  const lbl=document.getElementById('cb-km-label');
-  if(lbl){
-    const eq=(sel && sel!==EQUIPO_OTRO)?getEquipoByNombre(sel):null;
-    lbl.textContent = eq&&eq.medidor==='horometro' ? 'Horómetro (horas)'
-      : eq&&eq.medidor==='km' ? 'Kilometraje (km)'
-      : eq&&eq.medidor==='ninguno' ? 'Lectura (opcional)'
-      : 'Kilometraje / Horómetro';
-  }
+  if(w) w.style.display = sel==='Otro (especificar)' ? 'block' : 'none';
   // Mostrar último horómetro/km registrado para el equipo elegido
   const hint=document.getElementById('cb-km-hint');
   if(hint){
-    const regsEq=getCombustibleReal().filter(r=>r.equipo===sel && (r.km||0)>0);
-    if(sel && sel!==EQUIPO_OTRO && regsEq.length>0){
-      // Referencia = el horómetro/km MÁS ALTO del equipo (no el último por fecha,
-      // que puede ser inferior si se editó o reordenó un registro).
-      const mx=regsEq.reduce((a,b)=>((b.km||0)>(a.km||0)?b:a));
-      hint.textContent=`Horómetro/km más alto registrado: ${mx.km} (${new Date(mx.fecha).toLocaleDateString('es-CL')})`;
+    const previos=(STATE.cache.combustible||[]).filter(r=>r.equipo===sel && (r.km||0)>0)
+      .sort((a,b)=>new Date(b.fecha)-new Date(a.fecha));
+    if(sel && sel!=='Otro (especificar)' && previos.length>0){
+      const u=previos[0];
+      hint.textContent=`Último registrado: ${u.km} (${new Date(u.fecha).toLocaleDateString('es-CL')})`;
       hint.style.display='block';
     } else { hint.style.display='none'; }
   }
 }
-/* Alta rápida de equipo desde el propio formulario de salida (opción "Otro"). */
-async function cbCrearEquipoInline(){
-  const errEl=document.getElementById('cbeq-err');
-  const setE=(m)=>{ if(errEl){errEl.textContent=m;errEl.style.display='block';} };
-  const nombre=(document.getElementById('cbeq-nombre').value||'').trim();
-  const tipo=document.getElementById('cbeq-tipo').value||'';
-  const medidor=document.getElementById('cbeq-medidor').value||'km';
-  const patente=(document.getElementById('cbeq-patente').value||'').trim();
-  if(!nombre) return setE('Ingrese el nombre del equipo.');
-  // Materializar la semilla a registros reales si el catálogo aún no existe.
-  let lista=getEquipos().map(e=>String(e.id||'').startsWith('seed-')
-    ? {id:'eq-'+Date.now().toString(36)+Math.random().toString(36).slice(2,6),nombre:e.nombre,tipo:e.tipo||'',medidor:e.medidor||'km',patente:'',estado:'activo',creado:new Date().toISOString()}
-    : e);
-  if(lista.some(e=>String(e.nombre||'').toLowerCase()===nombre.toLowerCase())) return setE('Ya existe un equipo con ese nombre.');
-  lista.push({id:'eq-'+Date.now().toString(36)+Math.random().toString(36).slice(2,7),nombre,tipo,medidor,patente,estado:'activo',creado:new Date().toISOString()});
-  try{
-    await saveEquiposLista(lista);
-    try{ await audit('equipo.crear','Alta de equipo desde salida de combustible',nombre); }catch(e){}
-  }catch(e){ return setE('No se pudo guardar el equipo.'); }
-  const sel=document.getElementById('cb-equipo');
-  if(sel){
-    sel.innerHTML='<option value="">— Seleccione —</option>'+
-      getEquiposActivos().map(e=>`<option value="${escapeHtml(e.nombre)}">${escapeHtml(e.nombre)}</option>`).join('')+
-      `<option value="${EQUIPO_OTRO}">➕ ${EQUIPO_OTRO}</option>`;
-    sel.value=nombre;
-  }
-  const w=document.getElementById('cb-otro-wrap'); if(w) w.style.display='none';
-  cbToggleOtro();
-  toast('Equipo creado',`${nombre} agregado al catálogo`);
-}
-/* Muestra el saldo disponible del combustible EN LA BODEGA seleccionada
-   y avisa en el acto si la cantidad pedida lo supera. */
-function cbStockHint(){
-  const hint=document.getElementById('cb-stock-hint');
-  if(!hint) return;
-  const cod=(document.getElementById('cb-producto')||{}).value||'';
-  const bod=(document.getElementById('cb-bodega')||{}).value||'';
-  const inp=document.getElementById('cb-cantidad');
-  const cant=parseFloat(inp&&inp.value)||0;
-  if(!cod||!bod){ hint.style.display='none'; if(inp) inp.removeAttribute('max'); return; }
-  const disp=(getStock(cod,bod)?.cantidad)||0;
-  if(inp) inp.setAttribute('max',disp);
-  hint.style.display='block';
-  if(disp<=0){
-    hint.style.color='#c0392b';
-    hint.textContent='Sin stock de este combustible en la bodega seleccionada.';
-  }else if(cant>disp){
-    hint.style.color='#c0392b';
-    hint.textContent=`Excede el saldo: disponible ${fmtNum(disp,2)} LT en esta bodega.`;
-  }else{
-    hint.style.color='#0a6ed1';
-    hint.textContent=`Disponible en esta bodega: ${fmtNum(disp,2)} LT`+
-      (cant>0?` · queda ${fmtNum(disp-cant,2)} LT`:'');
-  }
-}
-try{ window.renderCombustibleForm=renderCombustibleForm; window.cbToggleOtro=cbToggleOtro; window.cbStockHint=cbStockHint; window.cbCrearEquipoInline=cbCrearEquipoInline; }catch(e){}
+try{ window.renderCombustibleForm=renderCombustibleForm; window.cbToggleOtro=cbToggleOtro; }catch(e){}
 
 async function guardarCombustible(){
   if(!can('combustible.registrar')){ toast('Sin permiso','No tiene permiso para registrar salidas de combustible','error'); return; }
@@ -5521,6 +4476,7 @@ async function guardarCombustible(){
   const fecha=document.getElementById('cb-fecha').value;
   const bodegaId=document.getElementById('cb-bodega').value;
   let equipo=document.getElementById('cb-equipo').value;
+  const otro=(document.getElementById('cb-otro')?.value||'').trim();
   const km=parseFloat(document.getElementById('cb-km').value)||0;
   const usuario=(document.getElementById('cb-usuario').value||'').trim();
   const codigo=document.getElementById('cb-producto').value;
@@ -5531,34 +4487,25 @@ async function guardarCombustible(){
   if(!fecha) return setErr('Ingrese la fecha.');
   if(!bodegaId) return setErr('Seleccione la bodega de origen.');
   if(!equipo) return setErr('Seleccione el equipo.');
-  if(equipo===EQUIPO_OTRO) return setErr('Complete los datos del equipo nuevo y presione «Crear y usar».');
+  if(equipo==='Otro (especificar)'){ if(!otro) return setErr('Especifique el nombre del equipo.'); equipo=otro; }
   if(!usuario) return setErr('Ingrese el usuario/operador.');
   if(!codigo) return setErr('Seleccione el producto.');
   if(cantidad<=0) return setErr('Ingrese una cantidad válida.');
   if(!centro) return setErr('Seleccione el centro de costo.');
 
-  // Validación de horómetro/kilometraje: no puede ser inferior al MÁS ALTO del
-  // equipo (no el último por fecha, que puede ser menor tras editar/reordenar).
-  const regsEq=getCombustibleReal().filter(r=>r.equipo===equipo && (r.km||0)>0);
-  if(km>0 && regsEq.length>0){
-    const mx=regsEq.reduce((a,b)=>((b.km||0)>(a.km||0)?b:a));
-    if(km < (mx.km||0)){
-      return setErr(`El horómetro/km (${km}) no puede ser inferior al más alto registrado para ${equipo}: ${mx.km} (${new Date(mx.fecha).toLocaleDateString('es-CL')}).`);
+  // Validación de horómetro/kilometraje: no puede ser inferior al último del equipo.
+  const previos=(STATE.cache.combustible||[]).filter(r=>r.equipo===equipo && (r.km||0)>0)
+    .sort((a,b)=>new Date(b.fecha)-new Date(a.fecha));
+  if(km>0 && previos.length>0){
+    const ultimo=previos[0];
+    if(km < (ultimo.km||0)){
+      return setErr(`El horómetro/km (${km}) no puede ser inferior al último registrado para ${equipo}: ${ultimo.km} (${new Date(ultimo.fecha).toLocaleDateString('es-CL')}).`);
     }
   }
 
   const prod=getProduct(codigo);
-  // La salida se emite contra la bodega seleccionada, así que el saldo debe
-  // medirse en esa bodega. Antes se comparaba con getStockTotal (suma de todas
-  // las bodegas), lo que permitía dejar una bodega en negativo.
-  const dispBodega=(getStock(codigo,bodegaId)?.cantidad)||0;
-  if(cantidad>dispBodega){
-    const bodNom=(getWarehouse(bodegaId)?.nombre)||bodegaId;
-    const total=getStockTotal(codigo);
-    let msg=`Stock insuficiente en ${bodNom}. Disponible: ${fmtNum(dispBodega,2)} LT`;
-    if(total>dispBodega) msg+=` (total en todas las bodegas: ${fmtNum(total,2)} LT)`;
-    return setErr(msg+'.');
-  }
+  const stockTotal=getStockTotal(codigo);
+  if(cantidad>stockTotal){ return setErr(`Stock insuficiente. Disponible: ${fmtNum(stockTotal,2)} LT`); }
 
   try{
     showLoading('Registrando salida de combustible...');
@@ -5601,48 +4548,6 @@ async function guardarCombustible(){
 }
 try{ window.guardarCombustible=guardarCombustible; }catch(e){}
 
-/* ── Ventana flotante del formulario de entrada/salida ──
-   El formulario se muestra como un modal centrado sobre el área de contenido,
-   dejando la barra lateral accesible. No se cierra al clicar fuera: solo con la
-   X o al cambiar de módulo (navigate lo elimina). */
-function _mvInjectStyles(){
-  if(document.getElementById('mvFormStyles')) return;
-  var st=document.createElement('style'); st.id='mvFormStyles';
-  st.textContent=''+
-    '.mv-form-overlay{position:fixed;top:56px;left:240px;right:0;bottom:0;background:rgba(15,23,42,.45);z-index:150;display:flex;align-items:flex-start;justify-content:center;padding:18px;overflow:auto}'+
-    '@media(max-width:880px){.mv-form-overlay{left:0}}'+
-    '.mv-form-modal{background:#fff;width:100%;max-width:900px;max-height:calc(100vh - 92px);border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,.3);display:flex;flex-direction:column;overflow:hidden}'+
-    '.mv-form-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:13px 18px;border-bottom:1px solid var(--bo,#e3e8ee);background:#fff;flex-shrink:0}'+
-    '.mv-form-head h3{font-size:17px;font-weight:700;margin:0;color:var(--gd,#23303d)}'+
-    '.mv-form-x{border:none;background:#f1f5f9;width:34px;height:34px;border-radius:8px;font-size:17px;cursor:pointer;color:#475569;line-height:1}'+
-    '.mv-form-x:hover{background:#e2e8f0}'+
-    '.mv-form-body{padding:14px 18px;overflow:auto}'+
-    '.mv-form-body .card{margin-top:10px;box-shadow:none;border:1px solid var(--bo,#e3e8ee)}'+
-    '.mv-form-body .card:first-of-type{margin-top:0}'+
-    '.mv-form-body .card>div{padding:12px 14px}'+
-    '.mv-form-body .form-grid{gap:10px 12px}';
-  document.head.appendChild(st);
-}
-function _mvEnsureOverlay(isEnt,isEdit,editId){
-  _mvInjectStyles();
-  var ov=document.getElementById('mvFormOverlay');
-  if(!ov){
-    ov=document.createElement('div'); ov.id='mvFormOverlay'; ov.className='mv-form-overlay';
-    ov.innerHTML='<div class="mv-form-modal"><div class="mv-form-head"><h3 id="mvFormTitle"></h3>'+
-      '<button class="mv-form-x" title="Cerrar" onclick="_mvCloseForm()">✕</button></div>'+
-      '<div class="mv-form-body" id="mvFormBody"></div></div>';
-    document.body.appendChild(ov);
-  }
-  var t=document.getElementById('mvFormTitle');
-  if(t) t.textContent=(isEdit?'Editar ':'Nueva ')+(isEnt?'Entrada':'Salida')+' de Bodega'+((isEdit&&editId)?(' · '+editId):'');
-  return document.getElementById('mvFormBody');
-}
-function _mvCloseForm(){
-  var ov=document.getElementById('mvFormOverlay'); if(ov) ov.remove();
-  try{ navigate('movimientos'); }catch(e){}
-}
-try{ window._mvCloseForm=_mvCloseForm; }catch(e){}
-
 function renderMovimientoForm(c,tipo='ENT'){
   movDraft={
     lineas:[{}],tipo,editId:null,
@@ -5655,24 +4560,9 @@ function renderMovimientoForm(c,tipo='ENT'){
     centroCosto:'',
     bodegaDestinoId:'',
     documento:'',proveedor:'',destino:'',
-    observaciones:'',
-    facturaAsociada:''
+    observaciones:''
   };
   _renderMovForm(c);
-}
-/* Extrae equipo/km/operador/nota del texto de observaciones de un consumo de
-   combustible ("EQUIPO: X · KM/HR: Y · OPERADOR: Z · nota..."). */
-function _parseObsCombustible(obs){
-  var r={equipo:'',km:'',operador:'',nota:''}, resto=[];
-  String(obs||'').split('·').forEach(function(p){
-    p=p.trim();
-    var mE=p.match(/^EQUIPO:\s*(.*)$/i); if(mE){r.equipo=mE[1].trim();return;}
-    var mK=p.match(/^KM\/?\s*HR?:\s*(.*)$/i)||p.match(/^KM\/HR:\s*(.*)$/i); if(mK){r.km=mK[1].trim();return;}
-    var mO=p.match(/^OPERADOR:\s*(.*)$/i); if(mO){r.operador=mO[1].trim();return;}
-    if(p) resto.push(p);
-  });
-  r.nota=resto.join(' · ');
-  return r;
 }
 function editMovimiento(numero){
   const m=STATE.cache.movements.find(x=>x.numero===numero);if(!m)return;
@@ -5694,24 +4584,10 @@ function editMovimiento(numero){
     documento:m.documento||'',
     proveedor:m.proveedor||'',destino:m.destino||'',
     observaciones:m.observaciones||'',
-    facturaAsociada:m.facturaAsociada||'',
     motivo:'',
     lineas:(m.detalles||[]).map(d=>({...d}))
   };
   if(movDraft.lineas.length===0)movDraft.lineas=[{}];
-  // Edición de consumo de combustible: exponer campos dedicados Equipo /
-  // Km-Horómetro / Operador (que viven en el registro del store `combustible`),
-  // en vez de dejarlos embebidos en el texto de observaciones.
-  movDraft._esComb = (m.tipoMovimiento==='CONSUMO COMBUSTIBLE');
-  if(movDraft._esComb){
-    var _reg=(STATE.cache.combustible||[]).find(r=>r.movNumero===numero);
-    var _pa=_parseObsCombustible(m.observaciones);
-    movDraft.cbId=_reg?_reg.id:null;
-    movDraft.cbEquipo=(_reg&&_reg.equipo)||_pa.equipo||m.destino||'';
-    movDraft.cbKm=(_reg&&_reg.km!=null&&_reg.km!=='')?_reg.km:(_pa.km||'');
-    movDraft.cbOperador=(_reg&&_reg.usuario)||_pa.operador||'';
-    movDraft.observaciones=_pa.nota; // el campo de observaciones muestra solo la nota libre
-  }
   renderSidebar();
   document.getElementById('topTitle').textContent=`Editar ${tipoLabel(m.tipo)} · ${numero}`;
   _renderMovForm(document.getElementById('mainContent'));
@@ -5722,17 +4598,18 @@ function _renderMovForm(c){
   const isEnt=tipo==='ENT';
   const today=new Date().toISOString().slice(0,10);
   const fecha=movDraft.fecha||today;
-  // Montar en la ventana flotante (reasigna el contenedor al cuerpo del modal).
-  c=_mvEnsureOverlay(isEnt,!!movDraft.editId,movDraft.editId);
   c.innerHTML=`
-    <div class="page-subtitle" style="margin-bottom:12px">${movDraft.editId?'Modificación de '+movDraft.editId:'Auto-numerado al guardar'} · Auto-guardado activo</div>
+    <div class="page-header">
+      <div>
+        <div class="page-title">${movDraft.editId?'Editar ':'Nueva '}${isEnt?'Entrada':'Salida'} de Bodega</div>
+        <div class="page-subtitle">${movDraft.editId?'Modificación de '+movDraft.editId:'Auto-numerado al guardar'} · Auto-guardado activo</div>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-secondary" onclick="navigate('movimientos')">← Volver</button>
+      </div>
+    </div>
     ${(()=>{
-      const TODOS=isEnt?TIPOS_MOV_ENT:TIPOS_MOV_SAL;
-      // Al crear se ofrecen solo los tipos manuales; al editar se muestra el
-      // tipo real del movimiento aunque sea uno generado por el sistema.
-      const TIPOS=movDraft.editId
-        ? TODOS.filter(t=>!t.oculto||t.tipo===movDraft.tipoMovimiento)
-        : TODOS.filter(t=>!t.oculto);
+      const TIPOS=isEnt?TIPOS_MOV_ENT:TIPOS_MOV_SAL;
       const cfg=getMovCfg(movDraft.tipo,movDraft.tipoMovimiento);
       const fechaLabel=isEnt?'Fecha de ingreso':'Fecha de salida';
       return `
@@ -5743,9 +4620,8 @@ function _renderMovForm(c){
           <div class="form-grid">
             <div class="form-field span-2 required"><label>Motivo del movimiento</label>
               <select id="mvTipoMov" ${movDraft.editId?'disabled':''}>
-                ${movDraft.editId?'':`<option value="">- Seleccionar tipo de ${isEnt?'entrada':'salida'} -</option>`}
+                <option value="">- Seleccionar tipo de ${isEnt?'entrada':'salida'} -</option>
                 ${TIPOS.map(t=>`<option value="${t.tipo}" ${movDraft.tipoMovimiento===t.tipo?'selected':''}>${t.icon} ${t.label}</option>`).join('')}
-                ${(movDraft.editId&&!cfg)?`<option value="${escapeHtml(movDraft.tipoMovimiento||'')}" selected>${escapeHtml(movDraft.tipoMovimiento||'(sin tipo)')}</option>`:''}
               </select>
               <div class="hint" id="mvMovPrefHint">${movDraft.editId?'No editable. El correlativo del movimiento queda atado al tipo original.':_movPrefixHint(movDraft.tipo,movDraft.tipoMovimiento)}</div>
             </div>
@@ -5794,23 +4670,6 @@ function _renderMovForm(c){
             </div>
             <div class="form-field required"><label>Número del documento</label><input type="text" id="mvNumDoc" value="${escapeHtml(movDraft.numeroDoc||'')}" placeholder="Ej: 12345" inputmode="numeric"><div class="hint">Folio del documento (SII u interno)</div></div>
             <div class="form-field span-2"><label>Fecha vencimiento documento</label><input type="date" id="mvVencDoc" value="${escapeHtml(movDraft.fechaVencDoc||'')}"><div class="hint">Vencimiento de pago (opcional)</div></div>
-          </div>
-        </div>
-      </div>`:''}
-
-      ${(movDraft.tipoMovimiento==='DEVOLUCION PROVEEDOR' && movDraft.tipoDoc==='NOTA DE CREDITO')?`
-      <!-- 2a-bis. Factura asociada (obligatoria para Nota de Crédito) -->
-      <div class="card" style="margin-top:14px;border:2px solid #e9730c">
-        <div class="card-header"><div class="card-title">🔗 Factura asociada <span style="color:#e9730c;font-size:11px">· obligatoria para Nota de Crédito</span></div>
-          <button class="btn btn-secondary btn-sm" onclick="_mvRefreshFacturas()">🔄 Actualizar lista</button></div>
-        <div style="padding:18px">
-          <div class="form-field required">
-            <label>Factura del proveedor que contiene el producto devuelto</label>
-            <select id="mvFacturaAsoc" onchange="_mvFacturaAsocChange()">
-              <option value="">- Seleccionar factura -</option>
-              ${_mvFacturasProveedor().map(f=>`<option value="${escapeHtml(f.numero)}" ${movDraft.facturaAsociada===f.numero?'selected':''}>${escapeHtml((f.tipoDoc==='FACTURA EXENTA'?'FAC.EX':'FAC')+' '+(f.numeroDoc||'')+' · '+fmtDateOnly(f.fecha)+' · '+((f.detalles||[]).length)+' ítem(s)')}</option>`).join('')}
-            </select>
-            <div class="hint">${(function(){ if(!movDraft.proveedorCodigo) return '⚠ Seleccione primero el proveedor.'; var fs=_mvFacturasProveedor(); if(!fs.length) return '⚠ No hay facturas de este proveedor que contengan el/los producto(s) del detalle. Agregue el producto y pulse “Actualizar lista”.'; return 'El costo de la devolución se tomará de esta factura. La cantidad devuelta no puede superar la comprada (menos devoluciones previas).'; })()}</div>
           </div>
         </div>
       </div>`:''}
@@ -5902,14 +4761,7 @@ function _renderMovForm(c){
       <div class="card" style="margin-top:14px">
         <div style="padding:18px">
           <div class="form-grid">
-            ${movDraft._esComb?`
-            <div class="form-field"><label>Equipo</label><input type="text" id="mvCbEquipo" value="${escapeHtml(movDraft.cbEquipo||'')}" placeholder="Ej: TRACTOR 2"></div>
-            <div class="form-field"><label>Km / Horómetro</label><input type="number" step="any" id="mvCbKm" value="${escapeHtml(String(movDraft.cbKm==null?'':movDraft.cbKm))}" placeholder="Ej: 2064"><div class="hint">Corrige aquí el horómetro; se guarda en el registro de combustible.</div></div>
-            <div class="form-field"><label>Operador</label><input type="text" id="mvCbOperador" value="${escapeHtml(movDraft.cbOperador||'')}" placeholder="Ej: FELIPE RAMIREZ"></div>
-            <div class="form-field span-2"><label>Nota (observaciones)</label><input type="text" id="mvObs" value="${escapeHtml(movDraft.observaciones||'')}" placeholder="Notas opcionales"></div>
-            `:`
             <div class="form-field span-2 ${movDraft.tipoMovimiento==='MERMA'||movDraft.tipoMovimiento==='TOMA INVENTARIO ENT'||movDraft.tipoMovimiento==='TOMA INVENTARIO SAL'?'required':''}"><label>${movDraft.tipoMovimiento==='MERMA'?'Motivo de la merma':'Observaciones'}</label><input type="text" id="mvObs" value="${escapeHtml(movDraft.observaciones||'')}" placeholder="${movDraft.tipoMovimiento==='MERMA'?'Ej: Vencimiento, daño, pérdida':'Notas opcionales'}"></div>
-            `}
             ${movDraft.editId?`<div class="form-field span-2 required"><label>Motivo de edición</label><input type="text" id="mvMot" placeholder="Indique por qué se edita este movimiento" value="${escapeHtml(movDraft.motivo||'')}"></div>`:''}
           </div>
         </div>
@@ -5974,11 +4826,6 @@ function _renderMovForm(c){
       if(document.getElementById('mvTipoDoc'))movDraft.tipoDoc=document.getElementById('mvTipoDoc').value;
       if(document.getElementById('mvNumDoc'))movDraft.numeroDoc=document.getElementById('mvNumDoc').value.trim();
       if(document.getElementById('mvVencDoc'))movDraft.fechaVencDoc=document.getElementById('mvVencDoc').value;
-      // En devolución a proveedor, al elegir/quitar Nota de Crédito se muestra u
-      // oculta la tarjeta de factura asociada → re-render.
-      if(id==='mvTipoDoc' && movDraft.tipoMovimiento==='DEVOLUCION PROVEEDOR'){
-        _renderMovForm(document.getElementById('mainContent'));
-      }
     });
   });
   const numDocEl=document.getElementById('mvNumDoc');
@@ -6084,19 +4931,12 @@ function lookupCliente(){
 /* ── Captura los valores actuales del header del form a movDraft (antes de re-render) ── */
 function _captureMovHeader(){
   const get=(id)=>{const el=document.getElementById(id);return el?el.value:''};
-  // Al editar, el tipo es inmutable (el correlativo depende de él) y su selector
-  // está deshabilitado. Leerlo aquí lo dejaba vacío y la validación bloqueaba el
-  // guardado con "Falta tipo de movimiento".
-  if(!movDraft.editId && document.getElementById('mvTipoMov'))movDraft.tipoMovimiento=get('mvTipoMov');
+  if(document.getElementById('mvTipoMov'))movDraft.tipoMovimiento=get('mvTipoMov');
   if(document.getElementById('mvFecha'))movDraft.fecha=get('mvFecha');
   if(document.getElementById('mvBodId'))movDraft.bodegaId=get('mvBodId');
   if(document.getElementById('mvBodDest'))movDraft.bodegaDestinoId=get('mvBodDest');
   if(document.getElementById('mvFechaCosecha'))movDraft.fechaCosecha=get('mvFechaCosecha');
   if(document.getElementById('mvObs'))movDraft.observaciones=get('mvObs');
-  if(document.getElementById('mvFacturaAsoc'))movDraft.facturaAsociada=get('mvFacturaAsoc');
-  if(document.getElementById('mvCbEquipo'))movDraft.cbEquipo=get('mvCbEquipo');
-  if(document.getElementById('mvCbKm'))movDraft.cbKm=get('mvCbKm');
-  if(document.getElementById('mvCbOperador'))movDraft.cbOperador=get('mvCbOperador');
   if(document.getElementById('mvMot'))movDraft.motivo=get('mvMot');
   if(document.getElementById('mvCC'))movDraft.centroCosto=get('mvCC');
   if(document.getElementById('mvTipoDoc'))movDraft.tipoDoc=get('mvTipoDoc');
@@ -6150,55 +4990,21 @@ function calcCostoConImpuestos(neto, cantidad, montoEspecifico, montoILA){
   return netoUnit + (espNoRecup + ilaCosto)/cantidad;
 }
 
-/* ── Devolución a proveedor con Nota de Crédito: facturas asociables ──
-   Facturas de COMPRA (FACTURA / FACTURA EXENTA) del proveedor seleccionado que
-   contengan TODOS los productos actualmente en el detalle de la devolución. */
-function _mvFacturasProveedor(){
-  var prov=movDraft.proveedorCodigo;
-  var codigos=(movDraft.lineas||[]).map(function(l){return l.codigoInterno;}).filter(Boolean);
-  return (STATE.cache.movements||[]).filter(function(m){
-    if(m.anulado) return false;
-    if(m.tipo!=='ENT' || m.tipoMovimiento!=='COMPRA') return false;
-    if(!(m.tipoDoc==='FACTURA'||m.tipoDoc==='FACTURA EXENTA')) return false;
-    if(prov && m.proveedorCodigo!==prov) return false;
-    if(codigos.length){
-      var prods=(m.detalles||[]).map(function(d){return d.codigoInterno;});
-      for(var i=0;i<codigos.length;i++){ if(prods.indexOf(codigos[i])<0) return false; }
-    }
-    return true;
-  }).sort(function(a,b){ return (b.fecha||'').localeCompare(a.fecha||''); });
-}
-function _mvRefreshFacturas(){ _captureMovHeader(); _renderMovForm(document.getElementById('mainContent')); }
-function _mvFacturaAsocChange(){
-  _captureMovHeader();
-  // Tomar el costo unitario de cada línea desde la factura asociada.
-  var f=(STATE.cache.movements||[]).find(function(m){return m.numero===movDraft.facturaAsociada;});
-  if(f){
-    (movDraft.lineas||[]).forEach(function(l){
-      if(!l.codigoInterno) return;
-      var d=(f.detalles||[]).find(function(x){return x.codigoInterno===l.codigoInterno;});
-      if(d){ l.costo=(d.costoNeto!=null?d.costoNeto:d.costo)||0; }
-    });
-  }
-  _renderMovForm(document.getElementById('mainContent'));
-}
-try{ window._mvFacturasProveedor=_mvFacturasProveedor; window._mvRefreshFacturas=_mvRefreshFacturas; window._mvFacturaAsocChange=_mvFacturaAsocChange; }catch(e){}
-
 function renderMovDetalle(){
   const w=document.getElementById('mvDetalleWrap');
   const isEnt=movDraft.tipo==='ENT';
   const bod=movDraft.bodegaId;
   let total=0;
-  let html=`<div style="overflow-x:auto;margin-top:14px"><table class="detalle-table" style="min-width:1060px">
+  let html=`<table class="detalle-table" style="margin-top:14px">
     <thead><tr>
-      <th style="min-width:150px">Producto</th>
-      <th style="min-width:140px">Descripción</th>
-      <th class="num" style="min-width:80px">${isEnt?'Saldo prev.':'Disponible'}</th>
-      <th class="num" style="min-width:135px">Cantidad</th>
-      <th class="num" style="min-width:135px">${isEnt?'Costo unit.':'Costo PPP'}</th>
-      <th class="num" style="min-width:140px">Total</th>
-      <th style="min-width:120px">Lote</th>
-      <th style="min-width:155px">Vence</th>
+      <th style="width:160px">Producto</th>
+      <th>Descripción</th>
+      <th class="num" style="width:90px">${isEnt?'Saldo prev.':'Disponible'}</th>
+      <th class="num" style="width:90px">Cantidad</th>
+      <th class="num" style="width:110px">${isEnt?'Costo unit.':'Costo PPP'}</th>
+      <th class="num" style="width:100px">Total</th>
+      <th style="width:120px">Lote</th>
+      <th style="width:130px">Vence</th>
       <th class="col-action"></th>
     </tr></thead><tbody>`;
   movDraft.lineas.forEach((l,i)=>{
@@ -6211,8 +5017,8 @@ function renderMovDetalle(){
     html+=`<tr>
       <td><input type="text" placeholder="P000001, EAN o nuevo" value="${escapeHtml(l.codigoInterno||'')}" oninput="mvFiltrarProductos(this.value);updateMovLine(${i},'codigoInterno',this.value);" onblur="resolveProductCode(${i})" list="prodList" autocomplete="off" title="Escriba para buscar; si el código no existe, se ofrecerá crearlo"></td>
       <td>${p?escapeHtml(p.descripcion):'<span style="color:var(--mu)">-</span>'} ${p?'<span style="color:var(--mu);font-size:11px">· '+escapeHtml(p.unidadMedida)+'</span>':''}</td>
-      <td class="num" id="mvDisp-${i}" style="color:${saldo>0?'var(--gm)':'var(--mu)'}">${fmtNum(saldo,2)}</td>
-      <td><input type="number" step="0.01" class="num" id="mvCant-${i}" value="${l.cantidad||''}" oninput="updateMovLine(${i},'cantidad',this.value);recalcMovTotals();mvChkSaldo(${i})"></td>
+      <td class="num" style="color:${saldo>0?'var(--gm)':'var(--mu)'}">${fmtNum(saldo,2)}</td>
+      <td><input type="number" step="0.01" class="num" value="${l.cantidad||''}" oninput="updateMovLine(${i},'cantidad',this.value);recalcMovTotals()"></td>
       <td><input type="number" step="0.01" class="num" value="${l.costo!=null?l.costo:(isEnt?'':costoSugerido)}" ${isEnt?'':'readonly'} oninput="updateMovLine(${i},'costo',this.value);recalcMovTotals()"></td>
       <td class="num" id="mvLineTot-${i}">${fmtMon(cant*costo)}</td>
       <td>${p&&p.manejaAtributos?
@@ -6246,7 +5052,7 @@ function renderMovDetalle(){
       <td colspan="3"></td>
     </tr></tfoot>
   </table>
-  <datalist id="prodList"></datalist></div>`;
+  <datalist id="prodList"></datalist>`;
 
 // Puebla el datalist de productos SOLO cuando el usuario ha escrito ≥1 carácter,
 // filtrando por código, EAN o descripción. Evita desplegar el catálogo completo.
@@ -6265,49 +5071,7 @@ function mvFiltrarProductos(texto){
 }
 try{ window.mvFiltrarProductos=mvFiltrarProductos; }catch(e){}
   w.innerHTML=html;
-  // Marcar de inmediato las líneas que ya exceden el saldo (p. ej. al editar)
-  if(movDraft.tipo==='SAL') movDraft.lineas.forEach((l,i)=>mvChkSaldo(i));
 }
-
-/* Avisa en vivo si la cantidad de una línea de SALIDA supera el saldo disponible.
-   Usa el saldo del lote cuando el producto maneja atributos, y la bodega si no.
-   Al editar, la cantidad original del movimiento vuelve a considerarse disponible. */
-function mvChkSaldo(i){
-  if(!movDraft||movDraft.tipo!=='SAL') return;
-  const l=movDraft.lineas[i]; if(!l) return;
-  const bod=movDraft.bodegaId;
-  const p=l.codigoInterno?getProduct(l.codigoInterno):null;
-  const porLote=!!(p&&p.manejaAtributos&&l.loteId);
-  let disp=0;
-  if(porLote){
-    const lt=STATE.cache.lots.find(x=>x.id===l.loteId);
-    disp=lt?(Number(lt.cantidad)||0):0;
-  }else{
-    disp=(l.codigoInterno&&bod)?((getStock(l.codigoInterno,bod)||{}).cantidad||0):0;
-  }
-  if(movDraft.editId){
-    const orig=STATE.cache.movements.find(m=>m.numero===movDraft.editId);
-    const dets=(orig&&orig.detalles)||[];
-    const od=dets.find(d=>porLote?d.loteId===l.loteId:d.codigoInterno===l.codigoInterno);
-    if(od) disp+=Number(od.cantidad)||0;
-  }
-  const cant=Number(l.cantidad)||0;
-  const exceso=cant>disp;
-  const inp=document.getElementById('mvCant-'+i);
-  const cell=document.getElementById('mvDisp-'+i);
-  if(inp){
-    if(l.codigoInterno&&bod) inp.setAttribute('max',disp); else inp.removeAttribute('max');
-    inp.style.borderColor=exceso?'#c0392b':'';
-    inp.style.background=exceso?'#fdecea':'';
-    inp.title=exceso?('Excede el saldo disponible '+(porLote?'en el lote':'en la bodega')+': '+fmtNum(disp,2)):'';
-  }
-  if(cell){
-    cell.textContent=fmtNum(disp,2);
-    cell.style.color=exceso?'#c0392b':(disp>0?'var(--gm)':'var(--mu)');
-    cell.style.fontWeight=exceso?'700':'';
-  }
-}
-try{ window.mvChkSaldo=mvChkSaldo; }catch(e){}
 function recalcMovTotals(){
   let total=0;
   const isEnt=movDraft.tipo==='ENT';
@@ -6503,33 +5267,6 @@ async function saveMovimiento(){
   const lineas=movDraft.lineas.filter(l=>l.codigoInterno&&Number(l.cantidad)>0);
   if(lineas.length===0){toast('Sin productos','Agregue al menos un producto con cantidad','error');return}
 
-  // Devolución a proveedor con NOTA DE CRÉDITO: debe asociarse a una factura del
-  // proveedor que contenga el producto; se valida cantidad (no superar lo
-  // comprado, descontando devoluciones previas) y el costo se toma de la factura.
-  if(movDraft.tipoMovimiento==='DEVOLUCION PROVEEDOR' && movDraft.tipoDoc==='NOTA DE CREDITO'){
-    if(!movDraft.facturaAsociada){ toast('Falta factura','La Nota de Crédito debe asociarse a una factura del proveedor','error'); return; }
-    const fact=STATE.cache.movements.find(m=>m.numero===movDraft.facturaAsociada && !m.anulado);
-    if(!fact){ toast('Factura no válida','La factura asociada no existe o fue anulada','error'); return; }
-    if(fact.proveedorCodigo!==movDraft.proveedorCodigo){ toast('Proveedor no coincide','La factura asociada es de otro proveedor','error'); return; }
-    for(const l of lineas){
-      const pr=getProduct(l.codigoInterno);
-      const d=(fact.detalles||[]).find(x=>x.codigoInterno===l.codigoInterno);
-      if(!d){ toast('Producto no está en la factura',`${pr?pr.descripcion:l.codigoInterno} no figura en ${fact.tipoDoc} ${fact.numeroDoc}`,'error'); return; }
-      const comprada=Number(d.cantidad)||0;
-      let prev=0;
-      (STATE.cache.movements||[]).forEach(m=>{
-        if(m.anulado||m.tipoMovimiento!=='DEVOLUCION PROVEEDOR'||m.facturaAsociada!==fact.numero) return;
-        if(movDraft.editId && m.numero===movDraft.editId) return;
-        (m.detalles||[]).forEach(x=>{ if(x.codigoInterno===l.codigoInterno) prev+=Number(x.cantidad)||0; });
-      });
-      if((Number(l.cantidad)||0)+prev > comprada){
-        toast('Cantidad excede la factura',`${pr?pr.descripcion:l.codigoInterno}: comprado ${fmtNum(comprada,2)}, ya devuelto ${fmtNum(prev,2)}, solicitado ${fmtNum(Number(l.cantidad)||0,2)}`,'error'); return;
-      }
-      // Costo desde la factura (revierte bien la valorización).
-      l.costo=(d.costoNeto!=null?d.costoNeto:d.costo)||0;
-    }
-  }
-
   // Validaciones por línea
   for(const l of lineas){
     const p=getProduct(l.codigoInterno);
@@ -6603,23 +5340,11 @@ async function saveMovimiento(){
     if(movDraft.editId){
       // Edición: persistir cambios y recalcular stock desde cero
       const old=await dbGet('movements',movDraft.editId);
-      // Consumo de combustible: reconstruir el texto de observaciones a partir
-      // de los campos dedicados (Equipo/Km/Operador) + nota, y usar el equipo
-      // como destino.
-      let _obsFinal=movDraft.observaciones, _destFinal=movDraft.destino;
-      let _cbEquipoN='', _cbKmN=null, _cbOperadorN='';
-      if(movDraft._esComb){
-        _cbEquipoN=(typeof normEquipo==='function'?normEquipo(movDraft.cbEquipo):String(movDraft.cbEquipo||'').trim());
-        const _k=parseFloat(String(movDraft.cbKm).replace(',','.')); _cbKmN=isNaN(_k)?null:_k;
-        _cbOperadorN=String(movDraft.cbOperador||'').trim();
-        _obsFinal=`EQUIPO: ${_cbEquipoN} · KM/HR: ${_cbKmN==null?'':_cbKmN} · OPERADOR: ${_cbOperadorN}${movDraft.observaciones?(' · '+movDraft.observaciones):''}`;
-        _destFinal=_cbEquipoN||movDraft.destino;
-      }
       const updated={...old,
         fecha:movDraft.fecha+'T'+(old.fecha.split('T')[1]||'00:00:00'),
         bodegaId:movDraft.bodegaId,
-        documento:movDraft.documento,proveedor:movDraft.proveedor,destino:_destFinal,
-        observaciones:_obsFinal,
+        documento:movDraft.documento,proveedor:movDraft.proveedor,destino:movDraft.destino,
+        observaciones:movDraft.observaciones,
         detalles,editado:new Date().toISOString(),editadoPor:STATE.user.id,editadoMotivo:movDraft.motivo
       };
       // Tipo de movimiento NO se puede cambiar al editar (mantiene el original)
@@ -6627,13 +5352,6 @@ async function saveMovimiento(){
         updated.tipoDoc=movDraft.tipoDoc;
         updated.numeroDoc=movDraft.numeroDoc;
         updated.fechaVencDoc=movDraft.fechaVencDoc||null;
-      }
-      if(movDraft.tipoMovimiento==='DEVOLUCION PROVEEDOR'){
-        if(movDraft.facturaAsociada){
-          updated.facturaAsociada=movDraft.facturaAsociada;
-          var _faU=STATE.cache.movements.find(x=>x.numero===movDraft.facturaAsociada);
-          if(_faU) updated.facturaAsociadaDoc=((_faU.tipoDoc||'')+' '+(_faU.numeroDoc||'')).trim();
-        } else { updated.facturaAsociada=''; updated.facturaAsociadaDoc=''; }
       }
       if(cfg.reqProv){
         updated.proveedorCodigo=movDraft.proveedorCodigo;
@@ -6652,27 +5370,6 @@ async function saveMovimiento(){
         updated.bodegaDestinoId=movDraft.bodegaDestinoId;
       }
       await dbPut('movements',updated);
-      // El registro de `combustible` guarda una COPIA de cantidad y fecha. Si no
-      // se actualiza aquí, los informes que lo leen (rendimiento y Control de
-      // Heladas) siguen mostrando los valores originales tras editar la salida.
-      try{
-        const regsComb=(STATE.cache.combustible||[]).filter(r=>r.movNumero===movDraft.editId);
-        for(const rc of regsComb){
-          const det=(detalles||[]).find(d=>d.codigoInterno===rc.codigoProducto)||detalles[0];
-          if(det) rc.cantidad=Number(det.cantidad)||0;
-          rc.fecha=updated.fecha;
-          rc.bodegaId=updated.bodegaId;
-          if(updated.centroCosto) rc.centroCosto=updated.centroCosto;
-          // Campos editados desde el formulario de combustible (horómetro, etc.)
-          if(movDraft._esComb){
-            if(_cbKmN!=null) rc.km=_cbKmN;
-            if(_cbEquipoN) rc.equipo=_cbEquipoN;
-            if(_cbOperadorN) rc.usuario=_cbOperadorN;
-            rc.observaciones=movDraft.observaciones||'';
-          }
-          await dbPut('combustible',rc);
-        }
-      }catch(e){ console.error('[SCI] No se pudo sincronizar el registro de combustible:',e); }
       await reloadCache();
       // Recalcular stock desde cero (incluye el cambio recién hecho)
       await _ejecutarRecalculoStock();
@@ -6704,11 +5401,6 @@ async function saveMovimiento(){
         m.tipoDoc=movDraft.tipoDoc;
         m.numeroDoc=movDraft.numeroDoc;
         m.fechaVencDoc=movDraft.fechaVencDoc||null;
-      }
-      if(movDraft.tipoMovimiento==='DEVOLUCION PROVEEDOR' && movDraft.facturaAsociada){
-        m.facturaAsociada=movDraft.facturaAsociada;
-        var _fa=STATE.cache.movements.find(x=>x.numero===movDraft.facturaAsociada);
-        if(_fa) m.facturaAsociadaDoc=((_fa.tipoDoc||'')+' '+(_fa.numeroDoc||'')).trim();
       }
       if(cfg.reqProv){
         m.proveedorCodigo=movDraft.proveedorCodigo;
@@ -6995,10 +5687,11 @@ function renderUsuarios(c){
     </div>
     <div class="card">
       <div class="table-wrap"><table class="data">
-        <thead><tr><th>Usuario</th><th>Nombre</th><th>Rol</th><th class="num">Permisos</th><th class="center">Estado</th><th>Creado</th><th class="actions">Acciones</th></tr></thead>
+        <thead><tr><th>Usuario</th><th>Nombre</th><th>Correo</th><th>Rol</th><th class="num">Permisos</th><th class="center">Estado</th><th>Creado</th><th class="actions">Acciones</th></tr></thead>
         <tbody>${STATE.cache.users.map(u=>`<tr>
           <td class="mono"><strong>${u.id}</strong></td>
           <td>${escapeHtml(u.nombre||'-')}</td>
+          <td>${u.email?escapeHtml(u.email):'<span class="badge badge-red">sin correo</span>'}</td>
           <td><span class="badge ${u.role==='admin'?'badge-gold':(u.role==='gerente'?'badge-gold':(u.role==='agronomo'?'badge-blue':(u.role==='operador'?'badge-blue':'badge-gray')))}">${ROLE_LABELS[u.role]||u.role}</span></td>
           <td class="num">${(u.permissions||[]).length}/${PERMISSIONS.length}</td>
           <td class="center">${u.activo?'<span class="badge badge-green">Activo</span>':'<span class="badge badge-red">Inactivo</span>'}</td>
@@ -7015,6 +5708,7 @@ function openUserForm(id=null){
     `<div class="form-grid">
       <div class="form-field required"><label>Usuario (ID)</label><input type="text" id="fuId" value="${u?u.id:''}" ${u?'readonly':''} maxlength="20"><div class="hint">Sin espacios. Se convertirá a minúsculas.</div></div>
       <div class="form-field required"><label>Nombre completo</label><input type="text" id="fuNom" value="${escapeHtml(u?.nombre||'')}"></div>
+      <div class="form-field span-2 required"><label>Correo de acceso</label><input type="email" id="fuEmail" data-nouppercase autocapitalize="off" spellcheck="false" value="${escapeHtml(u?.email||'')}" placeholder="correo@forestallacabana.cl"><div class="hint">Debe coincidir EXACTO con el correo creado en Firebase. Con este correo inicia sesión.</div></div>
       <div class="form-field required"><label>Rol</label><select id="fuRole" onchange="loadRolePerms()">
         <option value="admin" ${u?.role==='admin'?'selected':''}>Administrador</option>
         <option value="gerente" ${u?.role==='gerente'?'selected':''}>Gerente</option>
@@ -7030,7 +5724,7 @@ function openUserForm(id=null){
           <span>${isMe?'No puedes desactivarte':'Activo'}</span>
         </label>
       </div>
-      <div class="form-field span-2"><label>${u?'Cambiar contraseña (opcional)':'Contraseña inicial'}</label><input type="password" id="fuPass" placeholder="${u?'Dejar vacío para no cambiar':''}"><div class="hint">Mínimo 6 caracteres</div></div>
+      <div class="form-field span-2"><label>Contraseña</label><input type="password" id="fuPass" placeholder="Se gestiona en Firebase" disabled><div class="hint">⚠ La contraseña ya NO se define aquí. Se crea y cambia en Firebase Console → Authentication, con el correo de acceso de arriba.</div></div>
       <div class="form-field span-2"><label>Permisos específicos</label>
         <div class="checkbox-group" id="fuPerms">
           ${PERMISSIONS.map(([p,lbl])=>`<label><input type="checkbox" value="${p}" ${(u?.permissions||[]).includes(p)?'checked':''}> ${lbl}</label>`).join('')}
@@ -7053,19 +5747,24 @@ async function saveUser(id){
   if(!/^[a-z0-9_.-]+$/.test(idVal)){toast('ID inválido','Solo letras, números, . _ -','error');return}
   const nom=document.getElementById('fuNom').value.trim();
   if(!nom){toast('Falta nombre','Indique nombre','error');return}
+  const email=(document.getElementById('fuEmail').value||'').trim().toLowerCase();
+  if(!email){toast('Falta correo','Indique el correo de acceso','error');return}
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){toast('Correo inválido','Revise el formato del correo','error');return}
   const role=document.getElementById('fuRole').value;
   const activo=document.getElementById('fuActivo').checked;
-  const pass=document.getElementById('fuPass').value;
   const perms=Array.from(document.querySelectorAll('#fuPerms input:checked')).map(c=>c.value);
 
   let u=id?await dbGet('users',idVal):null;
   if(!id&&await dbGet('users',idVal)){toast('Usuario duplicado','Ya existe','error');return}
-  if(!id&&(!pass||pass.length<6)){toast('Contraseña corta','Mínimo 6 caracteres','error');return}
-  if(pass&&pass.length<6){toast('Contraseña corta','Mínimo 6 caracteres','error');return}
+  // El correo debe ser único entre usuarios (es la llave de acceso).
+  try{
+    const todos=await dbAll('users');
+    const choca=(todos||[]).find(x=>x && x.id!==idVal && String(x.email||'').trim().toLowerCase()===email);
+    if(choca){toast('Correo en uso',`Ya lo usa el usuario "${choca.id}"`,'error');return}
+  }catch(e){}
 
   if(!u)u={id:idVal,creado:new Date().toISOString()};
-  u.nombre=nom;u.role=role;u.activo=activo;u.permissions=perms;
-  if(pass)u.passwordHash=await sha256(pass);
+  u.nombre=nom;u.email=email;u.role=role;u.activo=activo;u.permissions=perms;
   await dbPut('users',u);
   await audit(id?'usuario.editar':'usuario.crear',nom,idVal);
   await reloadCache();
@@ -7449,87 +6148,6 @@ window.getIndicadorMes = getIndicadorMes;
 window.getIndicadores = getIndicadores;
 window.temporadaActual = temporadaActual;
 
-/* ─── EQUIPOS (catálogo para salida de combustible) ─── */
-function _eqFindById(id){ return getEquipos().find(e=>String(e.id||e.nombre)===String(id))||null; }
-/* Convierte los equipos-semilla en registros reales conservando el orden. */
-function _eqMaterializar(raw){
-  return raw.map(e=>String(e.id||'').startsWith('seed-')
-    ? {id:'eq-'+Date.now().toString(36)+Math.random().toString(36).slice(2,8),nombre:e.nombre,tipo:e.tipo||'',medidor:e.medidor||'km',patente:'',obs:'',estado:'activo',creado:new Date().toISOString()}
-    : Object.assign({},e));
-}
-function _eqFormBody(e){
-  e=e||{};
-  return `<div class="form-grid">
-      <div class="form-field span-2 required"><label>Nombre / identificador</label><input type="text" id="eqNom" value="${escapeHtml(e.nombre||'')}" placeholder="Ej: TRACTOR JOHN DEERE 5090" autofocus></div>
-      <div class="form-field"><label>Tipo</label><select id="eqTipo">${EQUIPO_TIPOS.map(t=>`<option value="${t}" ${e.tipo===t?'selected':''}>${t}</option>`).join('')}</select></div>
-      <div class="form-field"><label>Medidor</label><select id="eqMed">${EQUIPO_MEDIDORES.map(m=>`<option value="${m[0]}" ${(e.medidor||'km')===m[0]?'selected':''}>${m[1]}</option>`).join('')}</select></div>
-      <div class="form-field span-2"><label>Patente / código interno (opcional)</label><input type="text" id="eqPat" value="${escapeHtml(e.patente||'')}" placeholder="Ej: ABCD-12"></div>
-      <div class="form-field span-2"><label>Observaciones (opcional)</label><input type="text" id="eqObs" value="${escapeHtml(e.obs||'')}" placeholder="Notas del equipo"></div>
-    </div>`;
-}
-function addEquipoForm(){
-  if(!can('config.editar')) return;
-  showModal('Nuevo equipo', _eqFormBody({medidor:'km'}),
-    `<button class="btn btn-secondary" onclick="closeModal()">Cancelar</button><button class="btn btn-primary" onclick="saveEquipo()">Crear</button>`,'md');
-}
-function editEquipoForm(id){
-  if(!can('config.editar')) return;
-  const e=_eqFindById(id); if(!e) return;
-  const body=_eqFormBody(e)+`
-    <div class="form-field span-2" style="margin-top:2px">
-      <label style="display:flex;align-items:center;gap:10px;padding:9px 11px;background:var(--gs);border:1px solid var(--bo);border-radius:6px;cursor:pointer;font-size:13px;text-transform:none;letter-spacing:0;font-weight:400;color:var(--tx)">
-        <span class="switch"><input type="checkbox" id="eqAct" ${e.estado!=='inactivo'?'checked':''}><span class="switch-slider"></span></span>
-        <span>Activo — visible en el formulario de combustible</span>
-      </label>
-    </div>`;
-  showModal(`Editar equipo · ${e.nombre}`, body,
-    `<button class="btn btn-danger" onclick="deleteEquipo('${escapeHtml(String(id))}')">Eliminar</button>
-     <button class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
-     <button class="btn btn-primary" onclick="saveEquipo('${escapeHtml(String(id))}')">Guardar</button>`,'md');
-}
-async function saveEquipo(id){
-  const nombre=(document.getElementById('eqNom').value||'').trim();
-  if(!nombre){ toast('Falta nombre','El nombre del equipo es obligatorio','error'); return; }
-  const tipo=document.getElementById('eqTipo').value||'';
-  const medidor=document.getElementById('eqMed').value||'km';
-  const patente=(document.getElementById('eqPat').value||'').trim();
-  const obs=(document.getElementById('eqObs').value||'').trim();
-  const actEl=document.getElementById('eqAct');
-  const raw=getEquipos();
-  let idx=-1;
-  if(id){ idx=raw.findIndex(e=>String(e.id||e.nombre)===String(id)); }
-  const lista=_eqMaterializar(raw); // conserva el orden y el índice
-  if(lista.some((e,i)=>i!==idx && String(e.nombre||'').toLowerCase()===nombre.toLowerCase())){
-    toast('Equipo duplicado','Ya existe un equipo con ese nombre','error'); return;
-  }
-  if(idx>=0){
-    lista[idx]=Object.assign({},lista[idx],{nombre,tipo,medidor,patente,obs,
-      estado:actEl&&!actEl.checked?'inactivo':'activo',modificado:new Date().toISOString()});
-  }else{
-    lista.push({id:'eq-'+Date.now().toString(36)+Math.random().toString(36).slice(2,8),nombre,tipo,medidor,patente,obs,estado:'activo',creado:new Date().toISOString()});
-  }
-  try{
-    await saveEquiposLista(lista);
-    await audit(id?'equipo.editar':'equipo.crear',`${id?'Edición':'Creación'} de equipo`,nombre);
-  }catch(e){ toast('Error','No se pudo guardar el equipo','error'); return; }
-  closeModal(); toast(id?'Equipo actualizado':'Equipo creado');
-  renderConfig(document.getElementById('mainContent'));
-}
-async function deleteEquipo(id){
-  const e=_eqFindById(id); if(!e) return;
-  if(!confirm(`¿Eliminar el equipo "${e.nombre}"?\n\nLos registros de combustible ya guardados no se modifican.`)) return;
-  const raw=getEquipos();
-  const idx=raw.findIndex(x=>String(x.id||x.nombre)===String(id));
-  const lista=_eqMaterializar(raw);
-  if(idx>=0) lista.splice(idx,1);
-  try{
-    await saveEquiposLista(lista);
-    await audit('equipo.eliminar','Eliminación de equipo',e.nombre);
-  }catch(err){ toast('Error','No se pudo eliminar el equipo','error'); return; }
-  closeModal(); toast('Equipo eliminado');
-  renderConfig(document.getElementById('mainContent'));
-}
-
 function renderConfig(c){
   const groups=STATE.cache.groups;
   const tipos=(STATE.cache.productTypes||[]).slice().sort((a,b)=>a.nombre.localeCompare(b.nombre));
@@ -7645,29 +6263,6 @@ function renderConfig(c){
               </div>`;
             }).join('')}
         </div>
-      </div>
-
-      <div class="card">
-        <div class="card-header"><div class="card-title">🚜 Equipos</div>${can('config.editar')?`<button class="btn btn-secondary btn-sm" onclick="addEquipoForm()">+ Equipo</button>`:''}</div>
-        <div style="padding:10px 0">
-          ${(()=>{
-            const eqs=getEquipos().slice().sort((a,b)=>String(a.nombre||'').localeCompare(String(b.nombre||'')));
-            if(eqs.length===0) return '<div class="empty-state"><div class="empty-state-text">Sin equipos</div></div>';
-            const medLbl={km:'Kilómetros',horometro:'Horómetro',ninguno:'Sin medidor'};
-            return eqs.map(e=>`<div style="padding:12px 18px;border-bottom:1px solid var(--bo);display:flex;align-items:center;justify-content:space-between;gap:10px">
-                <div style="flex:1;min-width:0">
-                  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                    <strong style="color:var(--gd)">${escapeHtml(e.nombre)}</strong>
-                    ${e.estado==='inactivo'?'<span class="badge badge-gray">inactivo</span>':''}
-                    ${e.tipo?`<span class="badge badge-blue">${escapeHtml(e.tipo)}</span>`:''}
-                    <span style="color:var(--mu);font-size:12px">${medLbl[e.medidor]||'Kilometraje / Horómetro'}${e.patente?(' · '+escapeHtml(e.patente)):''}</span>
-                  </div>
-                </div>
-                ${can('config.editar')?`<button class="btn btn-secondary btn-sm" onclick="editEquipoForm('${escapeHtml(e.id||e.nombre)}')">Editar</button>`:''}
-              </div>`).join('');
-          })()}
-        </div>
-        <div class="hint" style="padding:0 18px 12px">Estos equipos aparecen en la casilla <strong>Equipo</strong> de la salida de combustible. El medidor define si el rendimiento se calcula en km/L o L/hora.</div>
       </div>
 
       ${STATE.user.role==='admin'?`<div class="card">
