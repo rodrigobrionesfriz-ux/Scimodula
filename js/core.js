@@ -9,7 +9,7 @@
 
 /* ═══════════════ DB LAYER (IndexedDB) ═══════════════ */
 const DB_NAME='SCI_DB';
-const DB_VERSION=14;   // v129: nuevo store 'clima' (histórico diario de temperaturas)
+const DB_VERSION=16;   // v129: store 'clima'. Subido a 16 en v171 porque una prueba previa dejó bases en v15; 16 va por encima y no borra datos (onupgradeneeded solo crea stores que falten).
 const STORES=[
   ['users','id'],
   ['products','codigoInterno'],
