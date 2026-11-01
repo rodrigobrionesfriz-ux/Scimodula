@@ -16,6 +16,9 @@ var CTE_N_FIJOS = 3;       // árboles fijos representativos por paño
 var CTE_N_ALEATORIOS = 5;  // árboles al azar por conteo
 var _cteEtapa = '';          // etapa fenológica de la sesión
 var _cteTipoArbol = null;    // 'fijo' | 'aleatorio' en el árbol actual
+var _cteGrafMetrica = 'centros'; // métrica del gráfico de evolución
+var _cteGrafPorVar = false;      // mostrar una línea por variedad
+var _cteChart = null;            // instancia Chart.js del gráfico
 
 // Lee los paños del Cuaderno de Campo (objeto global S)
 function ctePanos(){
@@ -75,11 +78,15 @@ function cteRender(c){
     html += cteRenderSesion();
   } else if(_cteVista==='lista'){
     html += cteRenderLista();
+  } else if(_cteVista==='grafico'){
+    html += cteRenderGrafico();
   } else {
     html += cteRenderInicio();
   }
   html += '</div>';
   cont.innerHTML = html;
+  // El gráfico se dibuja después de insertar el canvas en el DOM.
+  if(_cteVista==='grafico'){ try{ _cteDrawChart(); }catch(e){ console.error('[CTE gráfico]',e); } }
 }
 
 function cteRenderInicio(){
@@ -414,6 +421,7 @@ function cteRenderLista(){
   var html = '<button class="cte-big-btn cte-btn-gray" onclick="cteVolverInicio()" style="padding:14px;font-size:16px">‹ Volver</button>';
   if(can('conteos.revisar') && sesiones.length){
     html += '<button class="cte-big-btn cte-btn-amber" onclick="cteExportarExcel()">📊 Exportar registros a Excel</button>';
+    html += '<button class="cte-big-btn cte-btn-primary" onclick="cteVerGrafico()">📈 Evolución por temporada</button>';
   }
   if(!sesiones.length){
     html += '<div class="cte-card" style="text-align:center;color:#999;padding:30px">Sin conteos guardados todavía.</div>';
@@ -437,6 +445,107 @@ function cteRenderLista(){
   html += '</div>';
   return html;
 }
+
+/* ═══════════════ GRÁFICO: evolución de conteos por temporada ═══════════════ */
+var _CTE_METRICAS=[
+  ['centros','Centros florales (prom.)'],
+  ['cuaja','Cuaja (prom.)'],
+  ['frutos','Frutos (prom.)'],
+  ['ramas','Ramas (prom.)'],
+  ['dardos','Dardos (prom.)']
+];
+function _cteMetricaLabel(m){ for(var i=0;i<_CTE_METRICAS.length;i++){ if(_CTE_METRICAS[i][0]===m) return _CTE_METRICAS[i][1]; } return 'Valor'; }
+function _cteMetricaVal(s,m){
+  switch(m){
+    case 'cuaja':  return (s.cuajaSesion!=null)?s.cuajaSesion:null;
+    case 'frutos': return (s.promedioFrutos!=null)?s.promedioFrutos:null;
+    case 'ramas':  return (s.promedioRamas!=null)?s.promedioRamas:null;
+    case 'dardos': return (s.promedioDardos!=null)?s.promedioDardos:null;
+    default:       return (s.promedioCentros!=null)?s.promedioCentros:null;
+  }
+}
+function cteVerGrafico(){ _cteVista='grafico'; cteRender(); }
+function cteVolverLista(){ _cteVista='lista'; cteRender(); }
+function cteSetGrafMetrica(m){ _cteGrafMetrica=m||'centros'; try{ _cteDrawChart(); }catch(e){} }
+function cteToggleGrafPorVar(v){ _cteGrafPorVar=!!v; try{ _cteDrawChart(); }catch(e){} }
+try{ window.cteVerGrafico=cteVerGrafico; window.cteVolverLista=cteVolverLista; window.cteSetGrafMetrica=cteSetGrafMetrica; window.cteToggleGrafPorVar=cteToggleGrafPorVar; }catch(e){}
+
+function cteRenderGrafico(){
+  var sesiones=(STATE.cache.conteos||[]).filter(function(s){ return s.temporada; });
+  var html='<button class="cte-big-btn cte-btn-gray" onclick="cteVolverLista()" style="padding:14px;font-size:16px">‹ Volver</button>';
+  html+='<div class="cte-card">'+
+    '<div style="font-size:18px;font-weight:800;color:#23303d;margin-bottom:10px">📈 Evolución por temporada</div>'+
+    '<div class="cte-field" style="margin-bottom:10px"><label>Métrica</label><select onchange="cteSetGrafMetrica(this.value)">'+
+      _CTE_METRICAS.map(function(m){ return '<option value="'+m[0]+'"'+(_cteGrafMetrica===m[0]?' selected':'')+'>'+escapeHtml(m[1])+'</option>'; }).join('')+
+    '</select></div>'+
+    '<label style="display:flex;align-items:center;gap:8px;font-size:14px;font-weight:700;color:#444;margin-bottom:12px;cursor:pointer">'+
+      '<input type="checkbox" onchange="cteToggleGrafPorVar(this.checked)"'+(_cteGrafPorVar?' checked':'')+' style="width:18px;height:18px"> Ver por variedad'+
+    '</label>';
+  if(!sesiones.length){
+    html+='<div style="text-align:center;color:#999;padding:24px">Aún no hay conteos con temporada para graficar.</div></div>';
+    return html;
+  }
+  html+='<div style="position:relative;height:320px"><canvas id="cteChart"></canvas></div>'+
+    '<div style="font-size:11px;color:#888;margin-top:8px">Promedio de la métrica seleccionada entre todos los conteos de cada temporada. Con “por variedad”, una línea por cada variedad.</div>'+
+  '</div>';
+  return html;
+}
+
+/* Agrupa: devuelve {temporadas:[...], global:[...], porVar:{variedad:[...]}} con
+   el promedio de la métrica por temporada (y por variedad). */
+function _cteAgregar(metrica){
+  var sesiones=(STATE.cache.conteos||[]).filter(function(s){ return s.temporada; });
+  var temps=[]; sesiones.forEach(function(s){ if(temps.indexOf(s.temporada)<0) temps.push(s.temporada); });
+  temps.sort(); // "AAAA-AAAA" ordena cronológicamente como texto
+  function prom(arr){ var v=arr.filter(function(x){ return x!=null && !isNaN(x); }); return v.length? v.reduce(function(a,b){return a+b;},0)/v.length : null; }
+  var global=temps.map(function(t){
+    return prom(sesiones.filter(function(s){ return s.temporada===t; }).map(function(s){ return _cteMetricaVal(s,metrica); }));
+  });
+  var vars=[]; sesiones.forEach(function(s){ var v=s.variedad||'(sin variedad)'; if(vars.indexOf(v)<0) vars.push(v); });
+  vars.sort();
+  var porVar={};
+  vars.forEach(function(v){
+    porVar[v]=temps.map(function(t){
+      return prom(sesiones.filter(function(s){ return s.temporada===t && (s.variedad||'(sin variedad)')===v; }).map(function(s){ return _cteMetricaVal(s,metrica); }));
+    });
+  });
+  return {temporadas:temps, global:global, porVar:porVar, variedades:vars};
+}
+
+var _CTE_COLORS=['#0a6ed1','#e9730c','#1a7e3e','#8e44ad','#c0392b','#16a085','#d4ac0d','#2c3e50','#e84393'];
+function _cteDrawChart(){
+  var cv=document.getElementById('cteChart'); if(!cv || typeof Chart==='undefined') return;
+  if(_cteChart){ try{ _cteChart.destroy(); }catch(e){} _cteChart=null; }
+  var m=_cteGrafMetrica;
+  var ag=_cteAgregar(m);
+  var round=function(v){ return v==null?null:Math.round(v*100)/100; };
+  var datasets=[];
+  if(_cteGrafPorVar){
+    ag.variedades.forEach(function(v,i){
+      var col=_CTE_COLORS[i%_CTE_COLORS.length];
+      datasets.push({label:v, data:ag.porVar[v].map(round), borderColor:col, backgroundColor:col, spanGaps:true, tension:.25, pointRadius:4, borderWidth:2});
+    });
+    // Global como referencia (negra, punteada)
+    datasets.push({label:'Global', data:ag.global.map(round), borderColor:'#111', backgroundColor:'#111', borderDash:[6,4], spanGaps:true, tension:.25, pointRadius:3, borderWidth:2});
+  } else {
+    datasets.push({label:_cteMetricaLabel(m), data:ag.global.map(round), borderColor:'#0a6ed1', backgroundColor:'rgba(10,110,209,.12)', fill:true, spanGaps:true, tension:.25, pointRadius:5, borderWidth:3});
+  }
+  _cteChart=new Chart(cv.getContext('2d'),{
+    type:'line',
+    data:{ labels:ag.temporadas, datasets:datasets },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      interaction:{mode:'index',intersect:false},
+      plugins:{
+        legend:{ display:_cteGrafPorVar, labels:{boxWidth:12,font:{size:11}} },
+        title:{ display:true, text:_cteMetricaLabel(m)+' por temporada', font:{size:13,weight:'700'} },
+        tooltip:{ callbacks:{ label:function(ctx){ return (ctx.dataset.label||'')+': '+(ctx.parsed.y!=null?ctx.parsed.y:'s/d'); } } }
+      },
+      scales:{ y:{ beginAtZero:true, title:{display:true,text:_cteMetricaLabel(m)} }, x:{ title:{display:true,text:'Temporada'} } }
+    }
+  });
+}
+try{ window._cteDrawChart=_cteDrawChart; }catch(e){}
 
 // Detalle completo de una sesión de conteo (modal)
 function cteVerSesionDetalle(id){
@@ -1959,37 +2068,42 @@ function ipMostrarMapaGeneral(preservarZoom){
         var pct = totalPlantas>0 ? Math.round((n/totalPlantas)*1000)/10 : 0;
         var clickable = n>0;
         var handler = clickable ? ('onclick="ipDetalleEstado(\''+k+'\')" ontouchend="event.preventDefault();ipDetalleEstado(\''+k+'\')" ') : '';
-        return '<div '+handler+'style="min-width:0;overflow:hidden;background:#f8fafb;border:1px solid #e3e8ee;border-left:4px solid '+e.color+';border-radius:8px;padding:10px 12px'+(clickable?';cursor:pointer;-webkit-tap-highlight-color:rgba(21,101,192,.2)':'')+'">'+
-          '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">'+
-            '<span style="width:11px;height:11px;border-radius:50%;background:'+e.color+';border:1px solid #999;display:inline-block"></span>'+
-            '<span style="font-size:12px;color:#3a4a5a;font-weight:600">'+e.label+'</span>'+
+        var detVar = (function(){
+          var pv = estadoPorVariedad[k];
+          if(!pv || n===0) return '';
+          return '<div style="flex:1 1 auto;min-width:0;text-align:right;align-self:center;font-size:10.5px;color:#5a6a78;line-height:1.45;border-left:1px dashed #e0e6ec;padding-left:10px">'+
+            Object.keys(pv).sort().map(function(v){ return '<div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+escapeHtml(v)+': <strong>'+pv[v].toLocaleString('es-CL')+'</strong></div>'; }).join('')+
+          '</div>';
+        })();
+        return '<div '+handler+'style="min-width:0;overflow:hidden;background:#f8fafb;border:1px solid #e3e8ee;border-left:4px solid '+e.color+';border-radius:8px;padding:9px 12px;display:flex;gap:10px;align-items:center'+(clickable?';cursor:pointer;-webkit-tap-highlight-color:rgba(21,101,192,.2)':'')+'">'+
+          '<div style="flex:0 0 auto;min-width:0">'+
+            '<div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">'+
+              '<span style="width:11px;height:11px;border-radius:50%;background:'+e.color+';border:1px solid #999;display:inline-block"></span>'+
+              '<span style="font-size:12px;color:#3a4a5a;font-weight:600">'+e.label+'</span>'+
+            '</div>'+
+            '<div style="font-size:22px;font-weight:800;color:#23303d;line-height:1.05">'+n.toLocaleString('es-CL')+'</div>'+
+            '<div style="font-size:10.5px;color:#7a8794">'+pct+'% del total'+(clickable?' · ver detalle ›':'')+'</div>'+
           '</div>'+
-          '<div style="font-size:22px;font-weight:800;color:#23303d;line-height:1.1">'+n.toLocaleString('es-CL')+'</div>'+
-          '<div style="font-size:11px;color:#7a8794">'+pct+'% del total'+(clickable?' · ver detalle ›':'')+'</div>'+
-          (function(){
-            var pv = estadoPorVariedad[k];
-            if(!pv || n===0) return '';
-            return '<div style="margin-top:5px;padding-top:5px;border-top:1px dashed #e0e6ec;font-size:10.5px;color:#5a6a78;line-height:1.5">'+
-              Object.keys(pv).sort().map(function(v){ return escapeHtml(v)+': <strong>'+pv[v].toLocaleString('es-CL')+'</strong>'; }).join('<br>')+
-            '</div>';
-          })()+
+          detVar+
         '</div>';
       }).join('')+
       (function(){
         var clickable = totalPoliniz>0;
         var handler = clickable ? 'onclick="ipDetallePoliniz()" ontouchend="event.preventDefault();ipDetallePoliniz()" ' : '';
         var pct = totalPlantas>0 ? Math.round((totalPoliniz/totalPlantas)*1000)/10 : 0;
-        var chips = Object.keys(conteoPoliniz).sort().map(function(v){
-          return '<span style="display:inline-flex;align-items:center;gap:3px;margin-right:6px"><span style="width:9px;height:9px;border-radius:50%;background:'+ipColorPoliniz(v)+';display:inline-block"></span>'+escapeHtml(v)+': '+conteoPoliniz[v]+'</span>';
+        var detVar = Object.keys(conteoPoliniz).sort().map(function(v){
+          return '<div style="display:flex;align-items:center;justify-content:flex-end;gap:4px;white-space:nowrap;overflow:hidden"><span style="width:9px;height:9px;border-radius:50%;background:'+ipColorPoliniz(v)+';display:inline-block;flex:0 0 auto"></span><span style="overflow:hidden;text-overflow:ellipsis">'+escapeHtml(v)+': <strong>'+conteoPoliniz[v].toLocaleString('es-CL')+'</strong></span></div>';
         }).join('');
-        return '<div '+handler+'style="min-width:0;overflow:hidden;background:#fff7ef;border:1px solid #e3e8ee;border-left:4px solid #e9730c;border-radius:8px;padding:10px 12px'+(clickable?';cursor:pointer;-webkit-tap-highlight-color:rgba(21,101,192,.2)':'')+'">'+
-          '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">'+
-            '<span style="font-size:12px">🐝</span>'+
-            '<span style="font-size:12px;color:#3a4a5a;font-weight:600">Polinizantes</span>'+
+        return '<div '+handler+'style="min-width:0;overflow:hidden;background:#fff7ef;border:1px solid #e3e8ee;border-left:4px solid #e9730c;border-radius:8px;padding:9px 12px;display:flex;gap:10px;align-items:center'+(clickable?';cursor:pointer;-webkit-tap-highlight-color:rgba(21,101,192,.2)':'')+'">'+
+          '<div style="flex:0 0 auto;min-width:0">'+
+            '<div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">'+
+              '<span style="font-size:12px">🐝</span>'+
+              '<span style="font-size:12px;color:#3a4a5a;font-weight:600">Polinizantes</span>'+
+            '</div>'+
+            '<div style="font-size:22px;font-weight:800;color:#23303d;line-height:1.05">'+totalPoliniz.toLocaleString('es-CL')+'</div>'+
+            '<div style="font-size:10.5px;color:#7a8794">'+pct+'% del total'+(clickable?' · ver detalle ›':'')+'</div>'+
           '</div>'+
-          '<div style="font-size:22px;font-weight:800;color:#23303d;line-height:1.1">'+totalPoliniz.toLocaleString('es-CL')+'</div>'+
-          '<div style="font-size:11px;color:#7a8794">'+pct+'% del total'+(clickable?' · ver detalle ›':'')+'</div>'+
-          (chips?'<div style="font-size:11px;color:#3a4a5a;margin-top:4px">'+chips+'</div>':'')+
+          (detVar?'<div style="flex:1 1 auto;min-width:0;text-align:right;align-self:center;font-size:10.5px;color:#5a6a78;line-height:1.45;border-left:1px dashed #f0d9c2;padding-left:10px">'+detVar+'</div>':'')+
         '</div>';
       })()+
     '</div>'+
@@ -2019,13 +2133,35 @@ function ipMostrarMapaGeneral(preservarZoom){
     '<span style="color:#7a8794;font-size:12px;margin-left:auto">Toque una hilera para ver su ubicación en Google Maps</span>'+
   '</div>';
 
-  seleccionados.forEach(function(cu){
-    var hileras = (porCuartel[cu]||[]).slice().sort(function(a,b){
+  // ── Distribución espacial real del huerto ──
+  // Foto satelital (norte arriba): C5 noroeste, C4 centro-oeste, C2 norte-
+  // centro, C3 sur-centro, C1 franja este completa. En el marco del SVG
+  // (SUR izq · NORTE der · OESTE arriba · ESTE abajo) eso equivale a:
+  //   fila 1 (oeste):  C4 | C5      fila 2 (centro): C3 | C2
+  //   fila 3 (este):   C1 (a lo ancho)
+  var LAYOUT_HUERTO = [[4,5],[3,2],[1]];
+  function _numCuartel(cu){ var m=String(cu).match(/(\d+)/); return m?parseInt(m[1],10):null; }
+  function _svgDe(cu){
+    var hileras=(porCuartel[cu]||[]).slice().sort(function(a,b){
       return (parseInt(String(a.hilera).replace(/[^0-9]/g,''))||0) - (parseInt(String(b.hilera).replace(/[^0-9]/g,''))||0);
     });
-    if(!hileras.length) return;
-    body += ipRenderCuartelSVG(cu, hileras);
+    return hileras.length ? ipRenderCuartelSVG(cu, hileras) : '';
+  }
+  var porNum={}, sinLayout=[];
+  seleccionados.forEach(function(cu){
+    var n=_numCuartel(cu);
+    var enLayout = n!=null && LAYOUT_HUERTO.some(function(f){ return f.indexOf(n)>=0; });
+    if(enLayout){ porNum[n]=cu; } else { sinLayout.push(cu); }
   });
+  LAYOUT_HUERTO.forEach(function(fila){
+    var celdas = fila.filter(function(n){ return porNum[n]; });
+    if(!celdas.length) return;
+    body += '<div style="display:flex;gap:16px;align-items:flex-start">'+
+      celdas.map(function(n){ return '<div style="flex:1;min-width:0">'+_svgDe(porNum[n])+'</div>'; }).join('')+
+    '</div>';
+  });
+  // Cuarteles fuera del layout conocido: se listan a continuación como antes.
+  sinLayout.forEach(function(cu){ body += _svgDe(cu); });
   body += '</div>';
 
   modal.innerHTML = header + body;
@@ -2050,13 +2186,18 @@ function ipMapZoom(delta){
 // El SVG usa viewBox + width:100% para AJUSTARSE al ancho del contenedor, de
 // modo que el cuartel completo se ve sin scroll, tanto en PC como en móvil.
 function ipRenderCuartelSVG(cuartel, hileras){
-  var maxPlantas = Math.max.apply(null, hileras.map(function(h){ return (h.plantas||[]).length; }).concat([1]));
+  // Marco cardinal FIJO del cuartel: SUR izquierda · NORTE derecha ·
+  // OESTE arriba · ESTE abajo. Las orientaciones guardadas por hilera
+  // (planta1En) y por cuartel (hilera1En) adaptan el dibujo a ese marco.
+  var h1Este = !!(hileras[0] && hileras[0].hilera1En==='este');
+  if(h1Este) hileras = hileras.slice().reverse(); // H1 queda abajo (este)
+  var maxPlantas = Math.max.apply(null, hileras.map(function(h){ return (h.plantas||[]).length + (parseInt(h.desfase,10)||0); }).concat([1]));
   var filas = hileras.length;
   // Tamaños base del sistema de coordenadas interno (viewBox). El SVG luego se
   // escala al ancho real disponible, así que estos valores son relativos.
-  var anchoPlanta = 22, altoFila = 30, margenIzq = 56, margenSup = 8, margenDer = 24;
+  var anchoPlanta = 22, altoFila = 30, margenIzq = 56, margenSup = 22, margenDer = 24;
   var ancho = margenIzq + maxPlantas*anchoPlanta + margenDer;
-  var alto = margenSup*2 + filas*altoFila + 16;
+  var alto = margenSup + 8 + filas*altoFila + 28;
 
   // Resume el nombre de la hilera a su último campo: el "H+número" final.
   // Los códigos vienen concatenados sin separador (ej: "C1REGH1"), así que
@@ -2072,29 +2213,42 @@ function ipRenderCuartelSVG(cuartel, hileras){
 
   var svg = '<svg viewBox="0 0 '+ancho+' '+alto+'" preserveAspectRatio="xMidYMid meet" '+
             'style="display:block;width:100%;height:auto" xmlns="http://www.w3.org/2000/svg">';
+  // Etiquetas cardinales del marco fijo
+  svg += '<text x="'+margenIzq+'" y="13" fill="#9aa7b4" font-size="10" font-weight="700">← SUR</text>';
+  svg += '<text x="'+(ancho-margenDer)+'" y="13" fill="#9aa7b4" font-size="10" font-weight="700" text-anchor="end">NORTE →</text>';
+  svg += '<text x="4" y="13" fill="#9aa7b4" font-size="9" font-weight="700">OESTE ↑</text>';
+  svg += '<text x="4" y="'+(alto-4)+'" fill="#9aa7b4" font-size="9" font-weight="700">ESTE ↓</text>';
   hileras.forEach(function(h, fi){
-    var y = margenSup + fi*altoFila + altoFila/2;
+    var y = margenSup + 8 + fi*altoFila + altoFila/2;
     var plantas = h.plantas||[];
+    var p1Norte = (h.planta1En==='norte');
     var gpsIni = h.gpsInicio || (plantas[0] && plantas[0].lat!=null ? {lat:plantas[0].lat,lng:plantas[0].lng} : null);
     var gpsFin = h.gpsFin || (plantas.length && plantas[plantas.length-1].lat!=null ? {lat:plantas[plantas.length-1].lat,lng:plantas[plantas.length-1].lng} : null);
     var tieneGps = gpsIni || gpsFin;
     // Etiqueta de hilera resumida (solo el último campo, ej: H1)
     svg += '<text x="4" y="'+(y+4)+'" fill="#1a5288" font-size="12" font-weight="700">'+escapeHtml(nombreCorto(h))+(tieneGps?' 📍':'')+'</text>';
-    // Línea base de la hilera — anclada al borde IZQUIERDO (la planta 1/sur queda
-    // a la izquierda y las hileras de distinto largo se alinean por ese extremo).
-    var xIzq = margenIzq;                               // extremo izquierdo útil
-    var xDerHilera = xIzq + plantas.length*anchoPlanta; // donde termina (norte)
+    // Línea base de la hilera. Anclaje según orientación: si la planta 1 está
+    // en el SUR, la hilera se alinea al borde IZQUIERDO; si está en el NORTE,
+    // al borde DERECHO. El DESFASE la corre desde ese extremo hacia adentro.
+    var desf = (parseInt(h.desfase,10)||0);
+    var xDerMax = margenIzq + maxPlantas*anchoPlanta;   // borde norte del marco
+    var xIzq = p1Norte
+      ? (xDerMax - (plantas.length+desf)*anchoPlanta)
+      : (margenIzq + desf*anchoPlanta);
+    var xDerHilera = xIzq + plantas.length*anchoPlanta;
     svg += '<line x1="'+xIzq+'" y1="'+y+'" x2="'+xDerHilera+'" y2="'+y+'" stroke="#5b9bd5" stroke-width="2"/>';
     var ultIdx = plantas.length - 1;
     plantas.forEach(function(p, pi){
-      // Orientación del huerto: la planta 1 es el extremo SUR y debe mostrarse a
-      // la IZQUIERDA, alineada al borde izquierdo. pi=0 (planta 1) → posición más
-      // a la izquierda; las siguientes hacia la derecha. (Eje vertical: H1 arriba.)
-      var cx = xIzq + (pi*anchoPlanta + anchoPlanta/2);
+      // Si la planta 1 está en el NORTE, la secuencia corre de derecha a
+      // izquierda (planta 1 pegada al borde derecho); si no, de izq. a der.
+      var pos = p1Norte ? (ultIdx - pi) : pi;
+      var cx = xIzq + (pos*anchoPlanta + anchoPlanta/2);
       var e = IP_ESTADOS[p.estado]||IP_ESTADOS.sano;
       var esPoliniz = (p.tipo==='poliniz');
       var varPol = esPoliniz ? (p.polinizante || h.polinizante) : '';
-      var fill = esPoliniz ? ipColorPoliniz(varPol) : e.color;
+      // Polinizante sano → color de su variedad; con otro estado (muerto,
+      // débil, etc.) → color del ESTADO, manteniendo el borde de polinizante.
+      var fill = (esPoliniz && (p.estado||'sano')==='sano') ? ipColorPoliniz(varPol) : e.color;
       var esInicio = (pi===0 && gpsIni);
       var esFin = (pi===ultIdx && gpsFin && ultIdx>0);
       var stroke = esPoliniz ? '#000' : 'rgba(0,0,0,.45)';
@@ -2103,11 +2257,15 @@ function ipRenderCuartelSVG(cuartel, hileras){
       if(esInicio){ link='onclick="ipAbrirMapaPunto('+gpsIni.lat+','+gpsIni.lng+')"'; cursor='cursor:pointer'; stroke='#1565c0'; sw=3; extraTitle=' · 🟢 INICIO (toque para Google Maps)'; }
       else if(esFin){ link='onclick="ipAbrirMapaPunto('+gpsFin.lat+','+gpsFin.lng+')"'; cursor='cursor:pointer'; stroke='#1565c0'; sw=3; extraTitle=' · 🔴 FIN (toque para Google Maps)'; }
       var r = (esInicio||esFin) ? 8.5 : 7.5;
-      // Filtro visual: si hay estados/variedades seleccionados, atenuar los no incluidos
+      // Filtro visual: si hay estados/variedades seleccionados, atenuar los no incluidos.
+      // Un polinizante coincide por su variedad (pol:VAR) O por su estado, de modo
+      // que filtrar "Muerto" también muestre los polinizantes muertos.
       var op = 1;
       if(_ipMapaGenFiltro && _ipMapaGenFiltro.length>0){
-        var clave = esPoliniz ? ('pol:'+(varPol||'').toUpperCase()) : (p.estado||'sano');
-        if(_ipMapaGenFiltro.indexOf(clave)<0) op = 0.08;
+        var _est=(p.estado||'sano');
+        var coincide = _ipMapaGenFiltro.indexOf(_est)>=0 ||
+          (esPoliniz && _ipMapaGenFiltro.indexOf('pol:'+(varPol||'').toUpperCase())>=0);
+        if(!coincide) op = 0.08;
       }
       svg += '<circle cx="'+cx+'" cy="'+y+'" r="'+r+'" fill="'+fill+'" stroke="'+stroke+'" stroke-width="'+sw+'" opacity="'+op+'" '+link+' style="'+cursor+'"><title>'+escapeHtml(ipCodigoPlanta(h,p))+(esPoliniz?' · 🐝 '+escapeHtml(varPol||'Polinizante'):'')+' · '+(IP_ESTADOS[p.estado]?IP_ESTADOS[p.estado].label:'')+extraTitle+'</title></circle>';
       if(esInicio){ svg += '<text x="'+cx+'" y="'+(y-11)+'" fill="#1565c0" font-size="8" font-weight="700" text-anchor="middle">▶</text>'; }
@@ -2131,7 +2289,7 @@ function ipRenderCuartelSVG(cuartel, hileras){
     '<div style="background:#fff;border:1px solid #e3e8ee;border-radius:10px;padding:12px;overflow:auto">'+
       '<div style="display:flex;justify-content:space-between;font-size:11px;font-weight:700;color:#7a8794;margin-bottom:4px;padding:0 4px"><span>← SUR (planta 1)</span><span>NORTE →</span></div>'+
       '<div class="ip-map-svg-wrap" style="width:'+(_ipMapZoom||100)+'%;margin:0 auto">'+svg+'</div>'+
-      '<div style="font-size:11px;color:#7a8794;margin-top:8px">▶ Inicio de hilera · ■ Fin de hilera — toque esos puntos para abrir Google Maps · La planta 1 (sur) se muestra a la izquierda.</div>'+
+      '<div style="font-size:11px;color:#7a8794;margin-top:8px">▶ Inicio de hilera · ■ Fin de hilera — toque esos puntos para abrir Google Maps · SUR a la izquierda, NORTE a la derecha; cada hilera se alinea al extremo donde está su planta 1.</div>'+
     '</div>'+
   '</div>';
 }
@@ -2393,6 +2551,63 @@ async function ipInvertirOrden(){
 }
 try{ window.ipInvertirOrden=ipInvertirOrden; }catch(e){}
 
+// Cambia la orientación de la hilera: indica si la planta 1 está en el SUR
+// (por defecto) o en el NORTE. Solo afecta las etiquetas del mapa 2D.
+async function ipCambiarOrientacion(){
+  if(!can('invplantas.editar')){ toast('Sin permiso','No tiene permiso para editar','error'); return; }
+  var s=_ipMapaReg; if(!s) return;
+  s.planta1En = (s.planta1En==='norte') ? 'sur' : 'norte';
+  s.sincronizado=false;
+  try{
+    await dbPut('invplantas', s);
+    STATE.cache.invplantas=await dbAll('invplantas');
+    _ipMapaReg = (STATE.cache.invplantas||[]).find(function(x){ return String(x.id)===String(s.id); });
+  }catch(e){ console.error(e); toast('Error','No se pudo guardar','error'); return; }
+  ipRender();
+  toast('Orientación actualizada','La planta 1 está en el '+(s.planta1En==='norte'?'NORTE':'SUR'),'success');
+}
+try{ window.ipCambiarOrientacion=ipCambiarOrientacion; }catch(e){}
+
+// Cambia la orientación de las HILERAS del cuartel: indica si la hilera 1
+// está en el ESTE o en el OESTE. Es una propiedad del cuartel completo, por
+// lo que se aplica a todas las hileras registradas del mismo cuartel.
+async function ipCambiarOrientacionHileras(){
+  if(!can('invplantas.editar')){ toast('Sin permiso','No tiene permiso para editar','error'); return; }
+  var s=_ipMapaReg; if(!s) return;
+  var nuevo=(s.hilera1En==='este')?'oeste':'este';
+  var delCuartel=(STATE.cache.invplantas||[]).filter(function(x){ return x.cuartel===s.cuartel; });
+  try{
+    for(var i=0;i<delCuartel.length;i++){
+      delCuartel[i].hilera1En=nuevo;
+      delCuartel[i].sincronizado=false;
+      await dbPut('invplantas', delCuartel[i]);
+    }
+    STATE.cache.invplantas=await dbAll('invplantas');
+    _ipMapaReg=(STATE.cache.invplantas||[]).find(function(x){ return String(x.id)===String(s.id); });
+  }catch(e){ console.error(e); toast('Error','No se pudo guardar','error'); return; }
+  ipRender();
+  toast('Orientación actualizada','Hilera 1 en el '+nuevo.toUpperCase()+' ('+delCuartel.length+' hilera(s) de '+s.cuartel+')','success');
+}
+try{ window.ipCambiarOrientacionHileras=ipCambiarOrientacionHileras; }catch(e){}
+
+// Ajusta el DESFASE de la hilera: cuántas posiciones de planta se corre desde
+// su extremo de anclaje (sur o norte según planta1En). Permite alinear las
+// plantas entre hileras igual que en terreno cuando el cuartel no es rectangular.
+async function ipAjustarDesfase(delta){
+  if(!can('invplantas.editar')){ toast('Sin permiso','No tiene permiso para editar','error'); return; }
+  var s=_ipMapaReg; if(!s) return;
+  var nuevo=Math.max(0,(parseInt(s.desfase,10)||0)+delta);
+  s.desfase=nuevo;
+  s.sincronizado=false;
+  try{
+    await dbPut('invplantas', s);
+    STATE.cache.invplantas=await dbAll('invplantas');
+    _ipMapaReg=(STATE.cache.invplantas||[]).find(function(x){ return String(x.id)===String(s.id); });
+  }catch(e){ console.error(e); toast('Error','No se pudo guardar','error'); return; }
+  ipRender();
+}
+try{ window.ipAjustarDesfase=ipAjustarDesfase; }catch(e){}
+
 function ipRenderMapa(){
   var s=_ipMapaReg; if(!s) return '<div class="ip-card">Sin datos</div>';
   var plantas = s.plantas||[];
@@ -2412,13 +2627,26 @@ function ipRenderMapa(){
       '<div style="margin-bottom:6px">'+leyenda+'</div>'+
       (puedeEditar?'<div style="font-size:12px;color:#0854a0;background:#f0f7ff;padding:8px;border-radius:8px">✏️ Toque una planta para cambiar su estado</div>':'<div style="font-size:12px;color:#999">Solo lectura. Se requiere permiso para editar estados.</div>')+
       (STATE.user && STATE.user.role==='admin' ? '<button onclick="ipInvertirOrden()" style="margin-top:8px;padding:9px 14px;background:#fff3e0;color:#b45309;border:1px solid #fcd9a0;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">↔️ Invertir orden de la hilera</button>' : '')+
+      (puedeEditar ? '<button onclick="ipCambiarOrientacion()" style="margin-top:8px;margin-left:6px;padding:9px 14px;background:#f0f7ff;color:#0854a0;border:1px solid #bcd9f5;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">🧭 Planta 1 en el '+((s.planta1En==='norte')?'NORTE':'SUR')+' (cambiar)</button>' : '')+
+      (puedeEditar ? '<button onclick="ipCambiarOrientacionHileras()" style="margin-top:8px;margin-left:6px;padding:9px 14px;background:#eefaf0;color:#1a7e3e;border:1px solid #bfe3c8;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">🧭 Hilera 1 en el '+((s.hilera1En==='este')?'ESTE':'OESTE')+' (cambiar)</button>' : '')+
+      (puedeEditar ? '<div style="margin-top:8px;display:inline-flex;align-items:center;gap:6px;background:#faf5ff;border:1px solid #e0ccf5;border-radius:8px;padding:5px 10px;font-size:13px;font-weight:700;color:#6b21a8">↔️ Desfase: '+((parseInt(s.desfase,10)||0))+' pos.'+
+        '<button onclick="ipAjustarDesfase(-1)" style="width:28px;height:28px;border:1px solid #d8b4fe;background:#fff;color:#6b21a8;border-radius:6px;font-size:15px;font-weight:800;cursor:pointer">−</button>'+
+        '<button onclick="ipAjustarDesfase(1)" style="width:28px;height:28px;border:1px solid #d8b4fe;background:#fff;color:#6b21a8;border-radius:6px;font-size:15px;font-weight:800;cursor:pointer">+</button>'+
+        '<button onclick="ipAjustarDesfase(-5)" style="height:28px;padding:0 8px;border:1px solid #d8b4fe;background:#fff;color:#6b21a8;border-radius:6px;font-size:12px;font-weight:800;cursor:pointer">−5</button>'+
+        '<button onclick="ipAjustarDesfase(5)" style="height:28px;padding:0 8px;border:1px solid #d8b4fe;background:#fff;color:#6b21a8;border-radius:6px;font-size:12px;font-weight:800;cursor:pointer">+5</button>'+
+      '</div>' : (((parseInt(s.desfase,10)||0)>0)?'<div style="margin-top:8px;font-size:12px;color:#6b21a8;font-weight:700">↔️ Desfase: '+(parseInt(s.desfase,10)||0)+' posiciones</div>':''))+
     '</div>';
 
   // Mapa visual: plantas como círculos en una grilla que representa la hilera.
-  // Orientación del huerto: la planta 1 (sur) se muestra a la IZQUIERDA.
+  // Marco cardinal FIJO: SUR siempre a la izquierda, NORTE a la derecha.
+  // Si la planta 1 está en el NORTE, la secuencia se dibuja invertida y
+  // alineada a la derecha; si está en el SUR, normal y alineada a la izquierda.
+  var _p1Norte = (s.planta1En==='norte');
+  var _h1Este = (s.hilera1En==='este');
   html += '<div class="ip-card" style="overflow-x:auto">';
-  html += '<div style="display:flex;justify-content:space-between;font-size:11px;font-weight:700;color:#7a8794;margin-bottom:6px;padding:0 4px"><span>← SUR (planta 1)</span><span>NORTE →</span></div>';
-  html += '<div style="display:flex;flex-wrap:wrap;flex-direction:row;gap:8px;justify-content:flex-start;padding:8px">';
+  html += '<div style="display:flex;justify-content:space-between;font-size:11px;font-weight:700;color:#7a8794;margin-bottom:2px;padding:0 4px"><span>← SUR'+(_p1Norte?'':' (planta 1)')+'</span><span>NORTE'+(_p1Norte?' (planta 1)':'')+' →</span></div>';
+  html += '<div style="text-align:center;font-size:10px;color:#aab;margin-bottom:6px">Hilera 1 en el '+(_h1Este?'ESTE':'OESTE')+' · las hileras avanzan hacia el '+(_h1Este?'OESTE':'ESTE')+'</div>';
+  html += '<div style="display:flex;flex-wrap:wrap;flex-direction:row'+(_p1Norte?'-reverse':'')+';gap:8px;justify-content:flex-start;padding:8px">';
   plantas.forEach(function(p, idx){
     var e=IP_ESTADOS[p.estado]||IP_ESTADOS.sano;
     var borde = p.tipo==='poliniz' ? '3px solid #e9730c' : '2px solid rgba(0,0,0,.15)';
