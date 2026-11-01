@@ -73,7 +73,7 @@ var FBCOUNT = (function(){
   });
 })();
 </script>
-<link rel="stylesheet" href="css/styles.css?v=70">
+<link rel="stylesheet" href="css/styles.css?v=71">
 </head>
 <body>
 <!-- Hoja de estilo dinámica para el tema forestal (se llena vía JS) -->
@@ -703,7 +703,7 @@ var FBCOUNT = (function(){
 
 <script>
 </script>
-<script src="js/core.js?v=70"></script>
+<script src="js/core.js?v=71"></script>
 <script>
 /* ═══════════════ MÓDULO: CONTROL DE PRESUPUESTO ═══════════════ */
 /* Integra el dashboard de Control de Presupuesto (Huerto Cerezos 2018) como
@@ -1876,9 +1876,9 @@ function renderPresupuesto(main){
 }
 
 </script>
-<script src="js/inventario.js?v=70"></script>
-<script src="js/ordencompra.js?v=70"></script>
-<script src="js/huerto.js?v=70"></script>
+<script src="js/inventario.js?v=71"></script>
+<script src="js/ordencompra.js?v=71"></script>
+<script src="js/huerto.js?v=71"></script>
 <script>
 
 /* ═══════════════ MÓDULO: MANTENCIONES ═══════════════ */
@@ -2564,9 +2564,8 @@ document.getElementById('loginPass').addEventListener('keydown',e=>{if(e.key==='
     showLoading('Inicializando base de datos...');
     await initDB();
     await applyCompanyBranding();
-    // Preparar el SDK de Firebase SIN autenticar ni sincronizar: el acceso a la
-    // nube ahora exige iniciar sesión con correo+contraseña en doLogin. Aquí solo
-    // se espera a que el SDK cargue desde gstatic.com para que el login funcione.
+    // Preparar el SDK de Firebase SIN autenticar ni sincronizar: el acceso exige
+    // iniciar sesión con correo+contraseña en doLogin. Aquí solo se espera el SDK.
     showLoading('Conectando con el servidor...');
     try{
       var sdkReady = await waitForFirebaseSDK(10000);
@@ -2638,7 +2637,7 @@ var S = { panos:[], registros:[], productos:[], ordenes:[], oCounter:1, confirma
 };
 
 </script>
-<script src="js/cuaderno.js?v=70"></script>
+<script src="js/cuaderno.js?v=71"></script>
 <script>
 
 /* ═══════════════ INTEGRACIÓN CUADERNO DE CAMPO ═══════════════ */
@@ -2695,8 +2694,8 @@ function renderCuaderno(main){
 </script>
 
 
-<script src="data/presupuesto-data.js?v=70"></script>
-<script src="js/presupuesto.js?v=70"></script>
+<script src="data/presupuesto-data.js?v=71"></script>
+<script src="js/presupuesto.js?v=71"></script>
 <script>
 /* ── Normalización global a MAYÚSCULAS en la entrada de datos ──
    Aplica a inputs de texto y textareas de todo el sistema.

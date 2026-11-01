@@ -9,7 +9,7 @@
 
 /* ═══════════════ DB LAYER (IndexedDB) ═══════════════ */
 const DB_NAME='SCI_DB';
-const DB_VERSION=11;
+const DB_VERSION=15;
 const STORES=[
   ['users','id'],
   ['products','codigoInterno'],
@@ -214,12 +214,11 @@ function sciFbInit(){
         return;
       }
     }
-    // NOTA: ya NO se hace login anónimo. El acceso exige correo+contraseña
-    // (Firebase Auth) en doLogin. Aquí solo se deja Firebase listo.
+    // NOTA: ya NO se hace login anónimo. El acceso exige correo+contraseña.
     SCIFB.ready = true;
     console.log('[SCI-Firebase] Inicializado');
     sciFbIndicator('connecting', 'Conectando inventario a la nube...');
-    // Arrancar el listener SOLO cuando haya usuario autenticado (correo+clave).
+    // Arrancar el listener solo cuando la autenticación anónima esté lista
     if(firebase.auth){
       var _sciListenerOk = false;
       firebase.auth().onAuthStateChanged(function(user){
@@ -892,8 +891,7 @@ function toast(title,msg='',type='success'){
 }
 
 /* ═══════════════ LOGIN ═══════════════ */
-// Busca un usuario de la tabla local por su correo (campo email), tolerante a
-// mayúsculas/espacios. Devuelve el registro o null.
+// Busca un usuario de la tabla local por su correo (campo email).
 async function _buscarUsuarioPorEmail(email){
   const target=String(email||'').trim().toLowerCase();
   if(!target) return null;
@@ -906,23 +904,20 @@ async function _buscarUsuarioPorEmail(email){
   return null;
 }
 
-// RESCATE DE PRIMER ARRANQUE (una sola vez): al migrar a login por correo, los
-// usuarios existentes aún no tienen el campo email. Si NADIE tiene email todavía
-// y existe un admin sin email, se permite enlazar esa cuenta de Firebase recién
-// autenticada con ese admin. En cuanto cualquier usuario tenga email, este modo
-// se apaga solo (no se puede volver a usar para colarse).
+// RESCATE DE PRIMER ARRANQUE (una sola vez): si NADIE tiene email todavía y hay
+// un admin sin email, permite enlazar la cuenta de Firebase recién autenticada
+// con ese admin. En cuanto un usuario tenga email, este modo se apaga solo.
 async function _intentarRescateAdmin(email){
   try{
     const todos=await dbAll('users')||[];
     const yaHayEmails=todos.some(u=>u && u.email && String(u.email).trim());
-    if(yaHayEmails) return null; // rescate ya no aplica
+    if(yaHayEmails) return null;
     const adminsSinEmail=todos.filter(u=>u && u.activo && u.role==='admin' && !(u.email&&String(u.email).trim()));
     if(!adminsSinEmail.length) return null;
-    // Elegir admin: si hay uno solo, ese; si hay varios, preguntar el ID.
     let adminObj=adminsSinEmail[0];
     if(adminsSinEmail.length>1){
       const ids=adminsSinEmail.map(a=>a.id).join(', ');
-      const elegido=(prompt('Primer acceso: ¿a qué usuario administrador se asocia este correo?\nIDs disponibles: '+ids)||'').trim().toLowerCase();
+      const elegido=(prompt('Primer acceso: ¿a qué usuario administrador se asocia este correo?\nIDs: '+ids)||'').trim().toLowerCase();
       const found=adminsSinEmail.find(a=>a.id===elegido);
       if(!found) return null;
       adminObj=found;
@@ -944,7 +939,6 @@ async function doLogin(){
   errEl.classList.remove('show');
   if(!email||!pass){errEl.textContent='Ingrese correo y contraseña';errEl.classList.add('show');return}
 
-  // 1) AUTENTICACIÓN REAL con Firebase Auth (correo + contraseña).
   if(typeof firebase==='undefined' || !firebase.auth){
     errEl.textContent='Sin conexión con el servidor de acceso. Revise su internet e intente de nuevo.';
     errEl.classList.add('show');return;
@@ -964,20 +958,17 @@ async function doLogin(){
     return;
   }
 
-  // 2) Autenticado. Arrancar el sync y esperar los datos.
   errEl.textContent='Cargando datos...';
   try{
     if(typeof sciFbInit==='function' && (typeof SCIFB==='undefined' || !SCIFB.ready)){ sciFbInit(); }
     if(typeof sciFbWaitForSync==='function'){ await sciFbWaitForSync(8000); }
   }catch(e){ console.error('Error arrancando sync tras login:',e); }
 
-  // 3) Enlazar la cuenta de Firebase con el registro de rol/permisos (por email).
   let u=await _buscarUsuarioPorEmail(email);
   if(!u){
     if(typeof sciFbWaitForSync==='function'){ await sciFbWaitForSync(4000); }
     u=await _buscarUsuarioPorEmail(email);
   }
-  // 3b) Si no hay perfil con ese correo, intentar el rescate de primer arranque.
   if(!u){ u=await _intentarRescateAdmin(email); }
   errEl.classList.remove('show');
   if(!u){
@@ -1111,7 +1102,6 @@ function _stopInactivityWatch(){
 async function _doLogout(){
   try{ _stopInactivityWatch(); }catch(e){}
   if(STATE.user)await audit('logout','Cierre de sesión',STATE.user.id);
-  // Cerrar también la sesión de Firebase Auth.
   try{ if(typeof firebase!=='undefined' && firebase.auth && firebase.auth().currentUser){ await firebase.auth().signOut(); } }catch(e){}
   STATE.user=null;
   document.getElementById('app').classList.remove('show');

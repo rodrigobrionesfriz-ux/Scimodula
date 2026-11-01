@@ -5756,7 +5756,6 @@ async function saveUser(id){
 
   let u=id?await dbGet('users',idVal):null;
   if(!id&&await dbGet('users',idVal)){toast('Usuario duplicado','Ya existe','error');return}
-  // El correo debe ser único entre usuarios (es la llave de acceso).
   try{
     const todos=await dbAll('users');
     const choca=(todos||[]).find(x=>x && x.id!==idVal && String(x.email||'').trim().toLowerCase()===email);

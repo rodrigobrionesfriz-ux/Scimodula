@@ -298,8 +298,7 @@ function fbInit(){
     if(!firebase.apps.length){
       firebase.initializeApp(FB.config);
     }
-    // NOTA: ya NO se hace login anónimo. El acceso exige autenticación real
-    // (correo+contraseña) hecha en doLogin del SCI. Aquí solo se prepara la BD.
+    // NOTA: ya NO se hace login anónimo. El acceso exige correo+contraseña.
     FB.db = firebase.firestore();
     FB.ready = true;
     console.log('[Firebase] Inicializado correctamente');

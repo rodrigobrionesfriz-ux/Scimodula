@@ -975,9 +975,6 @@ function renderLineChart(data) {
 }
 
 function renderTempCompareChart() {
-  // Compara el GASTO REAL mensual de todas las temporadas disponibles.
-  // Ignora el filtro de temporada (compara entre temporadas) pero respeta
-  // tipo/subgrupo/descripción. Meses en orden agrícola (mayo→abril).
   const source = ACTIVE_DATA || RAW;
   const f = getFilters();
   const rows = source.filter(d =>
@@ -985,7 +982,6 @@ function renderTempCompareChart() {
     (!f.sub || d["SUB-GRUPO"] === f.sub) &&
     (!f.desc || d.DESCRIPCION === f.desc)
   );
-
   const porTemp = {};
   rows.forEach(d => {
     const t = _getTemporada(d);
@@ -996,7 +992,6 @@ function renderTempCompareChart() {
     if(porTemp[t][d.MES] == null) return;
     porTemp[t][d.MES] += real;
   });
-
   const temporadas = Object.keys(porTemp).sort();
   const labels = MONTH_ORDER.map(m => m.slice(0,3));
   const palette = ['#64748b','#8b5cf6','#f59e0b','#ec4899','#06b6d4','#3b82f6'];
@@ -1006,33 +1001,24 @@ function renderTempCompareChart() {
     return {
       label: t,
       data: MONTH_ORDER.map(m => porTemp[t][m] > 0 ? Math.round(porTemp[t][m]) : null),
-      borderColor: color,
-      backgroundColor: 'transparent',
-      borderWidth: esActual ? 3 : 2,
-      pointRadius: esActual ? 4 : 3,
-      pointBackgroundColor: color,
-      borderDash: esActual ? [] : [5,4],
-      tension: 0.3,
-      fill: false,
-      spanGaps: true,
+      borderColor: color, backgroundColor: 'transparent',
+      borderWidth: esActual ? 3 : 2, pointRadius: esActual ? 4 : 3,
+      pointBackgroundColor: color, borderDash: esActual ? [] : [5,4],
+      tension: 0.3, fill: false, spanGaps: true,
     };
   });
-
   safeDestroy(chartTempCompare, 'chartTempCompare');
   const el = document.getElementById('chartTempCompare');
   if(!el) return;
   chartTempCompare = new Chart(el, {
-    type: 'line',
-    data: { labels, datasets },
+    type: 'line', data: { labels, datasets },
     options: {
       responsive: true, maintainAspectRatio: true,
       interaction: { mode: 'index', intersect: false },
       plugins: {
         legend: { labels: { color: '#94a3b8', font: { size: 11 }, boxWidth: 12 } },
-        tooltip: {
-          backgroundColor: '#1a2235', borderColor: '#1e2d45', borderWidth: 1,
-          callbacks: { label: ctx => ` ${ctx.dataset.label}: ${fmtVal(ctx.parsed.y ?? 0)}` }
-        }
+        tooltip: { backgroundColor: '#1a2235', borderColor: '#1e2d45', borderWidth: 1,
+          callbacks: { label: ctx => ` ${ctx.dataset.label}: ${fmtVal(ctx.parsed.y ?? 0)}` } }
       },
       scales: {
         x: { ticks: { color: '#64748b', font:{size:10} }, grid: { color: 'rgba(30,45,69,0.5)' } },
