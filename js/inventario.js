@@ -4816,26 +4816,29 @@ function _cbWeekStart(ymd){
      promedio del resumen (total litros ÷ horas totales). */
 function _cbSerieSemanal(lista, porHora){
   var wk={}, order=[];
-  function bucket(r){ var ws=_cbWeekStart(_cbLocalYMD(r)); if(!ws) return null; var k=ws.getTime(); if(!wk[k]){ wk[k]={rec:0,lit:0,litLoads:0,date:ws}; order.push(k); } return wk[k]; }
-  // Tramos (horas/distancia) atribuidos a la semana de la carga final.
+  function bucket(r){ var ws=_cbWeekStart(_cbLocalYMD(r)); if(!ws) return null; var k=ws.getTime(); if(!wk[k]){ wk[k]={rec:0,lit:0,date:ws}; order.push(k); } return wk[k]; }
+  // Cada TRAMO entre dos cargas consecutivas se atribuye completo (sus horas o
+  // km Y los litros que lo alimentaron) a la semana de la carga final. Así el
+  // ratio de cada semana usa el MISMO método que el promedio global
+  // (litros ÷ horas, o km ÷ litros), y los puntos quedan en la misma escala
+  // que el promedio del encabezado. Antes, para horómetro, las horas se
+  // atribuían al tramo y los litros a la semana de cada carga, lo que
+  // desalineaba numerador y denominador y sacaba los puntos de escala.
   for(var i=1;i<lista.length;i++){
     var dif=(lista[i].km||0)-(lista[i-1].km||0);
     var litrosPrev=lista[i-1].cantidad||0;
-    if(dif>0){
+    if(dif>0 && litrosPrev>0){
       var b=bucket(lista[i]); if(!b) continue;
       b.rec+=dif;
-      if(litrosPrev>0) b.lit+=litrosPrev;
+      b.lit+=litrosPrev;
     }
-  }
-  // Horómetro: litros de cada carga atribuidos a la semana de esa carga.
-  if(porHora){
-    for(var j=0;j<lista.length;j++){ var b2=bucket(lista[j]); if(b2) b2.litLoads+=(lista[j].cantidad||0); }
   }
   order.sort(function(a,b){return a-b;});
   var labels=[], vals=[];
   order.forEach(function(k){
     var b=wk[k];
-    var r = porHora ? (b.rec>0? b.litLoads/b.rec : null) : (b.lit>0? b.rec/b.lit : null);
+    // porHora: litros ÷ horas (L/h).  odómetro: km ÷ litros (km/L).
+    var r = porHora ? (b.rec>0? b.lit/b.rec : null) : (b.lit>0? b.rec/b.lit : null);
     var dd=('0'+b.date.getDate()).slice(-2), mm=('0'+(b.date.getMonth()+1)).slice(-2);
     labels.push(dd+'/'+mm);
     vals.push(r!=null? Math.round(r*100)/100 : null);
