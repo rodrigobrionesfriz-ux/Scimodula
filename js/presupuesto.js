@@ -2124,6 +2124,27 @@ function renderDescChart(data) {
     byDesc[k].r += d["MONTO REAL"];
   });
 
+  // ── Real de la temporada ANTERIOR por descripción (mismos meses filtrados) ──
+  var realAntDesc = {};
+  try{
+    var full = (typeof pzDataset==='function') ? pzDataset() : [];
+    var tempsAll=[]; full.forEach(function(d){ var t=_getTemporada(d); if(t&&tempsAll.indexOf(t)<0) tempsAll.push(t); });
+    tempsAll.sort();
+    var tempSelEl=document.getElementById('f-temporada');
+    var tempActual=(tempSelEl&&tempSelEl.value)?tempSelEl.value:(tempsAll.length?tempsAll[tempsAll.length-1]:'');
+    var idxAct=tempsAll.indexOf(tempActual);
+    var tempAnterior=(idxAct>0)?tempsAll[idxAct-1]:'';
+    var mesesSel=(typeof getMesesSel==='function')?getMesesSel():[];
+    if(tempAnterior){
+      full.forEach(function(d){
+        if(_getTemporada(d)!==tempAnterior) return;
+        if(mesesSel.length && mesesSel.indexOf(d.MES)<0) return;
+        var k=d.DESCRIPCION;
+        realAntDesc[k]=(realAntDesc[k]||0)+(getReal(d)||0);
+      });
+    }
+  }catch(e){ console.error('desc temp anterior:',e); }
+
   // Keep only items with movement, sort by max desc, top 15
   const items = Object.entries(byDesc)
     .filter(([,v]) => v.p > 0 || v.r > 0)
@@ -2133,18 +2154,35 @@ function renderDescChart(data) {
   const labels = items.map(([k]) => k);
   const pptoV  = items.map(([,v]) => Math.round(v.p));
   const realV  = items.map(([,v]) => Math.round(v.r));
+  const realAntV = items.map(([k]) => Math.round(realAntDesc[k]||0));
 
   // Fixed height for line chart
   const wrap = document.querySelector('.chart-desc-wrap');
   if (wrap) wrap.style.height = '320px';
 
+  const hayTempAnt = realAntV.some(function(v){ return v>0; });
+
   safeDestroy(chartDesc, 'chartDesc');
   chartDesc = new Chart(document.getElementById('chartDesc'), {
-    type: 'line',
+    type: 'bar',
     data: {
       labels,
       datasets: [
+        // Barra: gasto real de la temporada anterior (al fondo).
         {
+          type: 'bar',
+          label: 'Real temp. anterior',
+          data: realAntV,
+          backgroundColor: 'rgba(148,163,184,0.45)',
+          borderColor: 'rgba(100,116,139,0.6)',
+          borderWidth: 1,
+          barPercentage: 0.6,
+          categoryPercentage: 0.8,
+          order: 3,
+          hidden: !hayTempAnt
+        },
+        {
+          type: 'line',
           label: 'Presupuesto',
           data: pptoV,
           borderColor: '#d97706',
@@ -2157,8 +2195,10 @@ function renderDescChart(data) {
           borderWidth: 2,
           fill: true,
           tension: 0.35,
+          order: 1,
         },
         {
+          type: 'line',
           label: 'Real',
           data: realV,
           borderColor: '#059669',
@@ -2171,6 +2211,7 @@ function renderDescChart(data) {
           borderWidth: 2,
           fill: true,
           tension: 0.35,
+          order: 2,
         }
       ]
     },
