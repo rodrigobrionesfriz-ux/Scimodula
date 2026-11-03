@@ -425,7 +425,11 @@ function imprimirPDF() {
           .replace(/color:#cbd5e1/g,'color:#334155')
           .replace(/background:rgba\(255,255,255,0\.03\)/g,'background:#f8fafc')
           .replace(/border:1px solid rgba\(255,255,255,0\.06\)/g,'border:1px solid #e2e8f0')
-          .replace(/border-top:1px solid rgba\(255,255,255,0\.06\)/g,'border-top:1px solid #e2e8f0');
+          .replace(/border-top:1px solid rgba\(255,255,255,0\.06\)/g,'border-top:1px solid #e2e8f0')
+          // Agrandar fuentes para que sean legibles en la hoja impresa
+          .replace(/font-size:10\.5px/g,'font-size:13px')
+          .replace(/font-size:9\.5px/g,'font-size:12px')
+          .replace(/font-size:9px/g,'font-size:11px');
       }
     }catch(e){}
     var imgs = charts.map(function(c){
@@ -479,16 +483,18 @@ function imprimirPDF() {
     '.kl{font-size:6.5px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.3px;margin-top:2px}'+
     '.kv{font-size:12px;font-weight:800;color:#0d1b2e;margin-top:2px;line-height:1}'+
     '.ks{font-size:6px;color:#94a3b8;margin-top:2px}'+
-    '.charts{display:grid;grid-template-columns:1fr 1fr;gap:7px}'+
-    '.c{border:1px solid #e2e8f0;border-radius:6px;padding:6px 7px}'+
+    '.charts{display:grid;grid-template-columns:1fr 1fr;gap:9px}'+
+    '.c{border:1px solid #e2e8f0;border-radius:6px;padding:7px 8px}'+
     '.c.wide{grid-column:1 / -1}'+
-    '.ct{font-size:11px;font-weight:800;color:#0d1b2e;margin-bottom:4px;text-align:center;letter-spacing:.2px}'+
-    '.c img{width:100%;height:auto;display:block;max-height:120px;object-fit:contain;margin:0 auto}'+
-    '.cv{font-size:7px;color:#94a3b8;text-align:center;padding:20px 0}'+
-    '.sg{display:flex;align-items:center;gap:10px}'+
-    '.sg-img{flex:none;width:40%}.sg-img img{max-height:130px}'+
-    '.sg-leg{flex:1;display:grid;grid-template-columns:1fr 1fr;gap:5px}'+
-    '.ft{margin-top:8px;text-align:center;font-size:6.5px;color:#94a3b8;border-top:1px solid #e2e8f0;padding-top:4px}'+
+    '.ct{font-size:13px;font-weight:800;color:#0d1b2e;margin-bottom:5px;text-align:center;letter-spacing:.2px}'+
+    '.c img{width:100%;height:auto;display:block;max-height:165px;object-fit:contain;margin:0 auto}'+
+    '.cv{font-size:8px;color:#94a3b8;text-align:center;padding:20px 0}'+
+    /* Sub-grupo: dona GRANDE (2x) a la izquierda, leyenda legible a la derecha */
+    '.sg{display:flex;align-items:center;gap:14px}'+
+    '.sg-img{flex:none;width:46%}.sg-img img{max-height:260px;width:100%;object-fit:contain}'+
+    '.sg-leg{flex:1;display:grid;grid-template-columns:1fr 1fr;gap:7px;font-size:11px}'+
+    '.sg-leg>div{padding:7px 9px !important}'+
+    '.ft{margin-top:8px;text-align:center;font-size:7px;color:#94a3b8;border-top:1px solid #e2e8f0;padding-top:4px}'+
     '</style></head><body>'+
     '<div class="hdr">'+logoHtml+
       '<div class="hi"><div class="emp">'+empNombre+'</div>'+
@@ -1882,14 +1888,39 @@ function renderSubgrupoChart(data) {
   const bySub = {};
   data.forEach(d => {
     const k = d["SUB-GRUPO"];
-    if (!bySub[k]) bySub[k] = { total: 0, tipos: {} };
+    if (!bySub[k]) bySub[k] = { total: 0, ppto: 0, tipos: {} };
     bySub[k].total += d["MONTO REAL"];
+    bySub[k].ppto  += (d["MONTO PPTO"]||0);
     const tipo = (d["TIPO DE COSTO"] || '').trim();
     if (tipo) {
       if (!bySub[k].tipos[tipo]) bySub[k].tipos[tipo] = 0;
       bySub[k].tipos[tipo] += d["MONTO REAL"];
     }
   });
+
+  // ── Real de la temporada ANTERIOR por sub-grupo (mismos meses filtrados) ──
+  // Para el % de variación entre temporadas en cada sub-grupo.
+  var realAntSub = {};
+  try{
+    var full = (typeof pzDataset==='function') ? pzDataset() : [];
+    // temporadas presentes, ordenadas; la actual es la del filtro o la más reciente
+    var tempsAll=[]; full.forEach(function(d){ var t=_getTemporada(d); if(t&&tempsAll.indexOf(t)<0) tempsAll.push(t); });
+    tempsAll.sort();
+    var tempSelEl = document.getElementById('f-temporada');
+    var tempActual = (tempSelEl && tempSelEl.value) ? tempSelEl.value : (tempsAll.length?tempsAll[tempsAll.length-1]:'');
+    var idxAct = tempsAll.indexOf(tempActual);
+    var tempAnterior = (idxAct>0) ? tempsAll[idxAct-1] : '';
+    var mesesSel = (typeof getMesesSel==='function') ? getMesesSel() : [];
+    if(tempAnterior){
+      full.forEach(function(d){
+        if(_getTemporada(d)!==tempAnterior) return;
+        if(mesesSel.length && mesesSel.indexOf(d.MES)<0) return;
+        var k=d["SUB-GRUPO"];
+        realAntSub[k]=(realAntSub[k]||0)+(getReal(d)||0);
+      });
+    }
+    window._pzSubTempAnt = tempAnterior;
+  }catch(e){ console.error('subgrupo temp anterior:',e); }
   const subs = Object.keys(bySub).filter(k => bySub[k].total > 0);
   const vals = subs.map(k => Math.round(bySub[k].total));
   const colors = ['#16c784','#3b82f6','#f5a623','#a78bfa','#22d3ee'];
@@ -2000,6 +2031,16 @@ function renderSubgrupoChart(data) {
             <span style="color:#64748b;flex-shrink:0;">${tpct}%</span>
           </div>`;
         }).join('');
+      // Presupuesto vs Real del sub-grupo
+      const ppto = bySub[label] ? (bySub[label].ppto||0) : 0;
+      const devPct = ppto>0 ? (((val-ppto)/ppto)*100) : null;
+      const devColor = devPct==null ? '#64748b' : (devPct>0 ? '#ef4444' : '#16a34a');
+      const devTxt = devPct==null ? '—' : ((devPct>=0?'+':'')+devPct.toFixed(0)+'%');
+      // Variación vs temporada anterior
+      const rAnt = realAntSub[label]||0;
+      const varT = rAnt>0 ? (((val-rAnt)/rAnt)*100) : null;
+      const varColor = varT==null ? '#94a3b8' : (varT>0 ? '#ef4444' : '#16a34a');
+      const varTxt = varT==null ? 's/comparación' : ((varT>=0?'+':'')+varT.toFixed(1)+'% vs temp. ant.');
       return `
         <div onclick="PZ.openDetalleSubgrupo('${String(label).replace(/'/g,"\\'")}')" title="Ver el detalle de gastos de ${label}"
              style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:6px;padding:5px 7px;display:flex;flex-direction:column;gap:4px;cursor:pointer;"
@@ -2009,9 +2050,14 @@ function renderSubgrupoChart(data) {
             <span style="font-size:10.5px;font-weight:700;color:#ffffff;line-height:1.2;">${label}</span>
           </div>
           <div style="font-size:9.5px;color:#cbd5e1;font-family:'Roboto',sans-serif;font-weight:600;">
-            $${Math.round(val).toLocaleString('es-CL')}
+            Real $${Math.round(val).toLocaleString('es-CL')}
             <span style="color:#64748b;font-weight:400;font-size:9.5px;">&nbsp;(${pct}%)</span>
           </div>
+          <div style="display:flex;justify-content:space-between;gap:6px;font-size:9px;line-height:1.4;">
+            <span style="color:#94a3b8;">Ppto $${Math.round(ppto).toLocaleString('es-CL')}</span>
+            <span style="color:${devColor};font-weight:700;flex-shrink:0;">${devTxt}</span>
+          </div>
+          <div style="font-size:9px;color:${varColor};font-weight:600;line-height:1.3;">${varTxt}</div>
           <div style="border-top:1px solid rgba(255,255,255,0.06);margin-top:2px;padding-top:4px;">
             ${tiposHtml}
           </div>
