@@ -413,6 +413,9 @@ function imprimirPDF() {
       { id:'chartTipo',    t:'Presupuesto vs Real por Tipo' }
     ];
     var varPct = txt('tcmp-var-pct'); // variación % temporadas (ya calculada en el dashboard)
+    var varLbl = txt('tcmp-var-lbl'); // "2026-2027 vs 2025-2026"
+    var varSub = ''; try{ var _vs=document.getElementById('tcmp-var-sub'); if(_vs) varSub=_vs.innerHTML; }catch(e){}
+    var varColor = '#334155'; try{ var _vp=document.getElementById('tcmp-var-pct'); if(_vp) varColor=_vp.style.color||'#334155'; }catch(e){}
     // Leyenda del sub-grupo (los 4 recuadros con % que van junto a la dona),
     // adaptada a fondo blanco para el reporte.
     var subLeg = '';
@@ -465,7 +468,7 @@ function imprimirPDF() {
         }
       }catch(e){}
       var titulo = c.t;
-      if(c.id==='chartTempCmp' && varPct && varPct!=='—'){ titulo = c.t+' · '+varPct+' vs temp. anterior'; }
+      // El % del gráfico de temporadas va en un badge grande a la derecha, no en el título.
       return { t:titulo, src:src, id:c.id,
                wide:(c.id==='chartTempCmp'||c.id==='chartSubgrupo'),
                extra:(c.id==='chartSubgrupo'?subLeg:'') };
@@ -484,6 +487,15 @@ function imprimirPDF() {
       if(im.id==='chartSubgrupo' && im.extra){
         inner = '<div class="sg"><div class="sg-img">'+(im.src?'<img src="'+im.src+'">':'')+'</div>'+
                 '<div class="sg-leg">'+im.extra+'</div></div>';
+      }
+      // El de temporadas lleva el gráfico + badge % grande a la derecha (como el dashboard)
+      if(im.id==='chartTempCmp' && varPct && varPct!=='—'){
+        inner = '<div class="tc"><div class="tc-img">'+(im.src?'<img src="'+im.src+'">':'')+'</div>'+
+                '<div class="tc-var">'+
+                  '<div class="tcv-lbl">'+(varLbl||'vs temp. anterior')+'</div>'+
+                  '<div class="tcv-pct" style="color:'+varColor+'">'+varPct+'</div>'+
+                  '<div class="tcv-sub">'+varSub+'</div>'+
+                '</div></div>';
       }
       return '<div class="c'+(im.wide?' wide':'')+'"><div class="ct">'+im.t+'</div>'+inner+'</div>';
     }).join('');
@@ -519,10 +531,17 @@ function imprimirPDF() {
     '.cv{font-size:8px;color:#94a3b8;text-align:center;padding:20px 0}'+
     /* Sub-grupo: dona GRANDE (2x) a la izquierda, leyenda legible a la derecha */
     '.sg{display:flex;align-items:center;gap:14px}'+
-    '.sg-img{flex:none;width:44%;display:flex;align-items:center;justify-content:center}'+
-    '.sg-img img{width:100%;max-width:230px;height:auto;max-height:none;object-fit:contain}'+
+    '.sg-img{flex:none;width:48%;display:flex;align-items:center;justify-content:center}'+
+    '.sg-img img{width:100%;max-width:290px;height:auto;max-height:none;object-fit:contain}'+
     '.sg-leg{flex:1;display:grid;grid-template-columns:1fr 1fr;gap:7px;font-size:11px}'+
     '.sg-leg>div{padding:7px 9px !important}'+
+    /* Temporadas: gráfico + badge % grande a la derecha */
+    '.tc{display:flex;align-items:center;gap:12px}'+
+    '.tc-img{flex:1;min-width:0}.tc-img img{width:100%;max-height:150px;object-fit:contain}'+
+    '.tc-var{flex:none;width:130px;text-align:center;border-left:1px solid #e2e8f0;padding-left:10px}'+
+    '.tcv-lbl{font-size:9px;color:#8a7f66;text-transform:uppercase;letter-spacing:.3px;font-weight:700;line-height:1.2}'+
+    '.tcv-pct{font-size:34px;font-weight:800;line-height:1;margin:5px 0}'+
+    '.tcv-sub{font-size:8px;color:#94a3b8;line-height:1.3}'+
     '.ft{margin-top:8px;text-align:center;font-size:7px;color:#94a3b8;border-top:1px solid #e2e8f0;padding-top:4px}'+
     '</style></head><body>'+
     '<div class="hdr">'+logoHtml+
