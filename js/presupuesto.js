@@ -2278,9 +2278,30 @@ function renderDevChart(data) {
     byDesc[k].r += d["MONTO REAL"];
   });
 
+  // ── Real de la temporada ANTERIOR por descripción (mismos meses filtrados) ──
+  var realAntDesc = {};
+  try{
+    var full = (typeof pzDataset==='function') ? pzDataset() : [];
+    var tempsAll=[]; full.forEach(function(d){ var t=_getTemporada(d); if(t&&tempsAll.indexOf(t)<0) tempsAll.push(t); });
+    tempsAll.sort();
+    var tempSelEl=document.getElementById('f-temporada');
+    var tempActual=(tempSelEl&&tempSelEl.value)?tempSelEl.value:(tempsAll.length?tempsAll[tempsAll.length-1]:'');
+    var idxAct=tempsAll.indexOf(tempActual);
+    var tempAnterior=(idxAct>0)?tempsAll[idxAct-1]:'';
+    var mesesSel=(typeof getMesesSel==='function')?getMesesSel():[];
+    if(tempAnterior){
+      full.forEach(function(d){
+        if(_getTemporada(d)!==tempAnterior) return;
+        if(mesesSel.length && mesesSel.indexOf(d.MES)<0) return;
+        var k=d.DESCRIPCION;
+        realAntDesc[k]=(realAntDesc[k]||0)+(getReal(d)||0);
+      });
+    }
+  }catch(e){ console.error('dev temp anterior:',e); }
+
   // Calculate deviations, exclude items with no movement
   const items = Object.entries(byDesc)
-    .map(([k, v]) => ({ label: k, dev: v.r - v.p, p: v.p, r: v.r }))
+    .map(([k, v]) => ({ label: k, dev: v.r - v.p, p: v.p, r: v.r, ra: Math.round(realAntDesc[k]||0) }))
     .filter(x => Math.abs(x.dev) > 0)
     .sort((a, b) => a.dev - b.dev); // ascending: negatives left, positives right
 
@@ -2290,7 +2311,9 @@ function renderDevChart(data) {
   const devVals  = items.map(x => Math.round(x.dev));
   const realVals = items.map(x => Math.round(x.r));
   const pptoVals = items.map(x => Math.round(x.p));
-  const maxX     = Math.max(...items.map(x => Math.max(x.p, x.r)), 1);
+  const antVals  = items.map(x => Math.round(x.ra||0));
+  const hayAnt   = antVals.some(function(v){ return v>0; });
+  const maxX     = Math.max(...items.map(x => Math.max(x.p, x.r, x.ra||0)), 1);
 
   // Dynamic height — barras más gruesas para mejor lectura
   const h = Math.max(220, items.length * 32);
@@ -2311,6 +2334,22 @@ function renderDevChart(data) {
         borderSkipped: false,
         barThickness: 14,
         categoryPercentage: 0.8,
+        order: 1,
+      },
+      {
+        // Temporada anterior: barra fina superpuesta (no agrupada), de otro color.
+        label: 'Real temp. anterior',
+        data: antVals,
+        backgroundColor: 'rgba(59,130,246,0.30)',
+        borderColor: 'rgba(37,99,235,0.7)',
+        borderWidth: 1,
+        borderRadius: 2,
+        borderSkipped: false,
+        barThickness: 24,
+        categoryPercentage: 0.8,
+        grouped: false,
+        order: 3,
+        hidden: !hayAnt,
       }]
     },
     options: {
@@ -2326,11 +2365,18 @@ function renderDevChart(data) {
           borderWidth: 1,
           callbacks: {
             label: ctx => {
+              // Solo detallar una vez (en la barra real, dataset 0)
+              if(ctx.datasetIndex !== 0) return null;
               const itm = items[ctx.dataIndex];
               const pct = itm.p ? ((itm.dev / Math.abs(itm.p)) * 100).toFixed(1) : '—';
-              return [' Real: ' + fmtVal(itm.r),
+              var out = [' Real: ' + fmtVal(itm.r),
                       ' Presupuesto: ' + fmtVal(itm.p),
                       ' Desviación: ' + (itm.dev >= 0 ? '+' : '-') + fmtVal(Math.abs(itm.dev)) + '  (' + (itm.dev >= 0 ? '+' : '') + pct + '%)'];
+              if(itm.ra>0){
+                var vt = (((itm.r-itm.ra)/itm.ra)*100).toFixed(1);
+                out.push(' Temp. anterior: ' + fmtVal(itm.ra) + '  (' + (itm.r>=itm.ra?'+':'') + vt + '%)');
+              }
+              return out;
             },
             title: ctx => ctx[0].label + '  👆 clic en etiqueta para ver detalle'
           }
