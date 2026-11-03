@@ -73,7 +73,7 @@ var FBCOUNT = (function(){
   });
 })();
 </script>
-<link rel="stylesheet" href="css/styles.css?v=173">
+<link rel="stylesheet" href="css/styles.css?v=174">
 </head>
 <body>
 <!-- Hoja de estilo dinámica para el tema forestal (se llena vía JS) -->
@@ -768,7 +768,7 @@ document.addEventListener('click', function(e){
   if(dd && dd.classList.contains('open') && !dd.contains(e.target)) dd.classList.remove('open');
 });
 </script>
-<script src="js/core.js?v=173"></script>
+<script src="js/core.js?v=174"></script>
 <script>
 /* ═══════════════ MÓDULO: CONTROL DE PRESUPUESTO ═══════════════ */
 /* Integra el dashboard de Control de Presupuesto (Huerto Cerezos 2018) como
@@ -1866,7 +1866,14 @@ function renderPresupuesto(main){
           <button id="tcmp-acum" onclick="pzToggleTempCmp(true)" style="font-size:11px;padding:3px 10px;border:1px solid #cbd5e1;border-radius:6px;cursor:pointer;background:#fff;color:#334155;font-weight:700">Acumulado</button>
         </span>
       </div>
-      <div class="chart-main-wrap" style="height:230px"><canvas id="chartTempCmp"></canvas></div>
+      <div style="display:flex;align-items:stretch;gap:10px">
+        <div class="chart-main-wrap" style="height:230px;flex:1;min-width:0"><canvas id="chartTempCmp"></canvas></div>
+        <div id="tcmp-var" style="flex:none;width:118px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;border-left:1px solid #e5decb;padding-left:8px">
+          <div style="font-size:9px;color:#8a7f66;text-transform:uppercase;letter-spacing:.4px;font-weight:700;line-height:1.2" id="tcmp-var-lbl">vs temp. anterior</div>
+          <div id="tcmp-var-pct" style="font-size:30px;font-weight:800;line-height:1;margin-top:4px;color:#334155">—</div>
+          <div id="tcmp-var-sub" style="font-size:8px;color:#94a3b8;margin-top:4px;line-height:1.3"></div>
+        </div>
+      </div>
     </div>
 
   </div>
@@ -2076,11 +2083,11 @@ function renderPresupuesto(main){
 }
 
 </script>
-<script src="js/inventario.js?v=173"></script>
-<script src="js/ordencompra.js?v=173"></script>
-<script src="js/huerto.js?v=173"></script>
-<script src="js/actualizacion.js?v=173"></script>
-<script src="js/helada.js?v=173"></script>
+<script src="js/inventario.js?v=174"></script>
+<script src="js/ordencompra.js?v=174"></script>
+<script src="js/huerto.js?v=174"></script>
+<script src="js/actualizacion.js?v=174"></script>
+<script src="js/helada.js?v=174"></script>
 <script>
 
 /* ═══════════════ MÓDULO: MANTENCIONES ═══════════════ */
@@ -2841,7 +2848,7 @@ var S = { panos:[], registros:[], productos:[], ordenes:[], oCounter:1, confirma
 };
 
 </script>
-<script src="js/cuaderno.js?v=173"></script>
+<script src="js/cuaderno.js?v=174"></script>
 <script>
 
 /* ═══════════════ INTEGRACIÓN CUADERNO DE CAMPO ═══════════════ */
@@ -2898,8 +2905,8 @@ function renderCuaderno(main){
 </script>
 
 
-<script src="data/presupuesto-data.js?v=173"></script>
-<script src="js/presupuesto.js?v=173"></script>
+<script src="data/presupuesto-data.js?v=174"></script>
+<script src="js/presupuesto.js?v=174"></script>
 <script>
 /* ── Normalización global a MAYÚSCULAS en la entrada de datos ──
    Aplica a inputs de texto y textareas de todo el sistema.

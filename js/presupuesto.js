@@ -408,15 +408,18 @@ function imprimirPDF() {
       { id:'chartTipo',    t:'Presupuesto vs Real por Tipo' },
       { id:'chartLinea',   t:'Evolución Mensual' },
       { id:'chartDesc',    t:'Presupuesto vs Real por Descripción' },
-      { id:'chartTempCmp', t:'Gasto Real por Temporada' },
-      { id:'chartSubgrupo',t:'Por Sub-Grupo' },
-      { id:'chartDev',     t:'Desviación por Ítem' }
+      { id:'chartTempCmp', t:'Comparación de Temporadas' },
+      { id:'chartSubgrupo',t:'Por Sub-Grupo' }
     ];
+    var varPct = txt('tcmp-var-pct'); // variación % temporadas (ya calculada en el dashboard)
     var imgs = charts.map(function(c){
       var cv = document.getElementById(c.id);
       var src = '';
       try{ if(cv && cv.toDataURL) src = cv.toDataURL('image/png', 1.0); }catch(e){}
-      return { t:c.t, src:src };
+      var titulo = c.t;
+      // Al gráfico de temporadas se le agrega la variación % en el título
+      if(c.id==='chartTempCmp' && varPct && varPct!=='—'){ titulo = c.t+' · '+varPct+' vs temp. anterior'; }
+      return { t:titulo, src:src, wide:(c.id==='chartTempCmp') };
     });
 
     var kpiHtml = kpis.map(function(k){
@@ -427,7 +430,7 @@ function imprimirPDF() {
     }).join('');
 
     var chartHtml = imgs.map(function(im){
-      return '<div class="c"><div class="ct">'+im.t+'</div>'+
+      return '<div class="c'+(im.wide?' wide':'')+'"><div class="ct">'+im.t+'</div>'+
              (im.src ? '<img src="'+im.src+'">' : '<div class="cv">sin datos</div>')+'</div>';
     }).join('');
 
@@ -456,6 +459,7 @@ function imprimirPDF() {
     '.ks{font-size:6px;color:#94a3b8;margin-top:2px}'+
     '.charts{display:grid;grid-template-columns:1fr 1fr;gap:7px}'+
     '.c{border:1px solid #e2e8f0;border-radius:6px;padding:5px 6px}'+
+    '.c.wide{grid-column:1 / -1}'+
     '.ct{font-size:8px;font-weight:700;color:#334155;margin-bottom:3px}'+
     '.c img{width:100%;height:auto;display:block;max-height:115px;object-fit:contain}'+
     '.cv{font-size:7px;color:#94a3b8;text-align:center;padding:20px 0}'+
@@ -1643,6 +1647,48 @@ function renderTempCompareChart(allData){
       }
     }
   });
+
+  // ── Variación % de la temporada más reciente vs la anterior, considerando
+  //    SOLO los meses filtrados (si no hay meses filtrados, usa todos los meses).
+  try{
+    var elPct=document.getElementById('tcmp-var-pct');
+    var elSub=document.getElementById('tcmp-var-sub');
+    var elLbl=document.getElementById('tcmp-var-lbl');
+    if(elPct){
+      var mesesSel = (typeof getMesesSel==='function') ? getMesesSel() : [];
+      var mesesUsar = (mesesSel && mesesSel.length) ? mesesSel : MONTH_ORDER.slice();
+      // sumar real por temporada en los meses a usar
+      var sumaTemp={};
+      temps.forEach(function(t){
+        var s=0; mesesUsar.forEach(function(m){ s += (map[t][m]||0); });
+        sumaTemp[t]=s;
+      });
+      // temps está ordenada ascendente; actual = última, anterior = penúltima
+      if(temps.length>=2){
+        var tAct=temps[temps.length-1], tAnt=temps[temps.length-2];
+        var vAct=sumaTemp[tAct]||0, vAnt=sumaTemp[tAnt]||0;
+        if(vAnt>0){
+          var pct=((vAct-vAnt)/vAnt)*100;
+          var signo=pct>=0?'+':'';
+          var color=pct>0 ? '#ef4444' : (pct<0 ? '#16a34a' : '#64748b'); // más gasto = rojo
+          elPct.textContent=signo+pct.toFixed(1)+'%';
+          elPct.style.color=color;
+          if(elLbl) elLbl.textContent=tAct+' vs '+tAnt;
+          if(elSub){
+            var etMeses = (mesesSel && mesesSel.length) ? (mesesSel.length+' mes(es) filtrado(s)') : 'todos los meses';
+            elSub.innerHTML = fmtVal(vAct)+' vs '+fmtVal(vAnt)+'<br>'+etMeses;
+          }
+        } else {
+          elPct.textContent='—'; elPct.style.color='#334155';
+          if(elSub) elSub.textContent='sin base de comparación';
+        }
+      } else {
+        elPct.textContent='—'; elPct.style.color='#334155';
+        if(elLbl) elLbl.textContent='vs temp. anterior';
+        if(elSub) elSub.textContent='una sola temporada';
+      }
+    }
+  }catch(e){ console.error('tcmp var %:',e); }
 }
 function pzToggleTempCmp(acum){
   _tempCmpAcum=!!acum;
