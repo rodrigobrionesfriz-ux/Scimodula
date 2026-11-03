@@ -404,22 +404,39 @@ function imprimirPDF() {
     ];
 
     // Capturar los 6 primeros gráficos (canvas) a PNG, con su título
+    // Orden según el reporte gerencial solicitado.
     var charts = [
-      { id:'chartTipo',    t:'Presupuesto vs Real por Tipo' },
+      { id:'chartSubgrupo',t:'Por Sub-Grupo' },
+      { id:'chartTempCmp', t:'Comparación de Temporadas' },
       { id:'chartLinea',   t:'Evolución Mensual' },
       { id:'chartDesc',    t:'Presupuesto vs Real por Descripción' },
-      { id:'chartTempCmp', t:'Comparación de Temporadas' },
-      { id:'chartSubgrupo',t:'Por Sub-Grupo' }
+      { id:'chartTipo',    t:'Presupuesto vs Real por Tipo' }
     ];
     var varPct = txt('tcmp-var-pct'); // variación % temporadas (ya calculada en el dashboard)
+    // Leyenda del sub-grupo (los 4 recuadros con % que van junto a la dona),
+    // adaptada a fondo blanco para el reporte.
+    var subLeg = '';
+    try{
+      var lg=document.getElementById('subgrupo-legend');
+      if(lg){
+        subLeg = lg.innerHTML
+          .replace(/color:#ffffff/g,'color:#0d1b2e')
+          .replace(/color:#fff\b/g,'color:#0d1b2e')
+          .replace(/color:#cbd5e1/g,'color:#334155')
+          .replace(/background:rgba\(255,255,255,0\.03\)/g,'background:#f8fafc')
+          .replace(/border:1px solid rgba\(255,255,255,0\.06\)/g,'border:1px solid #e2e8f0')
+          .replace(/border-top:1px solid rgba\(255,255,255,0\.06\)/g,'border-top:1px solid #e2e8f0');
+      }
+    }catch(e){}
     var imgs = charts.map(function(c){
       var cv = document.getElementById(c.id);
       var src = '';
       try{ if(cv && cv.toDataURL) src = cv.toDataURL('image/png', 1.0); }catch(e){}
       var titulo = c.t;
-      // Al gráfico de temporadas se le agrega la variación % en el título
       if(c.id==='chartTempCmp' && varPct && varPct!=='—'){ titulo = c.t+' · '+varPct+' vs temp. anterior'; }
-      return { t:titulo, src:src, wide:(c.id==='chartTempCmp') };
+      return { t:titulo, src:src, id:c.id,
+               wide:(c.id==='chartTempCmp'||c.id==='chartSubgrupo'),
+               extra:(c.id==='chartSubgrupo'?subLeg:'') };
     });
 
     var kpiHtml = kpis.map(function(k){
@@ -430,8 +447,13 @@ function imprimirPDF() {
     }).join('');
 
     var chartHtml = imgs.map(function(im){
-      return '<div class="c'+(im.wide?' wide':'')+'"><div class="ct">'+im.t+'</div>'+
-             (im.src ? '<img src="'+im.src+'">' : '<div class="cv">sin datos</div>')+'</div>';
+      var inner = (im.src ? '<img src="'+im.src+'">' : '<div class="cv">sin datos</div>');
+      // El sub-grupo lleva la dona + su leyenda de 4 recuadros al lado
+      if(im.id==='chartSubgrupo' && im.extra){
+        inner = '<div class="sg"><div class="sg-img">'+(im.src?'<img src="'+im.src+'">':'')+'</div>'+
+                '<div class="sg-leg">'+im.extra+'</div></div>';
+      }
+      return '<div class="c'+(im.wide?' wide':'')+'"><div class="ct">'+im.t+'</div>'+inner+'</div>';
     }).join('');
 
     var fecha = new Date().toLocaleDateString('es-CL',{day:'2-digit',month:'long',year:'numeric'});
@@ -458,11 +480,14 @@ function imprimirPDF() {
     '.kv{font-size:12px;font-weight:800;color:#0d1b2e;margin-top:2px;line-height:1}'+
     '.ks{font-size:6px;color:#94a3b8;margin-top:2px}'+
     '.charts{display:grid;grid-template-columns:1fr 1fr;gap:7px}'+
-    '.c{border:1px solid #e2e8f0;border-radius:6px;padding:5px 6px}'+
+    '.c{border:1px solid #e2e8f0;border-radius:6px;padding:6px 7px}'+
     '.c.wide{grid-column:1 / -1}'+
-    '.ct{font-size:8px;font-weight:700;color:#334155;margin-bottom:3px}'+
-    '.c img{width:100%;height:auto;display:block;max-height:115px;object-fit:contain}'+
+    '.ct{font-size:11px;font-weight:800;color:#0d1b2e;margin-bottom:4px;text-align:center;letter-spacing:.2px}'+
+    '.c img{width:100%;height:auto;display:block;max-height:120px;object-fit:contain;margin:0 auto}'+
     '.cv{font-size:7px;color:#94a3b8;text-align:center;padding:20px 0}'+
+    '.sg{display:flex;align-items:center;gap:10px}'+
+    '.sg-img{flex:none;width:40%}.sg-img img{max-height:130px}'+
+    '.sg-leg{flex:1;display:grid;grid-template-columns:1fr 1fr;gap:5px}'+
     '.ft{margin-top:8px;text-align:center;font-size:6.5px;color:#94a3b8;border-top:1px solid #e2e8f0;padding-top:4px}'+
     '</style></head><body>'+
     '<div class="hdr">'+logoHtml+
