@@ -432,10 +432,38 @@ function imprimirPDF() {
           .replace(/font-size:9px/g,'font-size:11px');
       }
     }catch(e){}
+    // Recorta el padding transparente de un canvas (deja solo el dibujo).
+    // Útil para la dona, que en pantalla queda rodeada de mucho margen vacío.
+    function _recortarCanvas(cv){
+      try{
+        var w=cv.width, h=cv.height;
+        var ctx=cv.getContext('2d');
+        var img=ctx.getImageData(0,0,w,h).data;
+        var minX=w, minY=h, maxX=0, maxY=0, found=false;
+        for(var y=0;y<h;y++){
+          for(var x=0;x<w;x++){
+            var a=img[(y*w+x)*4+3];
+            if(a>8){ found=true; if(x<minX)minX=x; if(x>maxX)maxX=x; if(y<minY)minY=y; if(y>maxY)maxY=y; }
+          }
+        }
+        if(!found) return cv.toDataURL('image/png',1.0);
+        var pad=6;
+        minX=Math.max(0,minX-pad); minY=Math.max(0,minY-pad);
+        maxX=Math.min(w,maxX+pad); maxY=Math.min(h,maxY+pad);
+        var cw=maxX-minX, ch=maxY-minY;
+        var out=document.createElement('canvas'); out.width=cw; out.height=ch;
+        out.getContext('2d').drawImage(cv, minX,minY,cw,ch, 0,0,cw,ch);
+        return out.toDataURL('image/png',1.0);
+      }catch(e){ return cv.toDataURL('image/png',1.0); }
+    }
     var imgs = charts.map(function(c){
       var cv = document.getElementById(c.id);
       var src = '';
-      try{ if(cv && cv.toDataURL) src = cv.toDataURL('image/png', 1.0); }catch(e){}
+      try{
+        if(cv && cv.toDataURL){
+          src = (c.id==='chartSubgrupo') ? _recortarCanvas(cv) : cv.toDataURL('image/png', 1.0);
+        }
+      }catch(e){}
       var titulo = c.t;
       if(c.id==='chartTempCmp' && varPct && varPct!=='—'){ titulo = c.t+' · '+varPct+' vs temp. anterior'; }
       return { t:titulo, src:src, id:c.id,
@@ -491,7 +519,8 @@ function imprimirPDF() {
     '.cv{font-size:8px;color:#94a3b8;text-align:center;padding:20px 0}'+
     /* Sub-grupo: dona GRANDE (2x) a la izquierda, leyenda legible a la derecha */
     '.sg{display:flex;align-items:center;gap:14px}'+
-    '.sg-img{flex:none;width:46%}.sg-img img{max-height:260px;width:100%;object-fit:contain}'+
+    '.sg-img{flex:none;width:44%;display:flex;align-items:center;justify-content:center}'+
+    '.sg-img img{width:100%;max-width:230px;height:auto;max-height:none;object-fit:contain}'+
     '.sg-leg{flex:1;display:grid;grid-template-columns:1fr 1fr;gap:7px;font-size:11px}'+
     '.sg-leg>div{padding:7px 9px !important}'+
     '.ft{margin-top:8px;text-align:center;font-size:7px;color:#94a3b8;border-top:1px solid #e2e8f0;padding-top:4px}'+
