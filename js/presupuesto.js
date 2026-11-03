@@ -381,8 +381,107 @@ function renderDetalleTable(items) {
 
 // ===================== PRINT / PDF =====================
 function imprimirPDF() {
-  // Give charts time to render before print dialog
-  window.print();
+  try {
+    // Reporte gerencial de 1 hoja carta: membrete + 6 KPIs + 6 gráficos.
+    var txt = function(id){ var e=document.getElementById(id); return e? (e.textContent||'').trim() : ''; };
+    var cls = function(id){ var e=document.getElementById(id); return e? (e.className||'') : ''; };
+    // Empresa
+    var emp = {};
+    try{ emp = (STATE.cache && STATE.cache.config && STATE.cache.config.empresa) || {}; }catch(e){}
+    var empNombre = emp.nombre || 'SOCIEDAD AGRÍCOLA Y FORESTAL LA CABAÑA LTDA.';
+    var empRut    = emp.rut ? ('RUT '+emp.rut) : '';
+    var logo      = emp.logo || '';
+    var mesAct    = txt('last-update') || '—';
+
+    // 6 KPIs (id, etiqueta, sub)
+    var kpis = [
+      { lbl:'Presupuesto Total', val:txt('kpi-ppto'),  sub:txt('kpi-sub-ppto'),  color:'#3b82f6' },
+      { lbl:'Real Acumulado',    val:txt('kpi-real'),  sub:txt('kpi-sub-real'),  color:'#16c784' },
+      { lbl:'Desviación',        val:txt('kpi-dev'),   sub:txt('kpi-dev-pct'),   color:(cls('kpi-dev-card').indexOf('green')>=0?'#16c784':'#ef4444') },
+      { lbl:'Meses con Real',    val:txt('kpi-meses-real'), sub:'de '+txt('kpi-total-meses')+' meses', color:'#22d3ee' },
+      { lbl:'Mayor Sobreejec.',  val:txt('kpi-max-over'),   sub:txt('kpi-max-over-label'), color:'#f59e0b' },
+      { lbl:'Avance Ejecución',  val:txt('kpi-avance'), sub:'Real / Presupuesto', color:'#a78bfa' }
+    ];
+
+    // Capturar los 6 primeros gráficos (canvas) a PNG, con su título
+    var charts = [
+      { id:'chartTipo',    t:'Presupuesto vs Real por Tipo' },
+      { id:'chartLinea',   t:'Evolución Mensual' },
+      { id:'chartDesc',    t:'Presupuesto vs Real por Descripción' },
+      { id:'chartTempCmp', t:'Gasto Real por Temporada' },
+      { id:'chartSubgrupo',t:'Por Sub-Grupo' },
+      { id:'chartDev',     t:'Desviación por Ítem' }
+    ];
+    var imgs = charts.map(function(c){
+      var cv = document.getElementById(c.id);
+      var src = '';
+      try{ if(cv && cv.toDataURL) src = cv.toDataURL('image/png', 1.0); }catch(e){}
+      return { t:c.t, src:src };
+    });
+
+    var kpiHtml = kpis.map(function(k){
+      return '<div class="k"><div class="kb" style="background:'+k.color+'"></div>'+
+             '<div class="kl">'+k.lbl+'</div>'+
+             '<div class="kv">'+(k.val||'—')+'</div>'+
+             '<div class="ks">'+(k.sub||'')+'</div></div>';
+    }).join('');
+
+    var chartHtml = imgs.map(function(im){
+      return '<div class="c"><div class="ct">'+im.t+'</div>'+
+             (im.src ? '<img src="'+im.src+'">' : '<div class="cv">sin datos</div>')+'</div>';
+    }).join('');
+
+    var fecha = new Date().toLocaleDateString('es-CL',{day:'2-digit',month:'long',year:'numeric'});
+    var logoHtml = logo ? '<img class="logo" src="'+logo+'">' : '<div class="logo ph">📊</div>';
+
+    var doc =
+    '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Reporte Gerencial Presupuesto</title>'+
+    '<style>'+
+    '@page{size:letter portrait;margin:8mm}'+
+    '*{box-sizing:border-box;margin:0;padding:0}'+
+    'body{font-family:Arial,Helvetica,sans-serif;color:#1e293b;font-size:9px}'+
+    '.hdr{display:flex;align-items:center;gap:10px;border-bottom:2px solid #16c784;padding-bottom:6px;margin-bottom:8px}'+
+    '.logo{width:46px;height:46px;border-radius:50%;object-fit:cover;flex:none}'+
+    '.logo.ph{background:linear-gradient(135deg,#354a5f,#0854a0);display:flex;align-items:center;justify-content:center;font-size:22px}'+
+    '.hi .emp{font-size:12px;font-weight:800;color:#0d1b2e;line-height:1.1}'+
+    '.hi .sub{font-size:8px;color:#64748b;margin-top:1px}'+
+    '.hi .rep{font-size:9px;color:#0d1b2e;font-weight:700;margin-top:3px}'+
+    '.hr{margin-left:auto;text-align:right;font-size:8px;color:#64748b}'+
+    '.hr b{display:block;font-size:11px;color:#16a34a}'+
+    '.kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:5px;margin-bottom:8px}'+
+    '.k{border:1px solid #e2e8f0;border-radius:6px;padding:6px 7px;position:relative;overflow:hidden}'+
+    '.kb{position:absolute;top:0;left:0;right:0;height:3px}'+
+    '.kl{font-size:6.5px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.3px;margin-top:2px}'+
+    '.kv{font-size:12px;font-weight:800;color:#0d1b2e;margin-top:2px;line-height:1}'+
+    '.ks{font-size:6px;color:#94a3b8;margin-top:2px}'+
+    '.charts{display:grid;grid-template-columns:1fr 1fr;gap:7px}'+
+    '.c{border:1px solid #e2e8f0;border-radius:6px;padding:5px 6px}'+
+    '.ct{font-size:8px;font-weight:700;color:#334155;margin-bottom:3px}'+
+    '.c img{width:100%;height:auto;display:block;max-height:115px;object-fit:contain}'+
+    '.cv{font-size:7px;color:#94a3b8;text-align:center;padding:20px 0}'+
+    '.ft{margin-top:8px;text-align:center;font-size:6.5px;color:#94a3b8;border-top:1px solid #e2e8f0;padding-top:4px}'+
+    '</style></head><body>'+
+    '<div class="hdr">'+logoHtml+
+      '<div class="hi"><div class="emp">'+empNombre+'</div>'+
+        (empRut?'<div class="sub">'+empRut+'</div>':'')+
+        '<div class="rep">Reporte Gerencial · Control de Presupuesto</div></div>'+
+      '<div class="hr">Actualizado a<b>'+mesAct+'</b>Emitido '+fecha+'</div>'+
+    '</div>'+
+    '<div class="kpis">'+kpiHtml+'</div>'+
+    '<div class="charts">'+chartHtml+'</div>'+
+    '<div class="ft">Generado por SCI · Control de Presupuesto</div>'+
+    '</body></html>';
+
+    var w = window.open('', '_blank');
+    if(!w){ toast&&toast('Bloqueado','Permita ventanas emergentes para imprimir','error'); return; }
+    w.document.open(); w.document.write(doc); w.document.close();
+    // Esperar a que carguen las imágenes antes de imprimir
+    w.onload = function(){ setTimeout(function(){ try{ w.focus(); w.print(); }catch(e){} }, 400); };
+    setTimeout(function(){ try{ if(!w.closed){ w.focus(); w.print(); } }catch(e){} }, 900);
+  } catch(err){
+    console.error('imprimirPDF gerencial error:', err);
+    window.print(); // respaldo
+  }
 }
 
 // ===================== RESUMEN COSECHA BANNER =====================
