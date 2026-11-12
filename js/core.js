@@ -9,7 +9,7 @@
 
 /* ═══════════════ DB LAYER (IndexedDB) ═══════════════ */
 const DB_NAME='SCI_DB';
-const DB_VERSION=16;   // v129: store 'clima'. Subido a 16 en v171 porque una prueba previa dejó bases en v15; 16 va por encima y no borra datos (onupgradeneeded solo crea stores que falten).
+const DB_VERSION=17;   // v185: nuevo store 'revisiones' (revisiones de gastos para ajuste de presupuesto). onupgradeneeded solo crea stores que falten, no borra datos.
 const STORES=[
   ['users','id'],
   ['products','codigoInterno'],
@@ -34,7 +34,8 @@ const STORES=[
   ['aihprop','id'],
   ['aihver','id'],
   ['heladas','id'],
-  ['clima','fecha']
+  ['clima','fecha'],
+  ['revisiones','id']
 ];
 let DB=null;
 
@@ -193,7 +194,7 @@ var SCIFB = {
   applyingRemote: false,
   saveTimer: null,
   // Tablas que se sincronizan (todas las del SCI)
-  stores: ['users','products','warehouses','groups','productTypes','providers','customers','costCenters','inventoryCounts','movements','ordenescompra','lots','config','mantenciones','conteos','estimaciones','invplantas','combustible','aihprop','heladas','clima']
+  stores: ['users','products','warehouses','groups','productTypes','providers','customers','costCenters','inventoryCounts','movements','ordenescompra','lots','config','mantenciones','conteos','estimaciones','invplantas','combustible','aihprop','heladas','clima','revisiones']
 };
 
 function sciFbDocRef(){
@@ -498,7 +499,7 @@ function _sciEstaEliminado(store, rec, key){
    dispositivo borre datos que otro creó. */
 var SCI_STORES_ACUMULATIVOS = {
   'invplantas':1,'conteos':1,'estimaciones':1,'movements':1,'combustible':1,'aihprop':1,
-  'mantenciones':1,'inventoryCounts':1,'audit':1,'lots':1,'ordenescompra':1,'heladas':1,'clima':1
+  'mantenciones':1,'inventoryCounts':1,'audit':1,'lots':1,'ordenescompra':1,'heladas':1,'clima':1,'revisiones':1
 };
 function _sciStoreKey(store){
   try{ for(var i=0;i<STORES.length;i++){ if(STORES[i][0]===store) return STORES[i][1]; } }catch(e){}

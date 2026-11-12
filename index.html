@@ -73,7 +73,7 @@ var FBCOUNT = (function(){
   });
 })();
 </script>
-<link rel="stylesheet" href="css/styles.css?v=184">
+<link rel="stylesheet" href="css/styles.css?v=185">
 </head>
 <body>
 <!-- Hoja de estilo dinámica para el tema forestal (se llena vía JS) -->
@@ -768,7 +768,7 @@ document.addEventListener('click', function(e){
   if(dd && dd.classList.contains('open') && !dd.contains(e.target)) dd.classList.remove('open');
 });
 </script>
-<script src="js/core.js?v=184"></script>
+<script src="js/core.js?v=185"></script>
 <script>
 /* ═══════════════ MÓDULO: CONTROL DE PRESUPUESTO ═══════════════ */
 /* Integra el dashboard de Control de Presupuesto (Huerto Cerezos 2018) como
@@ -1802,7 +1802,7 @@ function renderPresupuesto(main){
     <label>DESCRIPCIÓN</label>
     <select id="f-desc"><option value="">Todos</option><option value="ANÁLISIS Y ASESORIAS FRUTALES">ANÁLISIS Y ASESORIAS FRUTALES</option><option value="ARRIENDO MAQUINARIA Y EQUIPOS">ARRIENDO MAQUINARIA Y EQUIPOS</option><option value="ARRIENDO PREDIO FRUTALES">ARRIENDO PREDIO FRUTALES</option><option value="ASESORÍAS, CERTIFICACIÓN Y CAPACITACIONES">ASESORÍAS, CERTIFICACIÓN Y CAPACITACIONES</option><option value="BANCARIOS, LEGALES, FINANCIEROS  Y SEGUROS">BANCARIOS, LEGALES, FINANCIEROS  Y SEGUROS</option><option value="BIOESTIMULANTES">BIOESTIMULANTES</option><option value="COMBUSTIBLES Y LUBRICANTES">COMBUSTIBLES Y LUBRICANTES</option><option value="CONTRATISTA COSECHA">CONTRATISTA COSECHA</option><option value="CONTRIBUCIONES (BIENES RAÍCES &amp; RIEGO)">CONTRIBUCIONES (BIENES RAÍCES &amp; RIEGO)</option><option value="CONTROL DE PLAGAS">CONTROL DE PLAGAS</option><option value="ELECTRICIDAD BODEGAS, GALPÓN Y CASA">ELECTRICIDAD BODEGAS, GALPÓN Y CASA</option><option value="ELECTRICIDAD CEREZOS">ELECTRICIDAD CEREZOS</option><option value="FERTILIZANTES">FERTILIZANTES</option><option value="FLETES Y TRASLADOS">FLETES Y TRASLADOS</option><option value="GASTOS GENERALES">GASTOS GENERALES</option><option value="HONORARIOS PRESTACIÓN DE SERVICIOS">HONORARIOS PRESTACIÓN DE SERVICIOS</option><option value="IMPREVISTOS">IMPREVISTOS</option><option value="INSUMOS FITOSANITARIOS">INSUMOS FITOSANITARIOS</option><option value="LEASING FINANCIEROS">LEASING FINANCIEROS</option><option value="MANO DE OBRA ADMINISTRACIÓN &amp; GERENCIA">MANO DE OBRA ADMINISTRACIÓN &amp; GERENCIA</option><option value="MANO DE OBRA DIRECTA">MANO DE OBRA DIRECTA</option><option value="MANO DE OBRA DIRECTA Y LOGISTICA">MANO DE OBRA DIRECTA Y LOGISTICA</option><option value="MANO DE OBRA INDIRECTA (CONTRATISTAS)">MANO DE OBRA INDIRECTA (CONTRATISTAS)</option><option value="MANT. MAQUINARÍA, VEHICULOS Y EQUIPOS">MANT. MAQUINARÍA, VEHICULOS Y EQUIPOS</option><option value="MANTENCIÓN VARIAS RIEGO">MANTENCIÓN VARIAS RIEGO</option><option value="MANTENCIÓN Y REPARACIÓN INSTALACIONES">MANTENCIÓN Y REPARACIÓN INSTALACIONES</option><option value="MATERIALES, EPP Y CONSUMOS VARIOS">MATERIALES, EPP Y CONSUMOS VARIOS</option><option value="OTROS COSTOS DE INSUMOS Y ARRIENDOS">OTROS COSTOS DE INSUMOS Y ARRIENDOS</option><option value="OTROS GASTOS GENERALES">OTROS GASTOS GENERALES</option><option value="PLANTAS &amp; ROYALTY">PLANTAS &amp; ROYALTY</option><option value="POLINIZACIÓN">POLINIZACIÓN</option></select>
   </div>
-  <button class="btn-reset" onclick="PZ.generarListadoRevision()" title="Listado ordenado por tipo de costo, descripción y detalle, respetando los filtros, para revisar con gerencia" style="background:#0854a0;color:#fff;border:none;font-weight:700">📋 Listado revisión</button>
+  <button class="btn-reset" onclick="PZ.abrirRevision()" title="Revisión de gastos reales para ajustar el presupuesto: marca Sí/No y observaciones, guarda y emite reporte" style="background:#0854a0;color:#fff;border:none;font-weight:700">📋 Revisión de gastos</button>
   <button class="btn-reset" onclick="PZ.resetFilters();pzMesRefresh()">↺ Limpiar filtros</button>
 </div>
 
@@ -2066,6 +2066,44 @@ function renderPresupuesto(main){
     </div>
   </div>
 </div>
+
+<!-- ───────── MODAL REVISIÓN DE GASTOS (para ajuste de presupuesto) ───────── -->
+<div class="modal-overlay" id="revision-modal" style="z-index:10030">
+  <div class="modal" style="max-width:1100px;width:96%;max-height:92vh;display:flex;flex-direction:column">
+    <div class="modal-header" style="display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--bo)">
+      <div style="font-size:17px;font-weight:800;color:var(--text)">📋 Revisión de Gastos</div>
+      <div id="rev-sub" style="font-size:12px;color:var(--mu)"></div>
+      <div style="margin-left:auto;display:flex;gap:8px">
+        <button id="rev-tab-nueva" onclick="PZ.revTab('nueva')" style="font-size:12px;padding:6px 12px;border:1px solid var(--bo);border-radius:7px;cursor:pointer;background:#0854a0;color:#fff;font-weight:700">Revisión actual</button>
+        <button id="rev-tab-hist" onclick="PZ.revTab('hist')" style="font-size:12px;padding:6px 12px;border:1px solid var(--bo);border-radius:7px;cursor:pointer;background:#fff;color:#334155;font-weight:700">Historial</button>
+        <button onclick="PZ.cerrarRevision()" style="font-size:18px;padding:2px 10px;border:none;border-radius:7px;cursor:pointer;background:transparent;color:#64748b">✕</button>
+      </div>
+    </div>
+
+    <!-- Vista: revisión nueva/actual -->
+    <div id="rev-pane-nueva" style="flex:1;overflow:auto;padding:0">
+      <div style="padding:10px 16px;background:#f8fafc;border-bottom:1px solid var(--bo);display:flex;flex-wrap:wrap;gap:14px;align-items:center;font-size:12px;color:#475569">
+        <span>Marca <b>¿Se ejecuta esta temporada?</b> y anota observaciones por cada gasto.</span>
+        <span id="rev-resumen" style="margin-left:auto;font-weight:700"></span>
+      </div>
+      <div id="rev-lista" style="padding:0"></div>
+    </div>
+
+    <!-- Vista: historial -->
+    <div id="rev-pane-hist" style="flex:1;overflow:auto;padding:14px 16px;display:none">
+      <div id="rev-hist-lista"></div>
+    </div>
+
+    <div class="modal-footer" style="padding:12px 18px;border-top:1px solid var(--bo);display:flex;gap:10px;align-items:center">
+      <span id="rev-estado" style="font-size:12px;color:var(--mu)"></span>
+      <div style="margin-left:auto;display:flex;gap:8px">
+        <button onclick="PZ.exportarRevisionExcel()" style="font-size:13px;padding:8px 14px;border:1px solid #16a34a;border-radius:7px;cursor:pointer;background:#fff;color:#15803d;font-weight:700">⬇ Exportar Excel</button>
+        <button onclick="PZ.guardarRevision()" style="font-size:13px;padding:8px 16px;border:none;border-radius:7px;cursor:pointer;background:#16a34a;color:#fff;font-weight:800">💾 Guardar revisión</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 </div><!-- /pz-pane-dashboard -->
 
 </div>`;
@@ -2085,11 +2123,11 @@ function renderPresupuesto(main){
 }
 
 </script>
-<script src="js/inventario.js?v=184"></script>
-<script src="js/ordencompra.js?v=184"></script>
-<script src="js/huerto.js?v=184"></script>
-<script src="js/actualizacion.js?v=184"></script>
-<script src="js/helada.js?v=184"></script>
+<script src="js/inventario.js?v=185"></script>
+<script src="js/ordencompra.js?v=185"></script>
+<script src="js/huerto.js?v=185"></script>
+<script src="js/actualizacion.js?v=185"></script>
+<script src="js/helada.js?v=185"></script>
 <script>
 
 /* ═══════════════ MÓDULO: MANTENCIONES ═══════════════ */
@@ -2850,7 +2888,7 @@ var S = { panos:[], registros:[], productos:[], ordenes:[], oCounter:1, confirma
 };
 
 </script>
-<script src="js/cuaderno.js?v=184"></script>
+<script src="js/cuaderno.js?v=185"></script>
 <script>
 
 /* ═══════════════ INTEGRACIÓN CUADERNO DE CAMPO ═══════════════ */
@@ -2907,8 +2945,8 @@ function renderCuaderno(main){
 </script>
 
 
-<script src="data/presupuesto-data.js?v=184"></script>
-<script src="js/presupuesto.js?v=184"></script>
+<script src="data/presupuesto-data.js?v=185"></script>
+<script src="js/presupuesto.js?v=185"></script>
 <script>
 /* ── Normalización global a MAYÚSCULAS en la entrada de datos ──
    Aplica a inputs de texto y textareas de todo el sistema.

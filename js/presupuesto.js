@@ -3397,113 +3397,279 @@ window.pzImprimirEERHa=function(){
   setTimeout(function(){ try{ w.focus(); w.print(); }catch(e){} }, 350);
 };
 
-
-// ===================== LISTADO DE REVISIÓN (para gerencia) =====================
-// Genera un Excel ordenado por Tipo de Costo → Descripción → Detalle, respetando
-// los filtros activos (temporada, meses, tipo, subgrupo, descripción). Incluye
-// columnas de checklist (¿Se ejecuta esta temporada? SÍ/NO) y Observaciones.
-function generarListadoRevision(){
-  try{
-    if(typeof XLSX==='undefined'){ toast('Sin librería','Excel no disponible','error'); return; }
-    var f = getFilters();
-    var MONTH_ORDER = ['MAYO','JUNIO','JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE','ENERO','FEBRERO','MARZO','ABRIL'];
-
-    // 1) Mapa Descripción → Tipo de Costo y Sub-Grupo (desde las filas de datos).
-    var mapaTipo = {}, mapaSub = {};
-    (pzDataset()||[]).forEach(function(d){
-      var k=d.DESCRIPCION;
-      if(k && !mapaTipo[k]){ mapaTipo[k]=(d["TIPO DE COSTO"]||'').trim(); mapaSub[k]=(d["SUB-GRUPO"]||'').trim(); }
-    });
-
-    // 2) Recolectar todos los detalles de las descripciones que pasan el filtro.
-    var tempSel = f.temporada || '';
-    var descripciones = Object.keys(mapaTipo);
-    if(f.desc) descripciones = descripciones.filter(function(x){ return x===f.desc; });
-    if(f.tipo) descripciones = descripciones.filter(function(x){ return mapaTipo[x]===f.tipo; });
-    if(f.sub)  descripciones = descripciones.filter(function(x){ return mapaSub[x]===f.sub; });
-
-    var filas = [];
-    descripciones.forEach(function(desc){
-      // El detalle ya viene segmentado por temporada: para 2025-2026 incluye
-      // NOV-DIC 2025 y ENE-ABR 2026. El filtro de meses respeta ese año automáticamente.
-      var items = _getDetalleFamilia(desc, tempSel) || [];
-      if(f.meses && f.meses.length){ items = items.filter(function(x){ return f.meses.indexOf(x.mes)>=0; }); }
-      items.forEach(function(x){
-        var monto = Math.round(x.total||0);
-        // SOLO gastos reales ejecutados (monto distinto de cero).
-        if(!monto) return;
-        filas.push({
-          tipo: mapaTipo[desc]||'(sin tipo)',
-          desc: desc,
-          detalle: x.desc||'',
-          proveedor: x.proveedor||'',
-          doc: (x.numero!=null?x.numero:''),
-          mes: x.mes||'',
-          anio: (x.anio!=null?x.anio:''),
-          monto: monto
-        });
+// ===================== REVISIÓN DE GASTOS (anexo para ajustar presupuesto) =====================
+// Recolecta los gastos REALES por detalle respetando los filtros activos
+// (temporada, meses, tipo, subgrupo, descripción), ordenados por Tipo→Desc→Detalle.
+function _revRecolectarGastos(){
+  var f = getFilters();
+  var MONTH_ORDER = ['MAYO','JUNIO','JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE','ENERO','FEBRERO','MARZO','ABRIL'];
+  var mapaTipo={}, mapaSub={};
+  (pzDataset()||[]).forEach(function(d){
+    var k=d.DESCRIPCION;
+    if(k && !mapaTipo[k]){ mapaTipo[k]=(d["TIPO DE COSTO"]||'').trim(); mapaSub[k]=(d["SUB-GRUPO"]||'').trim(); }
+  });
+  var tempSel=f.temporada||'';
+  var descripciones=Object.keys(mapaTipo);
+  if(f.desc) descripciones=descripciones.filter(function(x){ return x===f.desc; });
+  if(f.tipo) descripciones=descripciones.filter(function(x){ return mapaTipo[x]===f.tipo; });
+  if(f.sub)  descripciones=descripciones.filter(function(x){ return mapaSub[x]===f.sub; });
+  var filas=[];
+  descripciones.forEach(function(desc){
+    var items=_getDetalleFamilia(desc, tempSel)||[];
+    if(f.meses && f.meses.length){ items=items.filter(function(x){ return f.meses.indexOf(x.mes)>=0; }); }
+    items.forEach(function(x){
+      var monto=Math.round(x.total||0);
+      if(!monto) return; // solo gastos reales ejecutados
+      filas.push({
+        tipo: mapaTipo[desc]||'(sin tipo)', desc: desc, detalle: x.desc||'',
+        proveedor: x.proveedor||'', doc: (x.numero!=null?String(x.numero):''),
+        mes: x.mes||'', anio: (x.anio!=null?x.anio:''), monto: monto
       });
     });
+  });
+  filas.sort(function(a,b){
+    if(a.tipo!==b.tipo) return a.tipo.localeCompare(b.tipo,'es');
+    if(a.desc!==b.desc) return a.desc.localeCompare(b.desc,'es');
+    var am=MONTH_ORDER.indexOf(a.mes), bm=MONTH_ORDER.indexOf(b.mes);
+    if(am!==bm) return (am<0?99:am)-(bm<0?99:bm);
+    return a.detalle.localeCompare(b.detalle,'es');
+  });
+  return { filas:filas, temporada:tempSel, meses:(f.meses||[]) };
+}
 
-    if(!filas.length){ toast('Sin datos','No hay gastos para los filtros seleccionados','warning'); return; }
+// Clave única por gasto (para mapear decisiones guardadas al reabrir).
+function _revKey(r){ return [r.tipo,r.desc,r.detalle,r.mes,r.anio,r.doc,r.monto].join('|'); }
 
-    // 3) Ordenar: Tipo de Costo → Descripción → Detalle.
-    filas.sort(function(a,b){
-      if(a.tipo!==b.tipo) return a.tipo.localeCompare(b.tipo,'es');
-      if(a.desc!==b.desc) return a.desc.localeCompare(b.desc,'es');
-      var am=MONTH_ORDER.indexOf(a.mes), bm=MONTH_ORDER.indexOf(b.mes);
-      if(am!==bm) return (am<0?99:am)-(bm<0?99:bm);
-      return a.detalle.localeCompare(b.detalle,'es');
-    });
+var _revActual = null; // { id?, filas:[], decisiones:{key:{ejecuta,obs}}, temporada, meses, ... }
 
-    // 4) Construir la hoja (array of arrays) con encabezado de contexto + tabla.
-    var emp=''; try{ emp=(STATE.cache&&STATE.cache.config&&STATE.cache.config.empresa&&STATE.cache.config.empresa.nombre)||''; }catch(e){}
-    var mesesTxt = (f.meses&&f.meses.length) ? f.meses.join(', ') : 'Todos los meses';
-    var tempTxt = tempSel || 'Todas las temporadas';
-    var hoy = new Date().toLocaleDateString('es-CL',{day:'2-digit',month:'long',year:'numeric'});
+function abrirRevision(){
+  try{
+    var r=_revRecolectarGastos();
+    if(!r.filas.length){ toast('Sin datos','No hay gastos reales para los filtros seleccionados','warning'); return; }
+    var tempTxt=r.temporada||'Todas las temporadas';
+    var mesesTxt=(r.meses&&r.meses.length)?r.meses.join(', '):'Todos los meses';
+    _revActual={ id:null, creada:null, filas:r.filas, decisiones:{}, temporada:r.temporada, meses:r.meses, tempTxt:tempTxt, mesesTxt:mesesTxt };
+    document.getElementById('rev-sub').textContent='· '+tempTxt+' · '+mesesTxt;
+    revTab('nueva');
+    _revRenderLista();
+    var ov=document.getElementById('revision-modal'); if(ov) ov.classList.add('active');
+  }catch(e){ console.error('abrirRevision:',e); toast('Error','No se pudo abrir la revisión','error'); }
+}
+function cerrarRevision(){ var ov=document.getElementById('revision-modal'); if(ov) ov.classList.remove('active'); }
 
-    var aoa = [];
-    aoa.push([emp||'SOCIEDAD AGRÍCOLA Y FORESTAL LA CABAÑA LTDA.']);
-    aoa.push(['Listado de Revisión de Gastos · Control de Presupuesto']);
-    aoa.push(['Temporada: '+tempTxt, '', 'Meses: '+mesesTxt, '', 'Emitido: '+hoy]);
-    aoa.push([]);
-    aoa.push(['TIPO DE COSTO','DESCRIPCIÓN','DETALLE','PROVEEDOR','DOC','MES','AÑO','MONTO','¿SE EJECUTA? (SÍ/NO)','OBSERVACIONES']);
-
-    var totalGeneral=0, tipoActual=null, subtotalTipo=0;
-    function pushSubtotal(){
-      if(tipoActual!==null){
-        aoa.push(['', '', '', '', '', '', 'Subtotal '+tipoActual, subtotalTipo, '', '']);
-      }
-    }
-    filas.forEach(function(r){
-      if(r.tipo!==tipoActual){
-        pushSubtotal();
-        tipoActual=r.tipo; subtotalTipo=0;
-      }
-      aoa.push([r.tipo, r.desc, r.detalle, r.proveedor, r.doc, r.mes, r.anio, r.monto, '', '']);
-      subtotalTipo+=r.monto; totalGeneral+=r.monto;
-    });
-    pushSubtotal();
-    aoa.push([]);
-    aoa.push(['', '', '', '', '', '', 'TOTAL GENERAL', totalGeneral, '', '']);
-
-    // 5) Generar el Excel.
-    var wb=XLSX.utils.book_new();
-    var ws=XLSX.utils.aoa_to_sheet(aoa);
-    ws['!cols']=[{wch:26},{wch:34},{wch:40},{wch:26},{wch:10},{wch:12},{wch:7},{wch:14},{wch:20},{wch:34}];
-    XLSX.utils.book_append_sheet(wb,ws,'Revisión gastos');
-    var nombre='Listado_Revision_'+(tempSel||'todas').replace(/[^0-9A-Za-z-]/g,'')+'_'+new Date().toISOString().slice(0,10)+'.xlsx';
-    XLSX.writeFile(wb,nombre);
-    toast('Listado generado', filas.length+' gastos · '+tempTxt,'success');
-  }catch(err){
-    console.error('generarListadoRevision:',err);
-    toast('Error','No se pudo generar el listado','error');
+function revTab(t){
+  var bN=document.getElementById('rev-tab-nueva'), bH=document.getElementById('rev-tab-hist');
+  var pN=document.getElementById('rev-pane-nueva'), pH=document.getElementById('rev-pane-hist');
+  if(t==='hist'){
+    pN.style.display='none'; pH.style.display='block';
+    bH.style.background='#0854a0'; bH.style.color='#fff'; bN.style.background='#fff'; bN.style.color='#334155';
+    _revRenderHistorial();
+  } else {
+    pN.style.display='block'; pH.style.display='none';
+    bN.style.background='#0854a0'; bN.style.color='#fff'; bH.style.background='#fff'; bH.style.color='#334155';
   }
 }
 
+function _revRenderLista(){
+  var cont=document.getElementById('rev-lista'); if(!cont||!_revActual) return;
+  var html='';
+  var tipoAnt=null;
+  _revActual.filas.forEach(function(r,i){
+    if(r.tipo!==tipoAnt){
+      tipoAnt=r.tipo;
+      html+='<div style="background:#0d1b2e;color:#fff;font-weight:800;font-size:13px;padding:8px 16px;position:sticky;top:0;z-index:1">'+r.tipo+'</div>';
+    }
+    var k=_revKey(r);
+    var dec=_revActual.decisiones[k]||{ejecuta:'',obs:''};
+    var mnt='$'+r.monto.toLocaleString('es-CL');
+    html+='<div style="display:grid;grid-template-columns:1fr 150px 1fr;gap:10px;align-items:center;padding:8px 16px;border-bottom:1px solid #eef2f7">'+
+      '<div style="min-width:0">'+
+        '<div style="font-weight:600;font-size:13px;color:#0d1b2e">'+_esc(r.detalle||r.desc)+'</div>'+
+        '<div style="font-size:11px;color:#64748b">'+_esc(r.desc)+' · '+r.mes+' '+r.anio+(r.proveedor?' · '+_esc(r.proveedor):'')+' · <b>'+mnt+'</b></div>'+
+      '</div>'+
+      '<div style="display:flex;gap:4px;justify-content:center">'+
+        '<button type="button" onclick="PZ.revSet('+i+',\'SI\')" id="rev-si-'+i+'" style="flex:1;padding:6px;border-radius:6px;cursor:pointer;font-weight:700;font-size:12px;border:1px solid '+(dec.ejecuta==='SI'?'#16a34a':'#cbd5e1')+';background:'+(dec.ejecuta==='SI'?'#16a34a':'#fff')+';color:'+(dec.ejecuta==='SI'?'#fff':'#334155')+'">SÍ</button>'+
+        '<button type="button" onclick="PZ.revSet('+i+',\'NO\')" id="rev-no-'+i+'" style="flex:1;padding:6px;border-radius:6px;cursor:pointer;font-weight:700;font-size:12px;border:1px solid '+(dec.ejecuta==='NO'?'#ef4444':'#cbd5e1')+';background:'+(dec.ejecuta==='NO'?'#ef4444':'#fff')+';color:'+(dec.ejecuta==='NO'?'#fff':'#334155')+'">NO</button>'+
+      '</div>'+
+      '<input type="text" id="rev-obs-'+i+'" value="'+_esc(dec.obs||'')+'" oninput="PZ.revObs('+i+',this.value)" placeholder="Observaciones" style="padding:6px 9px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px;width:100%;box-sizing:border-box">'+
+    '</div>';
+  });
+  cont.innerHTML=html;
+  _revActualizarResumen();
+}
+function _esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+function revSet(i,val){
+  if(!_revActual) return;
+  var r=_revActual.filas[i]; var k=_revKey(r);
+  if(!_revActual.decisiones[k]) _revActual.decisiones[k]={ejecuta:'',obs:''};
+  _revActual.decisiones[k].ejecuta = (_revActual.decisiones[k].ejecuta===val) ? '' : val;
+  var dec=_revActual.decisiones[k];
+  var bs=document.getElementById('rev-si-'+i), bn=document.getElementById('rev-no-'+i);
+  if(bs){ var on=dec.ejecuta==='SI'; bs.style.border='1px solid '+(on?'#16a34a':'#cbd5e1'); bs.style.background=on?'#16a34a':'#fff'; bs.style.color=on?'#fff':'#334155'; }
+  if(bn){ var on2=dec.ejecuta==='NO'; bn.style.border='1px solid '+(on2?'#ef4444':'#cbd5e1'); bn.style.background=on2?'#ef4444':'#fff'; bn.style.color=on2?'#fff':'#334155'; }
+  _revActualizarResumen();
+}
+function revObs(i,val){
+  if(!_revActual) return;
+  var r=_revActual.filas[i]; var k=_revKey(r);
+  if(!_revActual.decisiones[k]) _revActual.decisiones[k]={ejecuta:'',obs:''};
+  _revActual.decisiones[k].obs=val;
+}
+function _revActualizarResumen(){
+  if(!_revActual) return;
+  var si=0,no=0,sin=0,montoSi=0,montoNo=0;
+  _revActual.filas.forEach(function(r){
+    var k=_revKey(r); var d=_revActual.decisiones[k]||{};
+    if(d.ejecuta==='SI'){ si++; montoSi+=r.monto; }
+    else if(d.ejecuta==='NO'){ no++; montoNo+=r.monto; }
+    else sin++;
+  });
+  var el=document.getElementById('rev-resumen');
+  if(el) el.innerHTML='SÍ: '+si+' ($'+montoSi.toLocaleString('es-CL')+') · NO: '+no+' ($'+montoNo.toLocaleString('es-CL')+') · Sin marcar: '+sin;
+}
+
+async function guardarRevision(){
+  if(!_revActual){ return; }
+  try{
+    var now=new Date();
+    var reg={
+      id: _revActual.id || ('rev-'+now.getTime()+'-'+Math.random().toString(36).slice(2,7)),
+      creada: _revActual.creada || now.toISOString(),
+      actualizada: now.toISOString(),
+      usuario: (STATE.user&&STATE.user.nombre)||(STATE.user&&STATE.user.id)||'',
+      temporada: _revActual.temporada||'',
+      meses: _revActual.meses||[],
+      filas: _revActual.filas.map(function(r){
+        var k=_revKey(r); var d=_revActual.decisiones[k]||{};
+        return { tipo:r.tipo, desc:r.desc, detalle:r.detalle, proveedor:r.proveedor, doc:r.doc, mes:r.mes, anio:r.anio, monto:r.monto, ejecuta:d.ejecuta||'', obs:d.obs||'' };
+      }),
+      _mod: now.getTime()
+    };
+    await dbPut('revisiones', reg);
+    _revActual.id=reg.id; _revActual.creada=reg.creada;
+    if(typeof sciFbPush==='function'){ try{ await sciFbPush(true); }catch(e){} }
+    var est=document.getElementById('rev-estado'); if(est) est.textContent='Guardada '+now.toLocaleString('es-CL');
+    toast('Revisión guardada','Queda registrada en el historial','success');
+  }catch(e){ console.error('guardarRevision:',e); toast('Error','No se pudo guardar','error'); }
+}
+
+async function _revRenderHistorial(){
+  var cont=document.getElementById('rev-hist-lista'); if(!cont) return;
+  cont.innerHTML='<div style="padding:16px;color:#64748b">Cargando…</div>';
+  var regs=[];
+  try{ regs=await dbAll('revisiones')||[]; }catch(e){}
+  regs.sort(function(a,b){ return (b._mod||0)-(a._mod||0); });
+  if(!regs.length){ cont.innerHTML='<div style="padding:16px;color:#64748b">No hay revisiones guardadas todavía.</div>'; return; }
+  var html='<table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="background:#f1f5f9;text-align:left">'+
+    '<th style="padding:8px">Fecha</th><th style="padding:8px">Temporada</th><th style="padding:8px">Meses</th><th style="padding:8px">Gastos</th><th style="padding:8px">Usuario</th><th style="padding:8px"></th></tr></thead><tbody>';
+  regs.forEach(function(r){
+    var f=new Date(r.actualizada||r.creada);
+    var si=(r.filas||[]).filter(function(x){return x.ejecuta==='SI';}).length;
+    var no=(r.filas||[]).filter(function(x){return x.ejecuta==='NO';}).length;
+    html+='<tr style="border-bottom:1px solid #eef2f7">'+
+      '<td style="padding:8px">'+f.toLocaleString('es-CL')+'</td>'+
+      '<td style="padding:8px">'+_esc(r.temporada||'Todas')+'</td>'+
+      '<td style="padding:8px">'+_esc((r.meses&&r.meses.length)?r.meses.join(', '):'Todos')+'</td>'+
+      '<td style="padding:8px">'+(r.filas||[]).length+' · <span style="color:#16a34a">SÍ '+si+'</span> / <span style="color:#ef4444">NO '+no+'</span></td>'+
+      '<td style="padding:8px">'+_esc(r.usuario||'')+'</td>'+
+      '<td style="padding:8px;white-space:nowrap">'+
+        '<button onclick="PZ.revAbrirGuardada(\''+r.id+'\')" style="font-size:11px;padding:4px 9px;border:1px solid #0854a0;border-radius:6px;cursor:pointer;background:#fff;color:#0854a0;font-weight:700">Abrir</button> '+
+        '<button onclick="PZ.revExportarGuardada(\''+r.id+'\')" style="font-size:11px;padding:4px 9px;border:1px solid #16a34a;border-radius:6px;cursor:pointer;background:#fff;color:#15803d;font-weight:700">Excel</button> '+
+        '<button onclick="PZ.revEliminar(\''+r.id+'\')" style="font-size:11px;padding:4px 9px;border:1px solid #ef4444;border-radius:6px;cursor:pointer;background:#fff;color:#b91c1c;font-weight:700">Eliminar</button>'+
+      '</td></tr>';
+  });
+  html+='</tbody></table>';
+  cont.innerHTML=html;
+}
+
+async function revAbrirGuardada(id){
+  try{
+    var reg=await dbGet('revisiones', id); if(!reg){ toast('No encontrada','',''); return; }
+    _revActual={ id:reg.id, creada:reg.creada, temporada:reg.temporada, meses:reg.meses||[],
+      tempTxt:reg.temporada||'Todas las temporadas', mesesTxt:(reg.meses&&reg.meses.length)?reg.meses.join(', '):'Todos los meses',
+      filas:(reg.filas||[]).map(function(x){ return {tipo:x.tipo,desc:x.desc,detalle:x.detalle,proveedor:x.proveedor,doc:x.doc,mes:x.mes,anio:x.anio,monto:x.monto}; }),
+      decisiones:{} };
+    (reg.filas||[]).forEach(function(x){ _revActual.decisiones[_revKey(x)]={ejecuta:x.ejecuta||'',obs:x.obs||''}; });
+    document.getElementById('rev-sub').textContent='· '+_revActual.tempTxt+' · '+_revActual.mesesTxt+' (guardada)';
+    revTab('nueva'); _revRenderLista();
+    var est=document.getElementById('rev-estado'); if(est) est.textContent='Abierta revisión del '+new Date(reg.actualizada||reg.creada).toLocaleString('es-CL');
+  }catch(e){ console.error('revAbrirGuardada:',e); }
+}
+
+async function revEliminar(id){
+  if(!confirm('¿Eliminar esta revisión guardada?')) return;
+  try{
+    if(typeof sciMarcarEliminado==='function') await sciMarcarEliminado('revisiones', id);
+    await dbDel('revisiones', id);
+    if(typeof sciFbPush==='function'){ try{ await sciFbPush(true); }catch(e){} }
+    _revRenderHistorial();
+    toast('Eliminada','','success');
+  }catch(e){ console.error('revEliminar:',e); }
+}
+
+function _revBuildAOA(rev){
+  var emp=''; try{ emp=(STATE.cache&&STATE.cache.config&&STATE.cache.config.empresa&&STATE.cache.config.empresa.nombre)||''; }catch(e){}
+  var hoy=new Date().toLocaleDateString('es-CL',{day:'2-digit',month:'long',year:'numeric'});
+  var tempTxt=rev.temporada||'Todas las temporadas';
+  var mesesTxt=(rev.meses&&rev.meses.length)?rev.meses.join(', '):'Todos los meses';
+  var aoa=[];
+  aoa.push([emp||'SOCIEDAD AGRÍCOLA Y FORESTAL LA CABAÑA LTDA.']);
+  aoa.push(['Revisión de Gastos · Anexo para ajuste de Presupuesto']);
+  aoa.push(['Temporada: '+tempTxt,'','Meses: '+mesesTxt,'','Emitido: '+hoy]);
+  aoa.push([]);
+  aoa.push(['TIPO DE COSTO','DESCRIPCIÓN','DETALLE','PROVEEDOR','DOC','MES','AÑO','MONTO','¿SE EJECUTA?','OBSERVACIONES']);
+  var filas=(rev.filas||[]).slice().sort(function(a,b){
+    if(a.tipo!==b.tipo) return a.tipo.localeCompare(b.tipo,'es');
+    if(a.desc!==b.desc) return a.desc.localeCompare(b.desc,'es');
+    return a.detalle.localeCompare(b.detalle,'es');
+  });
+  var tipoAnt=null, subt=0, total=0;
+  function pushSub(){ if(tipoAnt!==null) aoa.push(['','','','','','','','Subtotal '+tipoAnt, subt, '', '']); }
+  filas.forEach(function(r){
+    if(r.tipo!==tipoAnt){ pushSub(); tipoAnt=r.tipo; subt=0; }
+    aoa.push([r.tipo,r.desc,r.detalle,r.proveedor,r.doc,r.mes,r.anio,r.monto,(r.ejecuta||''),(r.obs||'')]);
+    subt+=r.monto; total+=r.monto;
+  });
+  pushSub();
+  aoa.push([]);
+  aoa.push(['','','','','','','','TOTAL GENERAL', total, '', '']);
+  return aoa;
+}
+function _revExportExcel(rev){
+  if(typeof XLSX==='undefined'){ toast('Sin librería','Excel no disponible','error'); return; }
+  var aoa=_revBuildAOA(rev);
+  var wb=XLSX.utils.book_new(); var ws=XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols']=[{wch:26},{wch:34},{wch:40},{wch:26},{wch:10},{wch:12},{wch:7},{wch:14},{wch:14},{wch:34}];
+  XLSX.utils.book_append_sheet(wb,ws,'Revisión gastos');
+  var nombre='Revision_Gastos_'+((rev.temporada||'todas').replace(/[^0-9A-Za-z-]/g,''))+'_'+new Date().toISOString().slice(0,10)+'.xlsx';
+  XLSX.writeFile(wb,nombre);
+}
+function exportarRevisionExcel(){
+  if(!_revActual){ toast('Sin revisión','Abre o crea una revisión primero','warning'); return; }
+  var rev={ temporada:_revActual.temporada, meses:_revActual.meses, filas:_revActual.filas.map(function(r){
+    var k=_revKey(r); var d=_revActual.decisiones[k]||{};
+    return {tipo:r.tipo,desc:r.desc,detalle:r.detalle,proveedor:r.proveedor,doc:r.doc,mes:r.mes,anio:r.anio,monto:r.monto,ejecuta:d.ejecuta||'',obs:d.obs||''};
+  }) };
+  _revExportExcel(rev);
+}
+async function revExportarGuardada(id){
+  try{ var reg=await dbGet('revisiones', id); if(reg) _revExportExcel(reg); }catch(e){ console.error(e); }
+}
+
+
 window.PZ = {
   init: function(){ pzWireFilters(); pzInit(); },
-  generarListadoRevision: generarListadoRevision,
+  abrirRevision: abrirRevision,
+  cerrarRevision: cerrarRevision,
+  revTab: revTab,
+  revSet: revSet,
+  revObs: revObs,
+  guardarRevision: guardarRevision,
+  exportarRevisionExcel: exportarRevisionExcel,
+  revAbrirGuardada: revAbrirGuardada,
+  revExportarGuardada: revExportarGuardada,
+  revEliminar: revEliminar,
   reset: pzReset,
   setCurrency: setCurrency,
   resetFilters: resetFilters,
