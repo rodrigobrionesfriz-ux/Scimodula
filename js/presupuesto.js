@@ -3424,9 +3424,14 @@ function generarListadoRevision(){
 
     var filas = [];
     descripciones.forEach(function(desc){
+      // El detalle ya viene segmentado por temporada: para 2025-2026 incluye
+      // NOV-DIC 2025 y ENE-ABR 2026. El filtro de meses respeta ese año automáticamente.
       var items = _getDetalleFamilia(desc, tempSel) || [];
       if(f.meses && f.meses.length){ items = items.filter(function(x){ return f.meses.indexOf(x.mes)>=0; }); }
       items.forEach(function(x){
+        var monto = Math.round(x.total||0);
+        // SOLO gastos reales ejecutados (monto distinto de cero).
+        if(!monto) return;
         filas.push({
           tipo: mapaTipo[desc]||'(sin tipo)',
           desc: desc,
@@ -3435,7 +3440,7 @@ function generarListadoRevision(){
           doc: (x.numero!=null?x.numero:''),
           mes: x.mes||'',
           anio: (x.anio!=null?x.anio:''),
-          monto: Math.round(x.total||0)
+          monto: monto
         });
       });
     });
