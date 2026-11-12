@@ -73,7 +73,7 @@ var FBCOUNT = (function(){
   });
 })();
 </script>
-<link rel="stylesheet" href="css/styles.css?v=181">
+<link rel="stylesheet" href="css/styles.css?v=182">
 </head>
 <body>
 <!-- Hoja de estilo dinámica para el tema forestal (se llena vía JS) -->
@@ -768,7 +768,7 @@ document.addEventListener('click', function(e){
   if(dd && dd.classList.contains('open') && !dd.contains(e.target)) dd.classList.remove('open');
 });
 </script>
-<script src="js/core.js?v=181"></script>
+<script src="js/core.js?v=182"></script>
 <script>
 /* ═══════════════ MÓDULO: CONTROL DE PRESUPUESTO ═══════════════ */
 /* Integra el dashboard de Control de Presupuesto (Huerto Cerezos 2018) como
@@ -1802,6 +1802,7 @@ function renderPresupuesto(main){
     <label>DESCRIPCIÓN</label>
     <select id="f-desc"><option value="">Todos</option><option value="ANÁLISIS Y ASESORIAS FRUTALES">ANÁLISIS Y ASESORIAS FRUTALES</option><option value="ARRIENDO MAQUINARIA Y EQUIPOS">ARRIENDO MAQUINARIA Y EQUIPOS</option><option value="ARRIENDO PREDIO FRUTALES">ARRIENDO PREDIO FRUTALES</option><option value="ASESORÍAS, CERTIFICACIÓN Y CAPACITACIONES">ASESORÍAS, CERTIFICACIÓN Y CAPACITACIONES</option><option value="BANCARIOS, LEGALES, FINANCIEROS  Y SEGUROS">BANCARIOS, LEGALES, FINANCIEROS  Y SEGUROS</option><option value="BIOESTIMULANTES">BIOESTIMULANTES</option><option value="COMBUSTIBLES Y LUBRICANTES">COMBUSTIBLES Y LUBRICANTES</option><option value="CONTRATISTA COSECHA">CONTRATISTA COSECHA</option><option value="CONTRIBUCIONES (BIENES RAÍCES &amp; RIEGO)">CONTRIBUCIONES (BIENES RAÍCES &amp; RIEGO)</option><option value="CONTROL DE PLAGAS">CONTROL DE PLAGAS</option><option value="ELECTRICIDAD BODEGAS, GALPÓN Y CASA">ELECTRICIDAD BODEGAS, GALPÓN Y CASA</option><option value="ELECTRICIDAD CEREZOS">ELECTRICIDAD CEREZOS</option><option value="FERTILIZANTES">FERTILIZANTES</option><option value="FLETES Y TRASLADOS">FLETES Y TRASLADOS</option><option value="GASTOS GENERALES">GASTOS GENERALES</option><option value="HONORARIOS PRESTACIÓN DE SERVICIOS">HONORARIOS PRESTACIÓN DE SERVICIOS</option><option value="IMPREVISTOS">IMPREVISTOS</option><option value="INSUMOS FITOSANITARIOS">INSUMOS FITOSANITARIOS</option><option value="LEASING FINANCIEROS">LEASING FINANCIEROS</option><option value="MANO DE OBRA ADMINISTRACIÓN &amp; GERENCIA">MANO DE OBRA ADMINISTRACIÓN &amp; GERENCIA</option><option value="MANO DE OBRA DIRECTA">MANO DE OBRA DIRECTA</option><option value="MANO DE OBRA DIRECTA Y LOGISTICA">MANO DE OBRA DIRECTA Y LOGISTICA</option><option value="MANO DE OBRA INDIRECTA (CONTRATISTAS)">MANO DE OBRA INDIRECTA (CONTRATISTAS)</option><option value="MANT. MAQUINARÍA, VEHICULOS Y EQUIPOS">MANT. MAQUINARÍA, VEHICULOS Y EQUIPOS</option><option value="MANTENCIÓN VARIAS RIEGO">MANTENCIÓN VARIAS RIEGO</option><option value="MANTENCIÓN Y REPARACIÓN INSTALACIONES">MANTENCIÓN Y REPARACIÓN INSTALACIONES</option><option value="MATERIALES, EPP Y CONSUMOS VARIOS">MATERIALES, EPP Y CONSUMOS VARIOS</option><option value="OTROS COSTOS DE INSUMOS Y ARRIENDOS">OTROS COSTOS DE INSUMOS Y ARRIENDOS</option><option value="OTROS GASTOS GENERALES">OTROS GASTOS GENERALES</option><option value="PLANTAS &amp; ROYALTY">PLANTAS &amp; ROYALTY</option><option value="POLINIZACIÓN">POLINIZACIÓN</option></select>
   </div>
+  <button class="btn-reset" onclick="PZ.generarListadoRevision()" title="Listado ordenado por tipo de costo, descripción y detalle, respetando los filtros, para revisar con gerencia" style="background:#0854a0;color:#fff;border:none;font-weight:700">📋 Listado revisión</button>
   <button class="btn-reset" onclick="PZ.resetFilters();pzMesRefresh()">↺ Limpiar filtros</button>
 </div>
 
@@ -2084,11 +2085,11 @@ function renderPresupuesto(main){
 }
 
 </script>
-<script src="js/inventario.js?v=181"></script>
-<script src="js/ordencompra.js?v=181"></script>
-<script src="js/huerto.js?v=181"></script>
-<script src="js/actualizacion.js?v=181"></script>
-<script src="js/helada.js?v=181"></script>
+<script src="js/inventario.js?v=182"></script>
+<script src="js/ordencompra.js?v=182"></script>
+<script src="js/huerto.js?v=182"></script>
+<script src="js/actualizacion.js?v=182"></script>
+<script src="js/helada.js?v=182"></script>
 <script>
 
 /* ═══════════════ MÓDULO: MANTENCIONES ═══════════════ */
@@ -2849,7 +2850,7 @@ var S = { panos:[], registros:[], productos:[], ordenes:[], oCounter:1, confirma
 };
 
 </script>
-<script src="js/cuaderno.js?v=181"></script>
+<script src="js/cuaderno.js?v=182"></script>
 <script>
 
 /* ═══════════════ INTEGRACIÓN CUADERNO DE CAMPO ═══════════════ */
@@ -2906,8 +2907,8 @@ function renderCuaderno(main){
 </script>
 
 
-<script src="data/presupuesto-data.js?v=181"></script>
-<script src="js/presupuesto.js?v=181"></script>
+<script src="data/presupuesto-data.js?v=182"></script>
+<script src="js/presupuesto.js?v=182"></script>
 <script>
 /* ── Normalización global a MAYÚSCULAS en la entrada de datos ──
    Aplica a inputs de texto y textareas de todo el sistema.

@@ -3398,8 +3398,107 @@ window.pzImprimirEERHa=function(){
 };
 
 
+// ===================== LISTADO DE REVISIÓN (para gerencia) =====================
+// Genera un Excel ordenado por Tipo de Costo → Descripción → Detalle, respetando
+// los filtros activos (temporada, meses, tipo, subgrupo, descripción). Incluye
+// columnas de checklist (¿Se ejecuta esta temporada? SÍ/NO) y Observaciones.
+function generarListadoRevision(){
+  try{
+    if(typeof XLSX==='undefined'){ toast('Sin librería','Excel no disponible','error'); return; }
+    var f = getFilters();
+    var MONTH_ORDER = ['MAYO','JUNIO','JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE','ENERO','FEBRERO','MARZO','ABRIL'];
+
+    // 1) Mapa Descripción → Tipo de Costo y Sub-Grupo (desde las filas de datos).
+    var mapaTipo = {}, mapaSub = {};
+    (pzDataset()||[]).forEach(function(d){
+      var k=d.DESCRIPCION;
+      if(k && !mapaTipo[k]){ mapaTipo[k]=(d["TIPO DE COSTO"]||'').trim(); mapaSub[k]=(d["SUB-GRUPO"]||'').trim(); }
+    });
+
+    // 2) Recolectar todos los detalles de las descripciones que pasan el filtro.
+    var tempSel = f.temporada || '';
+    var descripciones = Object.keys(mapaTipo);
+    if(f.desc) descripciones = descripciones.filter(function(x){ return x===f.desc; });
+    if(f.tipo) descripciones = descripciones.filter(function(x){ return mapaTipo[x]===f.tipo; });
+    if(f.sub)  descripciones = descripciones.filter(function(x){ return mapaSub[x]===f.sub; });
+
+    var filas = [];
+    descripciones.forEach(function(desc){
+      var items = _getDetalleFamilia(desc, tempSel) || [];
+      if(f.meses && f.meses.length){ items = items.filter(function(x){ return f.meses.indexOf(x.mes)>=0; }); }
+      items.forEach(function(x){
+        filas.push({
+          tipo: mapaTipo[desc]||'(sin tipo)',
+          desc: desc,
+          detalle: x.desc||'',
+          proveedor: x.proveedor||'',
+          doc: (x.numero!=null?x.numero:''),
+          mes: x.mes||'',
+          anio: (x.anio!=null?x.anio:''),
+          monto: Math.round(x.total||0)
+        });
+      });
+    });
+
+    if(!filas.length){ toast('Sin datos','No hay gastos para los filtros seleccionados','warning'); return; }
+
+    // 3) Ordenar: Tipo de Costo → Descripción → Detalle.
+    filas.sort(function(a,b){
+      if(a.tipo!==b.tipo) return a.tipo.localeCompare(b.tipo,'es');
+      if(a.desc!==b.desc) return a.desc.localeCompare(b.desc,'es');
+      var am=MONTH_ORDER.indexOf(a.mes), bm=MONTH_ORDER.indexOf(b.mes);
+      if(am!==bm) return (am<0?99:am)-(bm<0?99:bm);
+      return a.detalle.localeCompare(b.detalle,'es');
+    });
+
+    // 4) Construir la hoja (array of arrays) con encabezado de contexto + tabla.
+    var emp=''; try{ emp=(STATE.cache&&STATE.cache.config&&STATE.cache.config.empresa&&STATE.cache.config.empresa.nombre)||''; }catch(e){}
+    var mesesTxt = (f.meses&&f.meses.length) ? f.meses.join(', ') : 'Todos los meses';
+    var tempTxt = tempSel || 'Todas las temporadas';
+    var hoy = new Date().toLocaleDateString('es-CL',{day:'2-digit',month:'long',year:'numeric'});
+
+    var aoa = [];
+    aoa.push([emp||'SOCIEDAD AGRÍCOLA Y FORESTAL LA CABAÑA LTDA.']);
+    aoa.push(['Listado de Revisión de Gastos · Control de Presupuesto']);
+    aoa.push(['Temporada: '+tempTxt, '', 'Meses: '+mesesTxt, '', 'Emitido: '+hoy]);
+    aoa.push([]);
+    aoa.push(['TIPO DE COSTO','DESCRIPCIÓN','DETALLE','PROVEEDOR','DOC','MES','AÑO','MONTO','¿SE EJECUTA? (SÍ/NO)','OBSERVACIONES']);
+
+    var totalGeneral=0, tipoActual=null, subtotalTipo=0;
+    function pushSubtotal(){
+      if(tipoActual!==null){
+        aoa.push(['', '', '', '', '', '', 'Subtotal '+tipoActual, subtotalTipo, '', '']);
+      }
+    }
+    filas.forEach(function(r){
+      if(r.tipo!==tipoActual){
+        pushSubtotal();
+        tipoActual=r.tipo; subtotalTipo=0;
+      }
+      aoa.push([r.tipo, r.desc, r.detalle, r.proveedor, r.doc, r.mes, r.anio, r.monto, '', '']);
+      subtotalTipo+=r.monto; totalGeneral+=r.monto;
+    });
+    pushSubtotal();
+    aoa.push([]);
+    aoa.push(['', '', '', '', '', '', 'TOTAL GENERAL', totalGeneral, '', '']);
+
+    // 5) Generar el Excel.
+    var wb=XLSX.utils.book_new();
+    var ws=XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols']=[{wch:26},{wch:34},{wch:40},{wch:26},{wch:10},{wch:12},{wch:7},{wch:14},{wch:20},{wch:34}];
+    XLSX.utils.book_append_sheet(wb,ws,'Revisión gastos');
+    var nombre='Listado_Revision_'+(tempSel||'todas').replace(/[^0-9A-Za-z-]/g,'')+'_'+new Date().toISOString().slice(0,10)+'.xlsx';
+    XLSX.writeFile(wb,nombre);
+    toast('Listado generado', filas.length+' gastos · '+tempTxt,'success');
+  }catch(err){
+    console.error('generarListadoRevision:',err);
+    toast('Error','No se pudo generar el listado','error');
+  }
+}
+
 window.PZ = {
   init: function(){ pzWireFilters(); pzInit(); },
+  generarListadoRevision: generarListadoRevision,
   reset: pzReset,
   setCurrency: setCurrency,
   resetFilters: resetFilters,
