@@ -1208,10 +1208,24 @@ async function doLogin(){
   } else {
     navigate('dashboard');
   }
-  // Aviso si quedaron cambios sin subir de una sesión anterior
+  // Cambios sin subir de una sesión anterior: en vez de avisar de inmediato,
+  // intentar subir primero. Si el push tiene éxito, la marca se limpia sola y no
+  // se molesta al usuario. Solo se avisa si el reintento realmente falla.
   try{
     if(localStorage.getItem('SCI_SYNC_PENDIENTE')){
-      setTimeout(function(){ toast('⚠ Cambios sin subir','Hay datos guardados localmente que no se sincronizaron. Se reintentará automáticamente al conectar.','warning'); }, 2000);
+      setTimeout(async function(){
+        try{
+          if(typeof sciFbPush==='function'){ await sciFbPush(true); }
+          // Si el push no lanzó error, la marca ya se limpió dentro de sciFbPush.
+          if(!localStorage.getItem('SCI_SYNC_PENDIENTE')){
+            if(typeof toast==='function') toast('Sincronizado','Los cambios pendientes se subieron a la nube.','success');
+          } else {
+            if(typeof toast==='function') toast('⚠ Cambios sin subir','Hay datos guardados localmente que no se sincronizaron. Se reintentará automáticamente al conectar.','warning');
+          }
+        }catch(e){
+          if(typeof toast==='function') toast('⚠ Cambios sin subir','Hay datos guardados localmente que no se sincronizaron. Se reintentará automáticamente al conectar.','warning');
+        }
+      }, 2500);
     }
   }catch(e){}
   // Recordatorio de respaldo consolidado (admin, cada 10 días)
