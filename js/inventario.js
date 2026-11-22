@@ -888,9 +888,46 @@ function verPorVencer(){
     '</tr>';
   }).join('');
   body += '</tbody></table></div>';
+  // ¿Hay lotes con año de 2 dígitos mal guardado? (ej. 0029 en vez de 2029)
+  var conErrorAnio=STATE.cache.lots.filter(function(l){
+    if(!l.fechaVenc) return false;
+    var a=parseInt(String(l.fechaVenc).slice(0,4),10);
+    return a>0 && a<1900;
+  });
+  var btnSanear = conErrorAnio.length
+    ? '<button class="btn btn-primary" onclick="sanearVencimientos()">🛠 Corregir '+conErrorAnio.length+' fecha(s) mal guardada(s)</button> '
+    : '';
   showModal('⏰ Lotes por vencer', body,
-    '<button class="btn btn-secondary" onclick="closeModal()">Cerrar</button>',
+    btnSanear+'<button class="btn btn-secondary" onclick="closeModal()">Cerrar</button>',
     'lg');
+}
+
+// Corrige lotes cuyo año de vencimiento quedó con 2 dígitos (0029 -> 2029).
+async function sanearVencimientos(){
+  var afectados=STATE.cache.lots.filter(function(l){
+    if(!l.fechaVenc) return false;
+    var a=parseInt(String(l.fechaVenc).slice(0,4),10);
+    return a>0 && a<1900;
+  });
+  if(!afectados.length){ toast('Sin cambios','No hay fechas de vencimiento con años inválidos','success'); return; }
+  if(!confirm('Se corregirán '+afectados.length+' lote(s): el año de 2 dígitos se interpretará como 20xx (ej. 0029 → 2029). ¿Continuar?')) return;
+  var corregidos=0;
+  for(var i=0;i<afectados.length;i++){
+    var l=afectados[i];
+    var partes=String(l.fechaVenc).split('-'); // AAAA-MM-DD
+    var a=parseInt(partes[0],10);
+    var a2=a%100;              // últimos 2 dígitos
+    var nuevoAnio=2000+a2;     // 29 -> 2029
+    partes[0]=String(nuevoAnio).padStart(4,'0');
+    l.fechaVenc=partes.join('-');
+    l.modificado=new Date().toISOString();
+    try{ await dbPut('lots', l); corregidos++; }catch(e){ console.error('sanearVencimientos:',e); }
+  }
+  await reloadCache();
+  try{ if(typeof sciFbPush==='function') await sciFbPush(true); }catch(e){}
+  toast('Fechas corregidas',corregidos+' lote(s) actualizados y sincronizados','success');
+  closeModal();
+  if(typeof verPorVencer==='function') setTimeout(verPorVencer,300);
 }
 
 /* ── Donut de distribución del inventario (dashboard) ── */
@@ -6544,6 +6581,9 @@ async function saveMovimiento(){
       if(movDraft.tipo==='ENT'){
         if(!l.lote){toast('Lote requerido',`${l.codigoInterno} maneja atributos. Indique lote.`,'error');return}
         if(!l.fechaVenc){toast('Vencimiento requerido',`${l.codigoInterno} maneja atributos. Indique fecha vencimiento.`,'error');return}
+        // Guard: evita años de 2 dígitos mal interpretados (ej. 0029 en vez de 2029)
+        var _anioVenc=parseInt(String(l.fechaVenc).slice(0,4),10);
+        if(!(_anioVenc>=2000&&_anioVenc<=2100)){toast('Fecha de vencimiento inválida',`${l.codigoInterno}: el año (${_anioVenc||'?'}) no es válido. Use el formato AAAA, ej. 2029.`,'error');return}
       }else{
         if(!l.loteId){toast('Lote requerido',`${l.codigoInterno} maneja atributos. Seleccione lote.`,'error');return}
       }
